@@ -1,0 +1,51 @@
+# Binary files
+*.exe
+Argus_final.exe
+Argus_new.exe
+Argus.exe
+
+# Reference directories
+claude_cli_참고용/
+gemini_참고용/
+infractl_참고용/
+
+# Go related
+.gocache/
+.gomodcache/
+
+# Temporary and log files in root
+check_*.txt
+fix_*.txt
+install_*.txt
+launch_*.txt
+oracle_*.txt
+verify_*.txt
+*.log
+.pwd_file
+yes_pid.txt
+check_and_nuke_dirty.txt
+clean_inv_reinstall.txt
+cleanup_opatch_state.txt
+debug_make_error.txt
+final_dirty_check.txt
+find_dirty_flag.txt
+find_dirty_source.txt
+investigate_dirty2.txt
+move_bak_out.txt
+opatch_cleanup.txt
+read_applyrulogs.txt
+remove_dirty_markers.txt
+remove_opatchauto_and_retry.txt
+rename_rpm.txt
+restore_and_reinstall.txt
+restore_oracle_home.txt
+run_installer.txt
+sudo_test.txt
+update_rsp_and_install.txt
+
+# Application data
+.Argus/
+.claude/
+
+# Dist
+dist/
