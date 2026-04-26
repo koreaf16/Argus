@@ -1133,4 +1133,13 @@ func (m *uiModel) refreshViewport(scrollToBottom bool) {
 	// parts = append(parts, renderLogoBlock(m.cfg))
 
 	for i, e := range m.entries {
-		parts = append(parts, m.renderTranscrip
+		parts = append(parts, m.renderTranscriptEntryAt(i, e))
+	}
+
+	content := strings.Join(parts, "\n\n")
+	m.viewport.SetContent(content)
+
+	if scrollToBottom {
+		m.viewport.GotoBottom()
+	}
+}

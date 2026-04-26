@@ -1322,4 +1322,5 @@ func promptWorkspacePassword(reg *workspace.Registry, alias, kind, prompt string
 		return "", err
 	}
 	fmt.Fprintln(os.Stdout)
-	return s
+	return strings.TrimSpace(string(pw)), nil
+}
