@@ -1,0 +1,76 @@
+package toolui
+
+import (
+	"strings"
+
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// RenderDiff renders a unified diff with colors.
+func RenderDiff(diff string, width int, theme ThemeContext) string {
+	if strings.TrimSpace(diff) == "" {
+		return ""
+	}
+
+	lines := strings.Split(diff, "\n")
+	var rendered []string
+
+	plusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.StatusSuccessColor())).Bold(true)
+	minusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.StatusErrorColor())).Bold(true)
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolResultColor())).Bold(true)
+
+	for _, line := range lines {
+		trimmed := line
+		if len(line) > width && width > 0 {
+			trimmed = line[:width]
+		}
+
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			rendered = append(rendered, plusStyle.Render(trimmed))
+		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+			rendered = append(rendered, minusStyle.Render(trimmed))
+		} else if strings.HasPrefix(line, "@@") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
+			rendered = append(rendered, headerStyle.Render(trimmed))
+		} else {
+			rendered = append(rendered, trimmed)
+		}
+	}
+
+	return strings.Join(rendered, "\n")
+}
+
+// RenderCode highlights code using Chroma.
+func RenderCode(code, language string, width int, theme ThemeContext) string {
+	lexer := lexers.Get(language)
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+	lexer = chroma.Coalesce(lexer)
+
+	style := styles.Get("monokai") // Gemini-like dark theme
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	formatter := formatters.Get("terminal256")
+	if formatter == nil {
+		formatter = formatters.Fallback
+	}
+
+	iterator, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return code
+	}
+
+	var buf strings.Builder
+	err = formatter.Format(&buf, style, iterator)
+	if err != nil {
+		return code
+	}
+
+	return buf.String()
+}

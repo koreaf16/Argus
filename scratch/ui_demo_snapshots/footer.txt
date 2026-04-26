@@ -1,0 +1,22 @@
+﻿=== [6] Footer (footer) ===
+
+--- example 1: full-grid ---
+
+ workspace (/directory)  sandbox       /model         context       memory      session      diff    tokens             
+ [local] /Argus          no sandbox    gpt-5.5        23% used      251 MB      a1b2c3d4     +7/-2   13.2k              
+
+--- example 2: compact-grid ---
+
+ local /Argus   no sandbox   gpt-5.5   23% ctx   +7/-2   13.2k
+
+--- example 3: mode-first ---
+
+ mode: plan  |  shift+tab: cycle permission mode  |  active tools: 3
+
+--- example 4: context-first ---
+
+ context [███░░░░░░░] 30%
+
+--- example 5: minimal ---
+
+ local • gpt-5.5 • 23% context • +7/-2

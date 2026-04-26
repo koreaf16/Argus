@@ -1,0 +1,368 @@
+﻿=== [1] Splash (splash) ===
+
+--- example 1: constellation ---
+
+    ·      ∙        ·      ●       ∙      ·      ∙
+
+█▀▀█ █▀▀█ █▀▀▀ █  █ █▀▀
+█▄▄█ █▄▄▀ █ ▀█ █  █ ▀▀█
+█  █ █  █ ▀▀▀▀  ▀▀  ▀▀▀
+
+ crafted by Jihoon Kwak  · one hundred eyes · never sleeps 
+
+--- example 2: compact-logo ---
+
+│ ⦿ ARGUS                                          
+│ model: gpt-5.5  provider: openai  effort: high   
+│ workspace: local  cwd: C:\Dev\Argus              
+│ hint: type /model or /workspace to change context
+
+--- example 3: eye-grid ---
+
+│ Argus Eye Grid   
+│ ◉ ◌ ◉ ◌ ◉ ◌ ◉ ◌ ◉
+│ ◌ ◉ ◌ ◉ ◌ ◉ ◌ ◉ ◌
+│ ◉ ◌ ◉ ◎ ◉ ◌ ◉ ◌ ◉
+
+--- example 4: creator-ribbon ---
+
+│ Creator Ribbon                                   
+│ ╾────────────✦ crafted by 곽 지 훈 ✦────────────╼
+
+--- example 5: minimal-start ---
+
+ARGUS
+local • no sandbox • unconfigured
+type your message and press Enter
+
+=== [2] Prompt Input (prompt) ===
+
+--- example 1: default-box ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> Type your message or @path/to/file                                                                                  
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+--- example 2: scanline-box ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> Run security baseline scan on this repository                                                                       
+  with --strict mode and summarize findings                                                                           
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+--- example 3: focus-glow ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> Implement tool renderer fallback for unknown tool name                                                              
+  focus: stable markdown + no flicker                                                                                 
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+--- example 4: multiline-dense ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> /workspace connect prod-k8s                                                                                         
+  /server inspect prod-k8s                                                                                            
+  /model openai/gpt-5.5                                                                                               
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+--- example 5: yolo-warning ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> [YOLO] apply patch directly to config and continue without prompt                                                   
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+=== [3] User Bubble (user) ===
+
+--- example 1: current-box ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> 우리 시스템 UI 방향을 signature 중심으로 잡자
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+--- example 2: compact-line ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> 데모 먼저 만들고 코어 반영하자
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+--- example 3: right-accent ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> 작업하자
+  카테고리별 예제 5개씩 넣어줘
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+--- example 4: muted-card ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> snapshot 출력 위주로 확인할게
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+--- example 5: command-style ---
+
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+> /model openai/gpt-5.5
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+=== [4] Assistant (assistant) ===
+
+--- example 1: star-marker ---
+
+✦ 데모 우선으로 진행하고 코어는 이후 반영하겠습니다.
+
+--- example 2: markdown-rich ---
+
+✦ ## Demo Output Plan
+  - category 11개
+  - category당 example 5개
+  - snapshot 모드/interactive 모드 동시 지원
+
+--- example 3: code-heavy ---
+
+✦ 
+  [ code:go ]                               
+  go build -o argus_demo.exe ./cmd/ui_demo
+  argus_demo.exe --snapshot all --no-ansi 
+[ end ]                                   
+
+--- example 4: table-heavy ---
+
+✦ 
+  category      examples
+  splash        5       
+  prompt        5       
+  assistant     5       
+  ...           ...     
+
+--- example 5: long-stream ---
+
+✦ Stable stream demo: rendering plain text immediately, markdown blocks at stable boundaries.
+
+=== [5] Thinking (thinking) ===
+
+--- example 1: eye-pulse ---
+
+| eye-pulse: synthesizing layout decisions...
+
+--- example 2: shimmer-tail ---
+
+/ shimmer-tail: matching prompt and user bubble grammar...
+
+--- example 3: scanline ---
+
+⦿ scanline: stabilizing markdown line flush window...
+
+--- example 4: stalled-waiting ---
+
+| waiting for output... (stalled > 3s)
+
+--- example 5: no-motion ---
+
+· reduced motion: static status only
+
+=== [6] Footer (footer) ===
+
+--- example 1: full-grid ---
+
+ workspace (/directory)  sandbox       /model         context       memory      session      diff    tokens             
+ [local] /Argus          no sandbox    gpt-5.5        23% used      251 MB      a1b2c3d4     +7/-2   13.2k              
+
+--- example 2: compact-grid ---
+
+ local /Argus   no sandbox   gpt-5.5   23% ctx   +7/-2   13.2k
+
+--- example 3: mode-first ---
+
+ mode: plan  |  shift+tab: cycle permission mode  |  active tools: 3
+
+--- example 4: context-first ---
+
+ context [███░░░░░░░] 30%
+
+--- example 5: minimal ---
+
+ local • gpt-5.5 • 23% context • +7/-2
+
+=== [7] Tool Group (tool_group) ===
+
+--- example 1: search-read-list ---
+
+│ | 2 search, 3 read, 1 list...              
+│ › "bubbletea markdown flicker" in render.go
+
+--- example 2: active-scan ---
+
+│ / active-scan                  
+│ grep  /renderThinkingRow/      
+│ fileread internal/tui/render.go
+
+--- example 3: collapsed-summary ---
+
+│ ✓ 8 operations done (ctrl+o to expand)
+
+--- example 4: expanded-tree ---
+
+│ expanded-tree                     
+│   ├─ web_search "argus cli design"
+│   ├─ fileread cmd/ui_demo/main.go 
+│   └─ grep "renderCategoryExample" 
+
+--- example 5: finished ---
+
+│ ✓ finished                       
+│ summary: 3 search, 6 read, 1 list
+
+=== [8] Shell Card (shell) ===
+
+--- example 1: running-output ---
+
+│ ⠋ bash npm run build
+│    $ npm run build  
+│    ✓ bundled in 2.3s
+
+--- example 2: focused-pty ---
+
+│ ⠙ powershell interactive               
+│    [TAB to defocus] [Ctrl+D background]
+
+--- example 3: background-job ---
+
+│ ⠸ bash background task                
+│    task_id: job-29f7  target: prod-k8s
+
+--- example 4: error-exit ---
+
+│ ✕ exit code 1                                
+│ stderr: permission denied while opening cache
+
+--- example 5: compact-done ---
+
+│ ✓ done in 184ms
+
+=== [9] Search/Read (search_read) ===
+
+--- example 1: web-search ---
+
+│ ⦿ web_search                                     
+│ query: "bubbletea streaming markdown stable line"
+│ results: 10  duration: 2.1s                      
+
+--- example 2: file-read ---
+
+│ ⦿ fileread                  
+│ path: internal/tui/render.go
+│ lines: 1..260               
+
+--- example 3: glob-list ---
+
+│ ⦿ glob/list               
+│ pattern: internal/tui/*.go
+│ matches: 27               
+
+--- example 4: mcp-resource ---
+
+│ ⦿ mcp resource read      
+│ server: openai-docs      
+│ uri: docs://models/latest
+
+--- example 5: citation-preview ---
+
+│ citation preview                           
+│ • https://charm.sh/bubbletea               
+│ • https://github.com/charmbracelet/lipgloss
+
+=== [0] Edit/Diff (edit_diff) ===
+
+--- example 1: small-diff ---
+
+│ small diff             
+│ - return renderLegacy()
+│ + return renderFrame() 
+
+--- example 2: large-diff ---
+
+│ large diff                     
+│ - old spinner frames = [|/-\]  
+│ + new spinner frames = [⠋⠙⠹⠸⠼⠴]
+│ + reduced motion fallback added
+
+--- example 3: risky-write ---
+
+│ risky write warning                 
+│ target: internal/tui/render.go      
+│ scope: animation and cursor behavior
+
+--- example 4: create-file ---
+
+│ create file            
+│ + cmd/ui_demo/render.go
+│ + cmd/ui_demo/theme.go 
+
+--- example 5: patch-summary ---
+
+│ patch summary                             
+│ files: 3  insertions: 900+  deletions: 120
+
+=== [-] Modal (modal) ===
+
+--- example 1: approval ---
+
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                │
+│  Tool Permission                                                                               │
+│  Allow this tool execution?                                                                    │
+│                                                                                                │
+│  tool: shell_command                                                                           │
+│  command: go build -o argus_demo.exe ./cmd/ui_demo                                             │
+│                                                                                                │
+│  [allow] [deny]                                                                                │
+│                                                                                                │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+--- example 2: destructive-confirm ---
+
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                │
+│  Destructive Action                                                                            │
+│  Delete 42 generated files from demo snapshots?                                                │
+│                                                                                                │
+│  [YES DELETE] [cancel]                                                                         │
+│                                                                                                │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+--- example 3: password ---
+
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                │
+│  Password Required                                                                             │
+│  Enter ssh password for prod-k8s:                                                              │
+│                                                                                                │
+│  ********                                                                                      │
+│                                                                                                │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+--- example 4: ask-select ---
+
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                │
+│  Question                                                                                      │
+│  Select rollout mode                                                                           │
+│                                                                                                │
+│  > canary                                                                                      │
+│    blue-green                                                                                  │
+│    immediate                                                                                   │
+│                                                                                                │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+--- example 5: ask-batch ---
+
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                │
+│  Questions                                                                                     │
+│  1) Environment: prod                                                                          │
+│  2) Risk level: medium                                                                         │
+│  3) Notify channel: #ops                                                                       │
+│                                                                                                │
+│  [submit]                                                                                      │
+│                                                                                                │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯

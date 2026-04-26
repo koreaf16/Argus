@@ -1,0 +1,24 @@
+{
+  "name": "mutation_fail_sibling_skip",
+  "description": "mutation 실패 → sibling skip + terminal completed",
+  "input_messages": [],
+  "tool_behaviors": {
+    "write1": {"output": "write failed", "is_error": true},
+    "write2": {"output": "should be skipped", "is_error": false}
+  },
+  "llm_turns": [
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "tc-1", "type": "function", "function": {"name": "write1", "arguments": "{}"}},
+        {"id": "tc-2", "type": "function", "function": {"name": "write2", "arguments": "{}"}}
+      ]
+    },
+    {
+      "content": "쓰기 실패했습니다.",
+      "tool_calls": []
+    }
+  ],
+  "expected_terminal_reason": "completed",
+  "expected_sibling_skipped_count": 1
+}

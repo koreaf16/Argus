@@ -1,0 +1,13 @@
+# test log
+getenv GOTMPDIR
+open .
+chdir C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001
+stat C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001\.Argus\plans
+stat C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001\.Argus
+stat C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001
+open C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001\.Argus\plans\s1.md.tmp
+open C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001\.Argus\plans\s1.md
+stat C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001\.Argus\plans
+open C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001\.Argus\plans\s1.md.tmp
+open C:\Users\jhkwa\AppData\Local\Temp\TestExitPlanModeNormalizesAllowedPromptsAndWritesPlanSteps4202677115\001\.Argus\plans\s1.md
+open C:\Users\jhkwa\AppData\Local\Temp

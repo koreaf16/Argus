@@ -1,0 +1,31 @@
+﻿=== [0] Edit/Diff (edit_diff) ===
+
+--- example 1: small-diff ---
+
+│ small diff             
+│ - return renderLegacy()
+│ + return renderFrame() 
+
+--- example 2: large-diff ---
+
+│ large diff                     
+│ - old spinner frames = [|/-\]  
+│ + new spinner frames = [⠋⠙⠹⠸⠼⠴]
+│ + reduced motion fallback added
+
+--- example 3: risky-write ---
+
+│ risky write warning                 
+│ target: internal/tui/render.go      
+│ scope: animation and cursor behavior
+
+--- example 4: create-file ---
+
+│ create file            
+│ + cmd/ui_demo/render.go
+│ + cmd/ui_demo/theme.go 
+
+--- example 5: patch-summary ---
+
+│ patch summary                             
+│ files: 3  insertions: 900+  deletions: 120

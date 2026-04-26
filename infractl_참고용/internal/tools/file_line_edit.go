@@ -1,0 +1,239 @@
+// Package tools
+// File: file_line_edit.go
+// Description: 파일 내 특정 라인을 정규표현식 기반으로 수정하거나 추가하는 멱등성 보장 도구
+// Responsibility: Ansible의 lineinfile과 유사하게 파일 내용을 안전하게 편집 (체크포인트 지원)
+
+package tools
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/privilege"
+)
+
+// FileLineEditTool은 파일의 특정 라인을 수정하거나 추가한다.
+type FileLineEditTool struct {
+	PrivilegeCache    *privilege.Cache
+	PromptHandler     privilege.PromptHandler
+	ApprovalCache     *ApprovalCache
+	CheckpointManager CheckpointCreator
+}
+
+func (t *FileLineEditTool) Name() string { return "file_line_edit" }
+
+func (t *FileLineEditTool) Description() string {
+	return "Ensure a particular line is in a file, or replace an existing line using a back-referenced regular expression.\n" +
+		"Use this for idempotent configuration changes (e.g., editing /etc/sysctl.conf).\n" +
+		"If the line already exists and matches, no changes are made."
+}
+
+func (t *FileLineEditTool) IsReadOnly() bool { return false }
+func (t *FileLineEditTool) IsEnabled() bool  { return true }
+
+func (t *FileLineEditTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "Absolute path to the file to edit.",
+			},
+			"line": map[string]interface{}{
+				"type":        "string",
+				"description": "The line to insert/replace. If 'regexp' matches, this line will replace the matched line.",
+			},
+			"regexp": map[string]interface{}{
+				"type":        "string",
+				"description": "Regular expression to look for in every line of the file. If matched, the line will be replaced.",
+			},
+			"state": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"present", "absent"},
+				"default":     "present",
+				"description": "Whether the line should be present or absent.",
+			},
+			"become_method": map[string]interface{}{
+				"type":        "string",
+				"description": "Privilege escalation method: 'sudo' or 'su'.",
+				"enum":        []string{"sudo", "su"},
+			},
+			"become_user": map[string]interface{}{
+				"type":        "string",
+				"description": "Target user for privilege escalation (default: root).",
+			},
+			"target": map[string]interface{}{
+				"type":        "string",
+				"description": "Target workspace alias. Omit to use the active workspace. Use 'localhost' ONLY for the local controller machine.",
+			},
+		},
+		"required": []string{"path", "line"},
+	}
+}
+
+func (t *FileLineEditTool) Execute(ctx context.Context, args map[string]interface{}, exec executor.Executor) (ToolOutcome, error) {
+	path, _ := argString(args, "path", true)
+	line, _ := argString(args, "line", true)
+	regex, _ := argString(args, "regexp", false)
+	state := argStringDefault(args, "state", "present")
+	becomeMethod, _ := argString(args, "become_method", false)
+	becomeUser, _ := argString(args, "become_user", false)
+
+	var criticalWarning string
+	if warning, _ := CheckCriticalPath(path); warning != "" {
+		confirmed, _ := t.confirmRisk(ctx, exec, "Security Risk Detected", warning, path)
+		if !confirmed {
+			return ToolOutcome{Content: "[CANCELED] " + warning, Success: false, ExitCode: 1}, nil
+		}
+		criticalWarning = warning
+	}
+
+	// Create checkpoint for rollback
+	if t.CheckpointManager != nil {
+		t.CheckpointManager.CreateMandatory(ctx, exec.Target(), t.Name(), args)
+	}
+
+	// Build a shell script that performs idempotent editing
+	script := ""
+	platform := executor.CommandPlatform(exec)
+
+	if platform == executor.PlatformWindows {
+		script = t.buildWindowsScript(path, line, regex, state)
+	} else {
+		script = t.buildUnixScript(path, line, regex, state)
+	}
+	if criticalWarning != "" {
+		script = "# " + criticalWarning + "\n" + script
+	}
+
+	// Execution with privilege support
+	var result executor.ExecResult
+	var err error
+
+	if becomeMethod != "" {
+		if res, ok := executeWithAcquiredPrivilege(ctx, exec, script, becomeUser); ok {
+			result = res
+		} else {
+			res, ok, bErr := executeWithBecome(ctx, exec, script, becomeMethod, becomeUser, t.PrivilegeCache, t.PromptHandler)
+			if ok || bErr != nil {
+				result = res
+				err = bErr
+			} else {
+				result, err = exec.Execute(ctx, script)
+			}
+		}
+	} else {
+		result, err = exec.Execute(ctx, script)
+		if err != nil && isPermissionFailure(result, err) {
+			if retryRes, ok := executePlainViaAcquiredRoot(ctx, exec, script); ok {
+				result = retryRes
+				err = nil
+			}
+		}
+	}
+
+	if err != nil {
+		return ToolOutcome{Content: fmt.Sprintf("Execution failed: %s", err), Success: true}, nil
+	}
+	if result.ExitCode != 0 {
+		return ToolOutcome{Content: fmt.Sprintf("Error editing file (exit %d):\n%s", result.ExitCode, result.Stderr), Success: true}, nil
+	}
+
+	return ToolOutcome{Content: strings.TrimSpace(result.Stdout), Success: true}, nil
+}
+
+func (t *FileLineEditTool) buildUnixScript(path, line, regex, state string) string {
+	quotedPath := executor.QuotePOSIX(path)
+	quotedLine := executor.QuotePOSIX(line)
+
+	if state == "absent" {
+		if regex != "" {
+			return fmt.Sprintf("sed -i '/%s/d' %s && echo 'Line removed if existed.'", regex, quotedPath)
+		}
+		return fmt.Sprintf("sed -i '/^%s$/d' %s && echo 'Line removed if existed.'", strings.ReplaceAll(line, "/", "\\/"), quotedPath)
+	}
+
+	if regex != "" {
+		return fmt.Sprintf(`
+if grep -qE %q %s; then
+  sed -i "s/^.*%s.*$/%s/" %s
+  echo "Line replaced."
+else
+  echo %s >> %s
+  echo "Line appended."
+fi`, regex, quotedPath, regex, strings.ReplaceAll(line, "/", "\\/"), quotedPath, quotedLine, quotedPath)
+	}
+
+	return fmt.Sprintf("grep -qF %s %s || (echo %s >> %s && echo 'Line added.')", quotedLine, quotedPath, quotedLine, quotedPath)
+}
+
+func (t *FileLineEditTool) buildWindowsScript(path, line, regex, state string) string {
+	quotedPath := executor.QuotePowerShell(path)
+	quotedLine := executor.QuotePowerShell(line)
+	quotedRegex := executor.QuotePowerShell(regex)
+
+	if state == "absent" {
+		match := quotedLine
+		if regex != "" {
+			match = quotedRegex
+		}
+		return fmt.Sprintf(
+			"$c = Get-Content -LiteralPath %s -ErrorAction SilentlyContinue; if ($c) { $c | Where-Object { $_ -notmatch %s } | Set-Content -LiteralPath %s; echo 'Line removed.' }",
+			quotedPath, match, quotedPath,
+		)
+	}
+
+	if regex != "" {
+		return fmt.Sprintf(`
+$p = %s; $l = %s; $r = %s;
+$c = Get-Content -LiteralPath $p -ErrorAction SilentlyContinue;
+if ($c -match $r) {
+  $found = $false;
+  $new = $c | ForEach-Object { if ($_ -match $r -and -not $found) { $found=$true; $l } else { $_ } };
+  $new | Set-Content -LiteralPath $p; echo "Line replaced."
+} else {
+  $l | Add-Content -LiteralPath $p; echo "Line appended."
+}`, quotedPath, quotedLine, quotedRegex)
+	}
+
+	return fmt.Sprintf(`
+$p = %s; $l = %s;
+if (Select-String -LiteralPath $p -Pattern ([regex]::Escape($l)) -SimpleMatch) {
+  echo "Line already exists."
+} else {
+  $l | Add-Content -LiteralPath $p; echo "Line added."
+}`, quotedPath, quotedLine)
+}
+func (t *FileLineEditTool) confirmRisk(ctx context.Context, exec executor.Executor, title, warning, path string) (bool, error) {
+	target := exec.Target()
+	if t.ApprovalCache.IsApproved(target, "global_risk") { return true, nil }
+	if t.PromptHandler == nil { return false, nil }
+	req := QuestionRequest{
+		Header:   "Security Confirmation",
+		Question: fmt.Sprintf("⚠️ %s\n\n위험이 감지되었습니다:\n%s\n\n대상 파일:\n%s\n\n정말로 이 작업을 진행하시겠습니까?", title, warning, path),
+		Options: []QuestionOption{
+			{Label: "Run Anyway", Description: "위험을 인지했으며 실행을 승인합니다."},
+			{Label: "Approve for 5m", Description: "향후 5분간 이 타겟의 모든 위험 작업을 승인합니다."},
+			{Label: "Cancel", Description: "안전을 위해 중단합니다."},
+		},
+	}
+	resp, err := RequestQuestion(ctx, req)
+	if err != nil { return false, err }
+	if resp.SelectedIndex == 0 { return true, nil }
+	if resp.SelectedIndex == 1 {
+		t.ApprovalCache.Grant(target, "global_risk", 5*time.Minute)
+		return true, nil
+	}
+	return false, nil
+}
+
+func argStringDefault(args map[string]interface{}, name, def string) string {
+	v, ok := args[name].(string)
+	if !ok || v == "" {
+		return def
+	}
+	return v
+}

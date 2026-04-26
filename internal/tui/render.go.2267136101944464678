@@ -1,0 +1,485 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/koreaf16/argus/internal/components/logo"
+	"github.com/koreaf16/argus/internal/components/promptinput"
+	"github.com/koreaf16/argus/internal/constants"
+)
+
+var (
+	modalStyle = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("11")).
+			Padding(0, 1)
+
+	slashOverlayStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("13")).
+				Padding(0, 1)
+
+	topBarLeftStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+	topBarRightStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	topBarMutedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+	entryCardStyle = lipgloss.NewStyle().
+			BorderLeft(true).
+			PaddingLeft(1)
+	entryBodyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+
+	markdownBodyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	markdownHeading1 = lipgloss.NewStyle().Foreground(lipgloss.Color("45")).Bold(true)
+	markdownHeading2 = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	markdownHeading3 = lipgloss.NewStyle().Foreground(lipgloss.Color("153")).Bold(true)
+	markdownQuoteStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+	markdownRuleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("239"))
+	markdownCodeHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	markdownCodeLineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+)
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func (m uiModel) renderEntry(e transcriptEntry, matched, current, summary bool) string {
+	_ = matched
+	_ = current
+	_ = summary
+
+	titleColor := "15"
+	borderColor := "240"
+	badge := "•"
+
+	verbs := constants.SpinnerVerbs
+	activeVerb := verbs[(m.animFrame/10)%len(verbs)]
+
+	switch e.Kind {
+	case "user":
+		titleColor = "10"
+		borderColor = "70"
+		badge = ">"
+	case "assistant":
+		titleColor = "14"
+		borderColor = "39"
+		badge = "✦"
+		if m.busy && e.Body == "" {
+			e.Title = activeVerb + "..."
+		}
+	case "tool_use":
+		titleColor = "11"
+		borderColor = "178"
+		badge = "⚙"
+	case "tool_result":
+		titleColor = "6"
+		borderColor = "44"
+		badge = "↳"
+	case "notice":
+		titleColor = "12"
+		borderColor = "75"
+		badge = "i"
+	case "system":
+		titleColor = "13"
+		borderColor = "141"
+		badge = "#"
+	case "error":
+		titleColor = "9"
+		borderColor = "196"
+		badge = "!"
+	case "plan":
+		titleColor = "5"
+		borderColor = "99"
+		badge = "□"
+	case "approval", "password":
+		titleColor = "11"
+		borderColor = "179"
+		badge = "?"
+	}
+
+	title := strings.TrimSpace(e.Title)
+	if title == "" {
+		title = "-"
+	}
+	body := strings.TrimSpace(e.Body)
+	if body == "" {
+		body = "-"
+	}
+
+	titleView := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(titleColor)).
+		Render(badge + " " + title)
+
+	var bodyView string
+	if e.Kind == "assistant" && m.busy && !strings.HasSuffix(e.Body, " ") {
+		bodyView = m.renderGlimmerText(body)
+	} else if e.Kind == "assistant" {
+		bodyView = m.renderAssistantMarkdown(body)
+	} else {
+		bodyView = entryBodyStyle.Render(body)
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, titleView, bodyView)
+	return entryCardStyle.Copy().BorderForeground(lipgloss.Color(borderColor)).Render(content)
+}
+
+func (m uiModel) renderGlimmerText(text string) string {
+	if text == "" {
+		return ""
+	}
+	runes := []rune(text)
+	length := len(runes)
+	if length < 10 {
+		return markdownBodyStyle.Render(text)
+	}
+
+	mainPart := string(runes[:length-10])
+	fadePart := runes[length-10:]
+
+	result := markdownBodyStyle.Render(mainPart)
+
+	colors := []string{"15", "255", "253", "251", "249", "247", "245", "243", "241", "239"}
+	for i, r := range fadePart {
+		cIdx := len(colors) - 1 - i
+		if cIdx < 0 {
+			cIdx = 0
+		}
+		result += lipgloss.NewStyle().Foreground(lipgloss.Color(colors[cIdx])).Render(string(r))
+	}
+	return result
+}
+
+func (m uiModel) renderAssistantMarkdown(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return markdownBodyStyle.Render("-")
+	}
+
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	parts := make([]string, 0, len(lines))
+
+	inCode := false
+	fence := ""
+	codeLang := ""
+	codeLines := make([]string, 0, 16)
+	flushCode := func() {
+		parts = append(parts, renderMarkdownCodeBlock(codeLang, codeLines))
+		codeLines = codeLines[:0]
+		codeLang = ""
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if f, lang, ok := parseMarkdownFence(trimmed); ok {
+			if inCode && strings.HasPrefix(trimmed, fence) {
+				flushCode()
+				inCode = false
+				fence = ""
+				continue
+			}
+			if !inCode {
+				inCode = true
+				fence = f
+				codeLang = lang
+				continue
+			}
+		}
+
+		if inCode {
+			codeLines = append(codeLines, line)
+			continue
+		}
+
+		if trimmed == "" {
+			parts = append(parts, "")
+			continue
+		}
+
+		if level, heading, ok := parseMarkdownHeading(trimmed); ok {
+			switch level {
+			case 1:
+				parts = append(parts, markdownHeading1.Render(heading))
+			case 2:
+				parts = append(parts, markdownHeading2.Render(heading))
+			default:
+				parts = append(parts, markdownHeading3.Render(heading))
+			}
+			continue
+		}
+
+		if bullet, ok := parseMarkdownList(line); ok {
+			parts = append(parts, markdownBodyStyle.Render(bullet))
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "> ") {
+			parts = append(parts, markdownQuoteStyle.Render("▎ "+strings.TrimSpace(strings.TrimPrefix(trimmed, "> "))))
+			continue
+		}
+
+		if isMarkdownRule(trimmed) {
+			parts = append(parts, markdownRuleStyle.Render(strings.Repeat("─", 36)))
+			continue
+		}
+
+		parts = append(parts, markdownBodyStyle.Render(line))
+	}
+
+	if inCode {
+		flushCode()
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+func renderMarkdownCodeBlock(lang string, lines []string) string {
+	label := "code"
+	if strings.TrimSpace(lang) != "" {
+		label = "code:" + strings.TrimSpace(lang)
+	}
+
+	out := make([]string, 0, len(lines)+2)
+	out = append(out, markdownCodeHeadStyle.Render("┌ "+label))
+	if len(lines) == 0 {
+		out = append(out, markdownCodeLineStyle.Render("│"))
+	}
+	for _, line := range lines {
+		out = append(out, markdownCodeLineStyle.Render("│ "+line))
+	}
+	out = append(out, markdownCodeHeadStyle.Render("└"))
+	return strings.Join(out, "\n")
+}
+
+func parseMarkdownFence(trimmed string) (fence string, lang string, ok bool) {
+	switch {
+	case strings.HasPrefix(trimmed, "```"):
+		return "```", strings.TrimSpace(strings.TrimPrefix(trimmed, "```")), true
+	case strings.HasPrefix(trimmed, "~~~"):
+		return "~~~", strings.TrimSpace(strings.TrimPrefix(trimmed, "~~~")), true
+	default:
+		return "", "", false
+	}
+}
+
+func parseMarkdownHeading(trimmed string) (level int, text string, ok bool) {
+	i := 0
+	for i < len(trimmed) && trimmed[i] == '#' {
+		i++
+	}
+	if i == 0 || i > 4 || i >= len(trimmed) || trimmed[i] != ' ' {
+		return 0, "", false
+	}
+	return i, strings.TrimSpace(trimmed[i+1:]), true
+}
+
+func parseMarkdownList(line string) (string, bool) {
+	trimmedLeft := strings.TrimLeft(line, " \t")
+	if trimmedLeft == "" {
+		return "", false
+	}
+	indent := strings.Repeat(" ", len(line)-len(trimmedLeft))
+
+	if len(trimmedLeft) >= 2 && (trimmedLeft[0] == '-' || trimmedLeft[0] == '*' || trimmedLeft[0] == '+') && trimmedLeft[1] == ' ' {
+		return indent + "• " + strings.TrimSpace(trimmedLeft[2:]), true
+	}
+
+	digits := 0
+	for digits < len(trimmedLeft) && trimmedLeft[digits] >= '0' && trimmedLeft[digits] <= '9' {
+		digits++
+	}
+	if digits > 0 && digits+1 < len(trimmedLeft) && trimmedLeft[digits] == '.' && trimmedLeft[digits+1] == ' ' {
+		return indent + trimmedLeft[:digits+1] + " " + strings.TrimSpace(trimmedLeft[digits+2:]), true
+	}
+	return "", false
+}
+
+func isMarkdownRule(trimmed string) bool {
+	clean := strings.ReplaceAll(trimmed, " ", "")
+	if len(clean) < 3 {
+		return false
+	}
+	if strings.Trim(clean, "-") == "" {
+		return true
+	}
+	if strings.Trim(clean, "_") == "" {
+		return true
+	}
+	if strings.Trim(clean, "*") == "" {
+		return true
+	}
+	return false
+}
+
+func (m uiModel) renderTranscriptEntry(e transcriptEntry) string {
+	return m.renderEntry(e, false, false, false)
+}
+
+func (m uiModel) renderTopBar() string {
+	mode := strings.TrimSpace(m.footer.PermissionTitle)
+	if mode == "" {
+		mode = "Default"
+	}
+	model := emptyFallback(m.footer.Model, "unconfigured")
+	provider := emptyFallback(m.footer.ProviderName, "unknown")
+	cwd := emptyFallback(m.footer.CWD, ".")
+	status := "idle"
+	if m.busy {
+		status = spinnerFrames[(m.animFrame/2)%len(spinnerFrames)] + " responding"
+	}
+
+	left := topBarLeftStyle.Render("Argus")
+	meta := fmt.Sprintf("%s/%s · %s · %s · %s", provider, model, cwd, mode, status)
+	if m.width <= 0 {
+		return left + "  " + topBarRightStyle.Render(meta)
+	}
+
+	maxMetaWidth := m.width - lipgloss.Width(left) - 2
+	if maxMetaWidth < 12 {
+		maxMetaWidth = 12
+	}
+	meta = truncateToWidth(meta, maxMetaWidth)
+	right := topBarRightStyle.Render(meta)
+
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 2 {
+		gap = 2
+	}
+
+	return left + strings.Repeat(" ", gap) + right
+}
+
+func truncateToWidth(s string, width int) string {
+	if width <= 0 || lipgloss.Width(s) <= width {
+		return s
+	}
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes)+"…") > width {
+		runes = runes[:len(runes)-1]
+	}
+	if len(runes) == 0 {
+		return ""
+	}
+	return string(runes) + "…"
+}
+
+func (m uiModel) renderSlashOverlay() string {
+	if len(m.slashMatches) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(m.slashMatches)+2)
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13")).Render("Slash Commands"))
+	for i, item := range m.slashMatches {
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+		if i == m.slashCursor {
+			style = style.Bold(true).Foreground(lipgloss.Color("15"))
+		}
+		lines = append(lines, style.Render(fmt.Sprintf("/%s  %s", item.Command, item.Description)))
+	}
+	lines = append(lines, topBarMutedStyle.Render("tab accept · ctrl+n/ctrl+p move"))
+	return slashOverlayStyle.Render(strings.Join(lines, "\n"))
+}
+
+func (m uiModel) renderInput() string {
+	return promptinput.RenderTextInput(m.input.View(), m.width)
+}
+
+func (m uiModel) renderFooter() string {
+	suggestions := make([]promptinput.Suggestion, 0, len(m.slashMatches))
+	for _, item := range m.slashMatches {
+		suggestions = append(suggestions, promptinput.Suggestion{
+			Command:     item.Command,
+			Description: item.Description,
+		})
+	}
+	return promptinput.RenderFooter(promptinput.FooterConfig{
+		Width:            m.width,
+		PermissionTitle:  m.footer.PermissionTitle,
+		EffortLabel:      m.footer.EffortSuffix,
+		Busy:             m.busy,
+		ShowSuggestions:  m.showSlashOverlay(),
+		Suggestions:      suggestions,
+		SuggestionCursor: m.slashCursor,
+	})
+}
+
+func (m uiModel) renderModal() string {
+	switch m.modal.Kind {
+	case modalApproval:
+		inner := []string{
+			lipgloss.NewStyle().Bold(true).Render(m.modal.Title),
+			m.modal.Prompt,
+			"",
+			"tool: " + m.modal.ToolName,
+		}
+		if hint := approvalHint(m.modal.ToolName); hint != "" {
+			inner = append(inner, "hint: "+hint)
+		}
+		if strings.TrimSpace(m.modal.InputJSON) != "" {
+			inner = append(inner, m.modal.InputJSON)
+		}
+		inner = append(inner, "", "[Y] Allow   [N] Deny   [Enter] default(deny)   [Esc] Deny")
+		return modalStyle.Render(strings.Join(inner, "\n"))
+	case modalConfirm:
+		inner := []string{
+			lipgloss.NewStyle().Bold(true).Render(m.modal.Title),
+			m.modal.Prompt,
+			"",
+			"[Y] Yes   [N] No   [Enter] default   [Esc] No",
+		}
+		return modalStyle.Render(strings.Join(inner, "\n"))
+	case modalPassword:
+		mask := strings.Repeat("*", len(m.modal.Password))
+		inner := []string{
+			lipgloss.NewStyle().Bold(true).Render(m.modal.Title),
+			strings.TrimSpace(m.modal.Prompt),
+			"",
+			mask,
+			"",
+			"[Enter] submit   [Esc] cancel",
+		}
+		return modalStyle.Render(strings.Join(inner, "\n"))
+	default:
+		return ""
+	}
+}
+
+func emptyFallback(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(v)
+}
+
+func approvalHint(toolName string) string {
+	n := strings.ToLower(toolName)
+	switch {
+	case strings.Contains(n, "search"):
+		return "Review result source URLs before continuing."
+	case strings.Contains(n, "fetch"), strings.Contains(n, "crawl"):
+		return "This may pull full page content; check sensitive data risk."
+	case strings.Contains(n, "bash"), strings.Contains(n, "shell"), strings.Contains(n, "powershell"):
+		return "Command execution can modify files or system state."
+	case strings.Contains(n, "write"), strings.Contains(n, "edit"), strings.Contains(n, "patch"):
+		return "File edits requested; verify target path and diff."
+	default:
+		return ""
+	}
+}
+
+func renderLogoBlock(cfg Config) string {
+	var modelDisplay, effortLevel, providerName string
+	effortLevel = "high"
+	if cfg.State != nil {
+		_, disp, _ := cfg.State.ActiveModel()
+		modelDisplay = disp
+		effortLevel = cfg.State.GetEffortLevel()
+		providerName = cfg.State.ActiveModelProvider()
+	}
+	return logo.Render(logo.Data{
+		Version:      constants.Version,
+		ModelDisplay: modelDisplay,
+		EffortLevel:  effortLevel,
+		ProviderName: providerName,
+		Cwd:          cfg.WorkDir,
+		SourcePath:   constants.ConfigDirName + "\\" + constants.SettingsFileName,
+	}, cfg.AIDebug)
+}

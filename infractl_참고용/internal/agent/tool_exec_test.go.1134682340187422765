@@ -1,0 +1,833 @@
+package agent
+
+import (
+	"context"
+	"maps"
+	"strings"
+	"testing"
+	"time"
+
+	connpkg "github.com/yourorg/infractl/internal/connector"
+	"github.com/yourorg/infractl/internal/agent/taskctx"
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/llm"
+	"github.com/yourorg/infractl/internal/store"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+type noopAgentEventHandler struct{}
+
+func (noopAgentEventHandler) OnThinking(string, string) {}
+func (noopAgentEventHandler) OnThinkingToken(string)    {}
+func (noopAgentEventHandler) OnToken(string)            {}
+func (noopAgentEventHandler) OnToolStart(string, string, string, map[string]any) {
+}
+func (noopAgentEventHandler) OnToolOutput(string, string) {}
+func (noopAgentEventHandler) OnToolEnd(string, string, string, time.Duration, bool, string) {
+}
+func (noopAgentEventHandler) OnToolCancelled(string, string, string, time.Duration) {}
+func (noopAgentEventHandler) OnResponse(string)                                     {}
+func (noopAgentEventHandler) OnError(error)                                         {}
+func (noopAgentEventHandler) OnUsageUpdate(int, int, float64, int64)                {}
+func (noopAgentEventHandler) OnJobComplete(int, string, bool)                       {}
+func (noopAgentEventHandler) OnRAGContext(int)                                      {}
+
+type captureOnStartHandler struct {
+	noopAgentEventHandler
+	args map[string]any
+}
+
+func (h *captureOnStartHandler) OnToolStart(_ string, _ string, _ string, args map[string]any) {
+	h.args = maps.Clone(args)
+}
+
+type noopAgentExecutor struct{}
+
+func (noopAgentExecutor) Execute(context.Context, string) (executor.ExecResult, error) {
+	return executor.ExecResult{ExitCode: 0}, nil
+}
+
+func (noopAgentExecutor) Target() string { return "localhost" }
+func (noopAgentExecutor) Host() string   { return "localhost" }
+
+type countingAgentExecutor struct {
+	noopAgentExecutor
+	calls int
+}
+
+func (e *countingAgentExecutor) Execute(context.Context, string) (executor.ExecResult, error) {
+	e.calls++
+	return executor.ExecResult{ExitCode: 0}, nil
+}
+
+type countingMutationTool struct {
+	name    string
+	calls   *int
+	success bool
+}
+
+type oracleRewriteSink struct {
+	lastTool string
+	lastSQL  string
+}
+
+type oracleRewriteTool struct {
+	name string
+	sink *oracleRewriteSink
+}
+
+func (t *oracleRewriteTool) Name() string        { return t.name }
+func (t *oracleRewriteTool) Description() string { return "oracle rewrite test tool" }
+func (t *oracleRewriteTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"sql":    map[string]any{"type": "string"},
+			"target": map[string]any{"type": "string"},
+		},
+		"required": []string{"sql"},
+	}
+}
+func (t *oracleRewriteTool) IsReadOnly() bool { return true }
+func (t *oracleRewriteTool) IsEnabled() bool  { return true }
+func (t *oracleRewriteTool) Execute(_ context.Context, args map[string]any, _ executor.Executor) (tools.ToolOutcome, error) {
+	sql, _ := args["sql"].(string)
+	t.sink.lastTool = t.name
+	t.sink.lastSQL = sql
+	return tools.ToolOutcome{Content: "ok", Success: true}, nil
+}
+
+type oracleRewriteConnector struct {
+	sink  *oracleRewriteSink
+	names []string
+}
+
+func (c *oracleRewriteConnector) ServiceType() string                 { return "oracle" }
+func (c *oracleRewriteConnector) Status() connpkg.ConnectorStatus     { return connpkg.StatusConnected }
+func (c *oracleRewriteConnector) ToolNames() []string                 { return c.names }
+func (c *oracleRewriteConnector) GenerateTools(info connpkg.ServiceInfo, _ connpkg.Credentials) []tools.Tool {
+	sid := strings.ToLower(strings.TrimSpace(info.Name))
+	if sid == "" {
+		sid = "orcl"
+	}
+	prefix := "oracle_" + sid
+	if strings.TrimSpace(info.SubInstance) != "" {
+		prefix += "_" + strings.ToLower(strings.TrimSpace(info.SubInstance))
+	}
+	name := prefix + ".query"
+	c.names = []string{name}
+	return []tools.Tool{&oracleRewriteTool{name: name, sink: c.sink}}
+}
+
+func setupOracleRewriteAgent(t *testing.T, withPDB bool) (*Agent, *oracleRewriteSink) {
+	t.Helper()
+	reg := tools.NewRegistry()
+	sink := &oracleRewriteSink{}
+	connMgr := connpkg.NewManager(reg, nil)
+	connMgr.RegisterFactory("oracle", func() connpkg.Connector {
+		return &oracleRewriteConnector{sink: sink}
+	})
+
+	creds := connpkg.Credentials{Username: "/", Role: "sysdba", OSAuth: true}
+	rootInfo := connpkg.ServiceInfo{
+		ServerName:  "oracle",
+		ServiceType: "oracle",
+		Name:        "AI26",
+	}
+	if err := connMgr.Activate(context.Background(), rootInfo, creds, connpkg.SaveSession, nil); err != nil {
+		t.Fatalf("activate root connector: %v", err)
+	}
+	if withPDB {
+		pdbInfo := rootInfo
+		pdbInfo.SubInstance = "AI_DB"
+		if err := connMgr.Activate(context.Background(), pdbInfo, creds, connpkg.SaveSession, nil); err != nil {
+			t.Fatalf("activate pdb connector: %v", err)
+		}
+	}
+
+	execMgr := executor.NewManager(noopAgentExecutor{})
+	execMgr.Register("oracle", noopAgentExecutor{})
+	return &Agent{
+		registry:     reg,
+		manager:      execMgr,
+		handler:      noopAgentEventHandler{},
+		connectorMgr: connMgr,
+	}, sink
+}
+
+type readonlyWebSearchTool struct{}
+
+func (readonlyWebSearchTool) Name() string        { return "web_search" }
+func (readonlyWebSearchTool) Description() string { return "test web search tool" }
+func (readonlyWebSearchTool) Parameters() map[string]any {
+	return map[string]any{"type": "object"}
+}
+func (readonlyWebSearchTool) IsReadOnly() bool { return true }
+func (readonlyWebSearchTool) IsEnabled() bool  { return true }
+func (readonlyWebSearchTool) Execute(context.Context, map[string]any, executor.Executor) (tools.ToolOutcome, error) {
+	return tools.ToolOutcome{Content: "ok", Success: true}, nil
+}
+
+func (t countingMutationTool) Name() string        { return t.name }
+func (t countingMutationTool) Description() string { return "test mutation tool" }
+func (t countingMutationTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+	}
+}
+func (t countingMutationTool) IsReadOnly() bool { return false }
+func (t countingMutationTool) IsEnabled() bool  { return true }
+func (t countingMutationTool) Execute(context.Context, map[string]any, executor.Executor) (tools.ToolOutcome, error) {
+	*t.calls = *t.calls + 1
+	return tools.ToolOutcome{
+		Content:  t.name + "-result",
+		Success:  t.success,
+		ExitCode: map[bool]int{true: 0, false: 1}[t.success],
+	}, nil
+}
+
+func TestExecuteToolCallsStopsMutationChainAfterFailure(t *testing.T) {
+	reg := tools.NewRegistry()
+	failCalls := 0
+	nextCalls := 0
+	lastCalls := 0
+	if err := reg.Register(countingMutationTool{name: "mut_fail", calls: &failCalls, success: false}); err != nil {
+		t.Fatalf("register fail tool: %v", err)
+	}
+	if err := reg.Register(countingMutationTool{name: "mut_next", calls: &nextCalls, success: true}); err != nil {
+		t.Fatalf("register next tool: %v", err)
+	}
+	if err := reg.Register(countingMutationTool{name: "mut_last", calls: &lastCalls, success: true}); err != nil {
+		t.Fatalf("register last tool: %v", err)
+	}
+
+	a := &Agent{
+		registry: reg,
+		manager:  executor.NewManager(noopAgentExecutor{}),
+		handler:  noopAgentEventHandler{},
+	}
+
+	results := a.executeToolCalls(context.Background(), []llm.ToolCall{
+		{
+			ID:   "call-1",
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      "mut_fail",
+				Arguments: `{}`,
+			},
+		},
+		{
+			ID:   "call-2",
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      "mut_next",
+				Arguments: `{}`,
+			},
+		},
+		{
+			ID:   "call-3",
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      "mut_last",
+				Arguments: `{}`,
+			},
+		},
+	})
+
+	if failCalls != 1 {
+		t.Fatalf("expected mut_fail to execute once, got %d", failCalls)
+	}
+	if nextCalls != 0 || lastCalls != 0 {
+		t.Fatalf("expected later mutation tools to be skipped, got mut_next=%d mut_last=%d", nextCalls, lastCalls)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 tool results, got %d", len(results))
+	}
+	if !strings.Contains(results[1].Content, "Skipped:") || !strings.Contains(results[2].Content, "Skipped:") {
+		t.Fatalf("expected skipped messages for remaining mutations, got: %#v", results)
+	}
+}
+
+func TestExecuteSingleToolRewritesWebSearchQueryForActiveRockyServer(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(readonlyWebSearchTool{}); err != nil {
+		t.Fatalf("register web search tool: %v", err)
+	}
+
+	handler := &captureOnStartHandler{}
+	mgr := executor.NewManager(noopAgentExecutor{})
+	mgr.Register("sandbox", noopAgentExecutor{})
+	a := &Agent{
+		registry: reg,
+		manager:  mgr,
+		handler:  handler,
+		activeServer: &store.Server{
+			Name: "sandbox",
+			OS:   "Rocky Linux 9.7 (Blue Onyx)",
+		},
+	}
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "call-web-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "web_search",
+			Arguments: `{"query":"Oracle 19c installation guide"}`,
+		},
+	})
+	if !ok {
+		t.Fatalf("expected tool success, got message=%+v", msg)
+	}
+
+	got, _ := handler.args["query"].(string)
+	for _, want := range []string{"Rocky Linux 9", "RHEL 9 compatible"} {
+		if !containsFold(got, want) {
+			t.Fatalf("expected %q in rewritten query, got %q", want, got)
+		}
+	}
+}
+
+type serverListAgentStore struct {
+	servers []store.Server
+}
+
+func (s serverListAgentStore) List(context.Context) ([]store.Server, error) { return s.servers, nil }
+func (s serverListAgentStore) Get(context.Context, string) (store.Server, error) {
+	return store.Server{}, nil
+}
+func (s serverListAgentStore) Add(context.Context, store.Server) error    { return nil }
+func (s serverListAgentStore) Update(context.Context, store.Server) error { return nil }
+func (s serverListAgentStore) Remove(context.Context, string) error       { return nil }
+func (s serverListAgentStore) Close() error                               { return nil }
+
+type installChannelAgentStore struct {
+	servers map[string]store.Server
+}
+
+func (s installChannelAgentStore) List(context.Context) ([]store.Server, error) {
+	result := make([]store.Server, 0, len(s.servers))
+	for _, srv := range s.servers {
+		result = append(result, srv)
+	}
+	return result, nil
+}
+
+func (s installChannelAgentStore) Get(_ context.Context, name string) (store.Server, error) {
+	for k, srv := range s.servers {
+		if strings.EqualFold(k, name) || strings.EqualFold(srv.Name, name) {
+			return srv, nil
+		}
+	}
+	return store.Server{}, context.Canceled
+}
+
+func (s installChannelAgentStore) Add(context.Context, store.Server) error    { return nil }
+func (s installChannelAgentStore) Update(context.Context, store.Server) error { return nil }
+func (s installChannelAgentStore) Remove(context.Context, string) error       { return nil }
+func (s installChannelAgentStore) Close() error                               { return nil }
+
+func TestExecuteSingleToolRunsServerListLocallyWhenActiveServerExecutorMissing(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ServerListTool{Store: serverListAgentStore{servers: []store.Server{
+		{Name: "sandbox", Host: "192.168.0.130", Port: 22, User: "sandbox", AuthType: store.AuthTypePassword},
+	}}}); err != nil {
+		t.Fatalf("register server_list: %v", err)
+	}
+
+	a := &Agent{
+		registry: reg,
+		manager:  executor.NewManager(noopAgentExecutor{}),
+		handler:  noopAgentEventHandler{},
+		activeServer: &store.Server{
+			Name: "sandbox",
+		},
+	}
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "server-list-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "server_list",
+			Arguments: `{}`,
+		},
+	})
+	if !ok {
+		t.Fatalf("expected server_list to run via local executor, got %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "sandbox") {
+		t.Fatalf("expected server list output, got %q", msg.Content)
+	}
+}
+
+func TestExecuteSingleToolTaskGuardUsesLoginUserWhenElevationUnknown(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ShellExecTool{}); err != nil {
+		t.Fatalf("register shell_exec: %v", err)
+	}
+
+	mgr := executor.NewManager(noopAgentExecutor{})
+	mgr.Register("sandbox", &funcExecutor{
+		target: "sandbox",
+		fn:     func() {},
+	})
+
+	taskMgr := taskctx.NewManager()
+	if _, err := taskMgr.Declare(taskctx.DeclareRequest{
+		Title:         "Oracle install",
+		Kind:          taskctx.TaskKind("install"),
+		TargetServer:  "sandbox",
+		TargetAccount: "oracle",
+	}); err != nil {
+		t.Fatalf("declare task: %v", err)
+	}
+
+	a := &Agent{
+		registry: reg,
+		manager:  mgr,
+		handler:  noopAgentEventHandler{},
+		taskMgr:  taskMgr,
+		activeServer: &store.Server{
+			Name: "sandbox",
+			Host: "192.168.0.130",
+			User: "sandbox",
+		},
+	}
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "task-guard-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "shell_exec",
+			Arguments: `{"command":"mkdir -p /tmp/oracle-install"}`,
+		},
+	})
+	if ok {
+		t.Fatalf("expected TaskGuard block for account mismatch, got success: %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "become_user: oracle") {
+		t.Fatalf("expected become_user guidance in guard message, got: %q", msg.Content)
+	}
+}
+
+func TestExecuteSingleToolInstallTaskRequiresInstallChannelProfile(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ShellExecTool{}); err != nil {
+		t.Fatalf("register shell_exec: %v", err)
+	}
+
+	mgr := executor.NewManager(noopAgentExecutor{})
+	mgr.Register("sandbox", &funcExecutor{target: "sandbox", fn: func() {}})
+	taskMgr := taskctx.NewManager()
+	if _, err := taskMgr.Declare(taskctx.DeclareRequest{
+		Title:        "Oracle install",
+		Kind:         taskctx.KindInstall,
+		TargetServer: "sandbox",
+	}); err != nil {
+		t.Fatalf("declare task: %v", err)
+	}
+
+	a := &Agent{
+		registry: reg,
+		manager:  mgr,
+		handler:  noopAgentEventHandler{},
+		taskMgr:  taskMgr,
+		store: installChannelAgentStore{
+			servers: map[string]store.Server{
+				"sandbox": {
+					Name: "sandbox", Host: "192.168.0.130", User: "sandbox",
+					Ephemeral: false,
+				},
+			},
+		},
+		activeServer: &store.Server{Name: "sandbox", Host: "192.168.0.130", User: "sandbox"},
+	}
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "install-policy-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "shell_exec",
+			Arguments: `{"command":"mkdir -p /u01/app/oracle","target":"sandbox","become_method":"sudo"}`,
+		},
+	})
+	if ok {
+		t.Fatalf("expected install policy block, got success: %q", msg.Content)
+	}
+	if !strings.Contains(strings.ToLower(msg.Content), "install channel profile") {
+		t.Fatalf("expected install channel diagnostic, got: %q", msg.Content)
+	}
+}
+
+func TestExecuteSingleToolInstallTaskAllowsEphemeralInstallChannelProfile(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ShellExecTool{}); err != nil {
+		t.Fatalf("register shell_exec: %v", err)
+	}
+
+	called := false
+	mgr := executor.NewManager(noopAgentExecutor{})
+	mgr.Register("sandbox-oracle-inst-1", &funcExecutor{target: "sandbox-oracle-inst-1", fn: func() { called = true }})
+	taskMgr := taskctx.NewManager()
+	if _, err := taskMgr.Declare(taskctx.DeclareRequest{
+		Title:         "Oracle install",
+		Kind:          taskctx.KindInstall,
+		TargetServer:  "sandbox",
+		TargetAccount: "oracle",
+	}); err != nil {
+		t.Fatalf("declare task: %v", err)
+	}
+
+	a := &Agent{
+		registry: reg,
+		manager:  mgr,
+		handler:  noopAgentEventHandler{},
+		taskMgr:  taskMgr,
+		store: installChannelAgentStore{
+			servers: map[string]store.Server{
+				"sandbox-oracle-inst-1": {
+					Name:        "sandbox-oracle-inst-1",
+					Host:        "192.168.0.130",
+					User:        "oracle",
+					Ephemeral:   true,
+					Purpose:     "install_channel",
+					OwnerServer: "sandbox",
+					OwnerUser:   "oracle",
+				},
+			},
+		},
+		activeServer: &store.Server{Name: "sandbox-oracle-inst-1", Host: "192.168.0.130", User: "oracle"},
+	}
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "install-policy-2",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "shell_exec",
+			Arguments: `{"command":"echo install-channel-ok","target":"sandbox-oracle-inst-1","become_user":"oracle","become_method":"sudo"}`,
+		},
+	})
+	if !ok {
+		t.Fatalf("expected install channel profile to pass, got: %q", msg.Content)
+	}
+	if !called {
+		t.Fatal("expected channel executor to run")
+	}
+}
+
+func TestExecuteSingleToolAcceptsEscapedDollarInJSONArgs(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ShellExecTool{}); err != nil {
+		t.Fatalf("register shell_exec: %v", err)
+	}
+
+	handler := &captureOnStartHandler{}
+	a := &Agent{
+		registry: reg,
+		manager:  executor.NewManager(noopAgentExecutor{}),
+		handler:  handler,
+	}
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "shell-dollar-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "shell_exec",
+			Arguments: `{"command":"echo 'SELECT name FROM v\\$pdbs;'","target":"localhost"}`,
+		},
+	})
+	if !ok {
+		t.Fatalf("expected shell_exec success, got %q", msg.Content)
+	}
+
+	got, _ := handler.args["command"].(string)
+	if !strings.Contains(got, `v\$pdbs`) {
+		t.Fatalf("expected escaped dollar to survive JSON parsing, got %q", got)
+	}
+}
+
+func TestExecuteSingleToolOracleRootQueryAutoReroutesToPDBTool(t *testing.T) {
+	a, sink := setupOracleRewriteAgent(t, true)
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "oracle-reroute-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "oracle_ai26.query",
+			Arguments: `{"sql":"ALTER SESSION SET CONTAINER = AI_DB; SELECT SYS_CONTEXT(''USERENV'',''CON_NAME'') FROM dual"}`,
+		},
+	})
+	if !ok {
+		t.Fatalf("expected success, got %q", msg.Content)
+	}
+	if sink.lastTool != "oracle_ai26_ai_db.query" {
+		t.Fatalf("expected pdb query tool, got %q", sink.lastTool)
+	}
+	if strings.Contains(strings.ToUpper(sink.lastSQL), "ALTER SESSION SET CONTAINER") {
+		t.Fatalf("expected rewritten sql without ALTER SESSION, got %q", sink.lastSQL)
+	}
+	if !strings.Contains(strings.ToUpper(sink.lastSQL), "SELECT SYS_CONTEXT") {
+		t.Fatalf("expected select statement to remain, got %q", sink.lastSQL)
+	}
+}
+
+func TestExecuteSingleToolOracleRootQueryKeepsRootWhenPDBToolMissing(t *testing.T) {
+	a, sink := setupOracleRewriteAgent(t, false)
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "oracle-reroute-2",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "oracle_ai26.query",
+			Arguments: `{"sql":"ALTER SESSION SET CONTAINER = AI_DB; SELECT 1 FROM dual"}`,
+		},
+	})
+	if !ok {
+		t.Fatalf("expected success, got %q", msg.Content)
+	}
+	if sink.lastTool != "oracle_ai26.query" {
+		t.Fatalf("expected root query tool when pdb tool is missing, got %q", sink.lastTool)
+	}
+	if !strings.Contains(strings.ToUpper(sink.lastSQL), "ALTER SESSION SET CONTAINER") {
+		t.Fatalf("expected original sql to remain unchanged, got %q", sink.lastSQL)
+	}
+}
+
+func TestExecuteSingleToolOracleRootQueryRejectsEmptySQLAfterReroute(t *testing.T) {
+	a, sink := setupOracleRewriteAgent(t, true)
+
+	msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "oracle-reroute-3",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "oracle_ai26.query",
+			Arguments: `{"sql":"ALTER SESSION SET CONTAINER = AI_DB;"}`,
+		},
+	})
+	if ok {
+		t.Fatalf("expected failure for empty sql after rewrite, got success with %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "Provide a SQL statement") {
+		t.Fatalf("expected guidance error, got %q", msg.Content)
+	}
+	if sink.lastTool != "" || sink.lastSQL != "" {
+		t.Fatalf("expected no tool execution on rewrite error, got tool=%q sql=%q", sink.lastTool, sink.lastSQL)
+	}
+}
+
+func TestExecuteSingleToolVerifyCompleteClosesPendingShellTask(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ShellExecTool{}); err != nil {
+		t.Fatalf("register shell_exec: %v", err)
+	}
+	if err := reg.Register(&tools.VerifyCompleteTool{}); err != nil {
+		t.Fatalf("register verify_complete: %v", err)
+	}
+
+	a := &Agent{
+		registry: reg,
+		manager:  executor.NewManager(noopAgentExecutor{}),
+		handler:  noopAgentEventHandler{},
+	}
+
+	shellMsg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "shell-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "shell_exec",
+			Arguments: `{"command":"dnf install -y nginx","description":"nginx 설치"}`,
+		},
+	})
+	if !ok {
+		t.Fatalf("expected shell_exec success, got %q", shellMsg.Content)
+	}
+
+	pending := a.pendingVerificationTasks()
+	if len(pending) != 1 {
+		t.Fatalf("pending verification tasks = %d, want 1", len(pending))
+	}
+	if pending[0].ToolID != "shell-1" {
+		t.Fatalf("pending tool id = %q, want shell-1", pending[0].ToolID)
+	}
+
+	verifyMsg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "verify-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "verify_complete",
+			Arguments: `{"tool_id":"shell-1","summary":"nginx package installed","verification_evidence":"rpm -q nginx returned installed"}`,
+		},
+	})
+	if !ok {
+		t.Fatalf("expected verify_complete success, got %q", verifyMsg.Content)
+	}
+
+	if len(a.pendingVerificationTasks()) != 0 {
+		t.Fatalf("expected pending verification list to be empty after verify_complete")
+	}
+
+	meta, ok := a.taskProgress["shell-1"]
+	if !ok {
+		t.Fatal("expected shell task progress to be stored")
+	}
+	if meta.VerificationStatus != "verified" {
+		t.Fatalf("verification status = %q, want verified", meta.VerificationStatus)
+	}
+	if meta.VerifiedByToolID != "verify-1" {
+		t.Fatalf("verified by tool id = %q, want verify-1", meta.VerifiedByToolID)
+	}
+}
+
+func TestPendingVerificationNudgeListsShellTasks(t *testing.T) {
+	a := &Agent{
+		taskProgress: map[string]tools.TaskProgressMetadata{
+			"shell-1": {
+				TaskSummary:          "Oracle preinstall 설치",
+				TaskKey:              "oracle-preinstall",
+				ExecutionStatus:      "succeeded",
+				VerificationRequired: true,
+				VerificationStatus:   "pending",
+				VerificationHint:     "rpm -q oracle-database-preinstall-19c",
+			},
+		},
+	}
+
+	nudge, ok := a.pendingVerificationNudge()
+	if !ok {
+		t.Fatal("expected pending verification nudge")
+	}
+	for _, want := range []string{"tool_id=shell-1", "task_key=oracle-preinstall", "Oracle preinstall 설치"} {
+		if !strings.Contains(nudge.Content, want) {
+			t.Fatalf("nudge content = %q, missing %q", nudge.Content, want)
+		}
+	}
+}
+
+// TestIsLocalhostLiteral verifies the helper covers all blocked aliases and
+// correctly allows empty string and real server names.
+func TestIsLocalhostLiteral(t *testing.T) {
+	blocked := []string{"localhost", "Localhost", "LOCALHOST", "local", "LOCAL", "127.0.0.1", "::1", " localhost "}
+	for _, v := range blocked {
+		if !isLocalhostLiteral(v) {
+			t.Errorf("isLocalhostLiteral(%q) = false, want true", v)
+		}
+	}
+	allowed := []string{"", "a100", "prod-db", "sandbox"}
+	for _, v := range allowed {
+		if isLocalhostLiteral(v) {
+			t.Errorf("isLocalhostLiteral(%q) = true, want false", v)
+		}
+	}
+}
+
+// TestExecuteSingleToolBlocksLocalhostWhenActiveServerSet verifies that
+// shell_exec with target="localhost" is rejected when a server is active.
+func TestExecuteSingleToolBlocksLocalhostWhenActiveServerSet(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ShellExecTool{}); err != nil {
+		t.Fatalf("register shell_exec: %v", err)
+	}
+
+	mgr := executor.NewManager(noopAgentExecutor{})
+	mgr.Register("a100", noopAgentExecutor{})
+	a := &Agent{
+		registry:     reg,
+		manager:      mgr,
+		handler:      noopAgentEventHandler{},
+		activeServer: &store.Server{Name: "a100"},
+	}
+
+	for _, alias := range []string{"localhost", "Localhost", "127.0.0.1", "LOCAL", "::1"} {
+		msg, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+			ID:   "tc-block-1",
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      "shell_exec",
+				Arguments: `{"command":"kubectl get pods","target":"` + alias + `"}`,
+			},
+		})
+		if ok {
+			t.Errorf("target=%q: expected rejection (ok=false), got ok=true", alias)
+		}
+		if !strings.Contains(msg.Content, "not allowed") {
+			t.Errorf("target=%q: expected 'not allowed' in rejection, got %q", alias, msg.Content)
+		}
+	}
+}
+
+// TestExecuteSingleToolAllowsLocalhostWhenNoActiveServer verifies that
+// target="localhost" continues to work when no server is active.
+func TestExecuteSingleToolAllowsLocalhostWhenNoActiveServer(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ShellExecTool{}); err != nil {
+		t.Fatalf("register shell_exec: %v", err)
+	}
+
+	a := &Agent{
+		registry:     reg,
+		manager:      executor.NewManager(noopAgentExecutor{}),
+		handler:      noopAgentEventHandler{},
+		activeServer: nil,
+	}
+
+	_, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "tc-allow-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "shell_exec",
+			Arguments: `{"command":"echo hi","target":"localhost"}`,
+		},
+	})
+	if !ok {
+		t.Error("expected shell_exec target=localhost to succeed when no server is active")
+	}
+}
+
+// TestExecuteSingleToolOmittedTargetUsesActiveServer verifies that omitting
+// the target field routes to the active server, not localhost.
+func TestExecuteSingleToolOmittedTargetUsesActiveServer(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ShellExecTool{}); err != nil {
+		t.Fatalf("register shell_exec: %v", err)
+	}
+
+	called := false
+	a100Exec := &funcExecutor{
+		target: "a100",
+		fn:     func() { called = true },
+	}
+	mgr := executor.NewManager(noopAgentExecutor{})
+	mgr.Register("a100", a100Exec)
+	a := &Agent{
+		registry:     reg,
+		manager:      mgr,
+		handler:      noopAgentEventHandler{},
+		activeServer: &store.Server{Name: "a100"},
+	}
+
+	_, ok := a.executeSingleTool(context.Background(), llm.ToolCall{
+		ID:   "tc-omit-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "shell_exec",
+			Arguments: `{"command":"kubectl get pods"}`,
+		},
+	})
+	if !ok {
+		t.Error("expected omitted-target shell_exec to succeed via active server")
+	}
+	if !called {
+		t.Error("expected a100 executor to be invoked, but it was not")
+	}
+}
+
+type funcExecutor struct {
+	target string
+	fn     func()
+}
+
+func (e *funcExecutor) Execute(_ context.Context, _ string) (executor.ExecResult, error) {
+	e.fn()
+	return executor.ExecResult{ExitCode: 0}, nil
+}
+func (e *funcExecutor) Target() string { return e.target }
+func (e *funcExecutor) Host() string   { return e.target }

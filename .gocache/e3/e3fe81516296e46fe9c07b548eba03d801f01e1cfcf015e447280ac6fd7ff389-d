@@ -1,0 +1,5 @@
+./collapse_background_bash.go
+./prompt_shell_execution.go
+./shell.go
+./shell_command.go
+./shell_config.go

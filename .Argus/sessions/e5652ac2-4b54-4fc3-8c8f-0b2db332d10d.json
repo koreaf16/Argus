@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-25T14:40:07.7742347Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    }
+  ]
+}

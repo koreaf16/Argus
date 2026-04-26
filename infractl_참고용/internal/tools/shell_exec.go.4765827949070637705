@@ -1,0 +1,609 @@
+package tools
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/privilege"
+	"github.com/yourorg/infractl/internal/tools/precheck"
+)
+
+// ShellExecTool executes shell commands on local/remote targets with optional
+// privilege escalation and reuse of previously elevated sessions.
+type ShellExecTool struct {
+	PrivilegeCache *privilege.Cache
+	PromptHandler  privilege.PromptHandler
+	// IsYoloMode, when non-nil, reports whether YOLO mode is currently active.
+	// In YOLO mode pre-flight warnings are silently attached to output without
+	// asking the user for confirmation.
+	IsYoloMode func() bool
+}
+
+type privilegeExecutionPlan struct {
+	normalized        normalizedPrivilegeCommand
+	rawInlineApproved bool
+	inline            *embeddedPrivilegeSpec
+}
+
+func (t *ShellExecTool) Name() string { return "shell_exec" }
+
+func (t *ShellExecTool) Description() string {
+	return "Execute shell commands on localhost or remote SSH targets. " +
+		"Prefer non-interactive flows first (`sudo -n`, `runuser -l`, `bash -lc`) and only prompt for passwords when required. " +
+		"Avoid long-lived interactive shells or database REPLs unless the user explicitly asks to keep the session open. " +
+		"Use this when no dedicated tool exists for the task."
+}
+
+func (t *ShellExecTool) IsReadOnly() bool { return false }
+func (t *ShellExecTool) IsEnabled() bool  { return true }
+
+func (t *ShellExecTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"command": map[string]interface{}{
+				"type":        "string",
+				"description": "Command to execute",
+			},
+			"target": map[string]interface{}{
+				"type":        "string",
+				"description": "Target server. Omit for localhost or active server.",
+			},
+			"description": map[string]interface{}{
+				"type":        "string",
+				"description": "Brief user-facing description of the task shown in the TUI.",
+			},
+			"reason": map[string]interface{}{
+				"type":        "string",
+				"description": "Short technical reason for this step.",
+			},
+			"become_method": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"sudo", "su"},
+				"description": "Optional privilege method",
+			},
+			"become_user": map[string]interface{}{
+				"type":        "string",
+				"description": "Optional privilege target user (default root)",
+			},
+			"is_background": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Set to true to run the command in the background.",
+			},
+		},
+		"required": []string{"command"},
+	}
+}
+
+func (t *ShellExecTool) Execute(ctx context.Context, args map[string]interface{}, exec executor.Executor) (ToolOutcome, error) {
+	return t.ExecuteDetailed(ctx, args, exec)
+}
+
+func (t *ShellExecTool) ExecuteDetailed(ctx context.Context, args map[string]interface{}, exec executor.Executor) (ToolOutcome, error) {
+	cmd, err := argString(args, "command", true)
+	if err != nil {
+		return ToolOutcome{}, err
+	}
+	becomeMethodArg, _ := argString(args, "become_method", false)
+	becomeUserArg, _ := argString(args, "become_user", false)
+	privPlan, shortCircuit, err := t.preparePrivilegeExecution(ctx, cmd, becomeMethodArg, becomeUserArg)
+	if err != nil {
+		return ToolOutcome{}, err
+	}
+	if shortCircuit != nil {
+		return *shortCircuit, nil
+	}
+	normalized := privPlan.normalized
+	cmd = normalized.Command
+
+	// Phase 0: General pre-checks — user existence, binary existence, directory existence.
+	// Runs before the disk-modifying scan so impossible operations are rejected early.
+	var preflightWarning string
+	if executor.CommandPlatform(exec) != executor.PlatformWindows {
+		if checks := precheck.ParseChecks(cmd); len(checks) > 0 {
+			summary := precheck.Run(ctx, exec, checks)
+			if summary.Blocked {
+				msg := fmt.Sprintf("Pre-check failed: %s", summary.BlockMsg)
+				return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+			}
+			for _, w := range summary.Warnings {
+				preflightWarning += w + "\n"
+			}
+		}
+	}
+
+	// Phase 1: scan the command for disk-modifying patterns and validate target paths.
+	if executor.CommandPlatform(exec) != executor.PlatformWindows {
+		scan := ScanCommand(cmd)
+		if scan.IsDiskModifying {
+			// When the command itself starts with a privilege-escalation wrapper
+			// (sudo / su / runuser) or become_method is explicitly set, the
+			// effective executor will be root. Running checkAncestorWritable as
+			// the calling (non-root) user produces a false-positive failure, so
+			// we skip the write-permission check and only verify filesystem safety.
+			hasPrivEsc := normalized.BecomeMethod != "" || privPlan.rawInlineApproved
+
+			for _, targetPath := range scan.TargetPaths {
+				var pfErr error
+				if hasPrivEsc {
+					pfErr = RunFilesystemOnlyChecks(ctx, exec, targetPath, 0)
+				} else {
+					pfErr = RunPreflightChecks(ctx, exec, targetPath, 0)
+				}
+				if pfErr != nil {
+					msg := fmt.Sprintf("Pre-flight check for %q failed: %s", targetPath, pfErr)
+					return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+				}
+				if critWarn, isCritical := CheckCriticalPath(targetPath); critWarn != "" {
+					if isCritical {
+						msg := fmt.Sprintf("Pre-flight blocked: %s", critWarn)
+						return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+					}
+					preflightWarning = critWarn
+				}
+			}
+			if scan.Risk == RiskHigh && preflightWarning == "" {
+				preflightWarning = fmt.Sprintf("[CAUTION] High-risk command detected (%s). Verify this is intentional.", scan.Description)
+			}
+		}
+	}
+
+	// Pre-flight warning confirmation: when a warning was raised and YOLO mode
+	// is not active, ask the user whether to continue. This prevents silent
+	// execution of risky commands without operator awareness.
+	if preflightWarning != "" {
+		yolo := t.IsYoloMode != nil && t.IsYoloMode()
+		if !yolo {
+			resp, qErr := RequestQuestion(ctx, QuestionRequest{
+				Header:   "Pre-flight Warning",
+				Question: preflightWarning + "\n\n이 작업을 계속 진행할까요?",
+				Options: []QuestionOption{
+					{Label: "진행", Description: "경고를 확인하고 계속 실행한다"},
+					{Label: "취소", Description: "이 명령 실행을 중단한다"},
+				},
+			})
+			if qErr == nil && resp.SelectedIndex == 1 {
+				msg := "사용자가 pre-flight 경고 후 실행을 취소했습니다."
+				return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+			}
+			// If the question callback is unavailable (qErr != nil), fall through
+			// and attach the warning to the output as before.
+		}
+	}
+
+	result, execErr := t.runCommand(ctx, exec, cmd, normalized.BecomeMethod, normalized.BecomeUser, privPlan.inline)
+	if execErr != nil {
+		msg := fmt.Sprintf("execution error: %s", execErr)
+		return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+	}
+
+	out := renderExecResult(exec, result)
+	if privPlan.rawInlineApproved {
+		out = "[Security Override] user approved execution of an inline privilege wrapper as written.\n" + out
+	}
+	if preflightWarning != "" {
+		out = preflightWarning + "\n" + out
+	}
+	success := result.ExitCode == 0
+	errMsg := strings.TrimSpace(result.Stderr)
+	if !success && errMsg == "" {
+		errMsg = fmt.Sprintf("command exited with code %d", result.ExitCode)
+	}
+
+	return ToolOutcome{
+		Content:      out,
+		Success:      success,
+		ExitCode:     result.ExitCode,
+		ErrorMessage: errMsg,
+	}, nil
+}
+
+func (t *ShellExecTool) preparePrivilegeExecution(
+	ctx context.Context,
+	command string,
+	explicitMethod string,
+	explicitUser string,
+) (privilegeExecutionPlan, *ToolOutcome, error) {
+	normalized, normErr := normalizePrivilegeCommand(command, explicitMethod, explicitUser)
+	if normErr == nil {
+		return privilegeExecutionPlan{normalized: normalized}, nil, nil
+	}
+
+	msg := fmt.Sprintf("Pre-check failed: %s", normErr)
+	outcome := ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}
+	if !errors.Is(normErr, errEmbeddedPrivilegeWrapper) {
+		return privilegeExecutionPlan{}, &outcome, nil
+	}
+	if strings.TrimSpace(explicitMethod) != "" || strings.TrimSpace(explicitUser) != "" {
+		return privilegeExecutionPlan{}, &outcome, nil
+	}
+
+	approved, err := confirmInlinePrivilegeWrapper(ctx, command)
+	if err != nil {
+		msg = fmt.Sprintf("Pre-check failed: %s. User confirmation is required to run it as written.", normErr)
+		outcome = ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}
+		return privilegeExecutionPlan{}, &outcome, nil
+	}
+	if !approved {
+		msg = "Command canceled: user declined to run the inline privilege wrapper as written."
+		outcome = ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}
+		return privilegeExecutionPlan{}, &outcome, nil
+	}
+
+	return privilegeExecutionPlan{
+		normalized: normalizedPrivilegeCommand{
+			Command: command,
+		},
+		rawInlineApproved: true,
+		inline:            bestEffortEmbeddedPrivilegeSpec(command),
+	}, nil, nil
+}
+
+func confirmInlinePrivilegeWrapper(ctx context.Context, command string) (bool, error) {
+	resp, err := RequestQuestion(ctx, QuestionRequest{
+		Header: "Security Confirmation",
+		Question: "The command contains an inline privilege wrapper (`sudo`, `su`, or `runuser`) inside a pipeline or compound shell expression.\n\n" +
+			"Running it as written bypasses Infractl's managed privilege flow and may expose credentials or widen the privileged scope.\n\n" +
+			"Command:\n" + strings.TrimSpace(command) + "\n\nRun it as written anyway?",
+		Options: []QuestionOption{
+			{Label: "Run Anyway", Description: "Execute the original command string without rewriting the inline privilege wrapper."},
+			{Label: "Cancel", Description: "Block the command and let the agent choose a safer privilege flow."},
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.SelectedIndex == 0, nil
+}
+
+func bestEffortEmbeddedPrivilegeSpec(command string) *embeddedPrivilegeSpec {
+	spec, err := findEmbeddedPrivilegeSpec(command)
+	if err != nil {
+		return nil
+	}
+	return spec
+}
+
+func (t *ShellExecTool) runCommand(ctx context.Context, exec executor.Executor, cmd, becomeMethod, becomeUser string, inline *embeddedPrivilegeSpec) (executor.ExecResult, error) {
+	if becomeMethod != "" {
+		if result, ok := executeWithAcquiredPrivilege(ctx, exec, cmd, becomeUser); ok {
+			return result, nil
+		}
+		if result, ok, err := executeWithBecome(ctx, exec, cmd, becomeMethod, becomeUser, t.PrivilegeCache, t.PromptHandler); ok || err != nil {
+			return result, err
+		}
+	}
+	if inline != nil {
+		if result, ok, err := executeApprovedInlinePrivilege(ctx, exec, cmd, inline.Method, inline.User, t.PrivilegeCache, t.PromptHandler); ok || err != nil {
+			return result, err
+		}
+	}
+
+	result, err := t.executeDirect(ctx, exec, cmd)
+	if err != nil {
+		return result, err
+	}
+
+	if becomeMethod == "" && isPermissionFailure(result, nil) {
+		if retried, ok := executePlainViaAcquiredRoot(ctx, exec, cmd); ok {
+			return retried, nil
+		}
+	}
+
+	return result, nil
+}
+
+func (t *ShellExecTool) executeDirect(ctx context.Context, exec executor.Executor, cmd string) (executor.ExecResult, error) {
+	if se, ok := exec.(executor.StreamExecutor); ok {
+		session, err := se.ExecuteStream(ctx, cmd, func(line string) {
+			EmitOutput(ctx, line)
+		})
+		if err != nil {
+			return executor.ExecResult{}, err
+		}
+		return session.Wait()
+	}
+	return exec.Execute(ctx, cmd)
+}
+
+type stdinRouter struct {
+	mu      sync.Mutex
+	exec    executor.StdinInjector
+	session executor.ExecSession
+	pending []string
+}
+
+func newStdinRouter(exec executor.Executor) *stdinRouter {
+	inj, _ := exec.(executor.StdinInjector)
+	return &stdinRouter{exec: inj}
+}
+
+func (r *stdinRouter) BindSession(session executor.ExecSession) error {
+	r.mu.Lock()
+	r.session = session
+	pending := append([]string(nil), r.pending...)
+	r.pending = nil
+	execInj := r.exec
+	r.mu.Unlock()
+
+	for _, line := range pending {
+		if execInj != nil {
+			if err := execInj.InjectStdin(line); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := session.InjectStdin(line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *stdinRouter) Inject(line string) error {
+	r.mu.Lock()
+	execInj := r.exec
+	session := r.session
+	if execInj == nil && session == nil {
+		r.pending = append(r.pending, line)
+		r.mu.Unlock()
+		return nil
+	}
+	r.mu.Unlock()
+
+	if execInj != nil {
+		return execInj.InjectStdin(line)
+	}
+	return session.InjectStdin(line)
+}
+
+func executeApprovedInlinePrivilege(
+	ctx context.Context,
+	exec executor.Executor,
+	command string,
+	rawMethod string,
+	user string,
+	cache *privilege.Cache,
+	prompter privilege.PromptHandler,
+) (executor.ExecResult, bool, error) {
+	method, ok := privilege.ParseMethod(rawMethod)
+	if !ok || method == privilege.MethodNone {
+		return executor.ExecResult{}, false, nil
+	}
+	if executor.CommandPlatform(exec) == executor.PlatformWindows {
+		return executor.ExecResult{}, false, fmt.Errorf("inline privilege wrappers are not supported on Windows targets")
+	}
+
+	ie, ok := exec.(executor.InteractiveExecutor)
+	if !ok {
+		return executor.ExecResult{}, true, fmt.Errorf("interactive execution is required for inline %s commands", method)
+	}
+
+	target := exec.Target()
+	if strings.TrimSpace(target) == "" {
+		target = "localhost"
+	}
+	user = privilege.NormalizeUser(user)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	pw, _ := cache.Get(target, method, user)
+	router := newStdinRouter(exec)
+	var (
+		chunks       []string
+		prompted     bool
+		promptErr    error
+		promptErrMu  sync.Mutex
+		passwordUsed string
+	)
+
+	setPromptErr := func(err error) {
+		if err == nil {
+			return
+		}
+		promptErrMu.Lock()
+		if promptErr == nil {
+			promptErr = err
+			cancel()
+		}
+		promptErrMu.Unlock()
+	}
+
+	session, err := ie.ExecuteInteractive(runCtx, executor.InteractiveSpec{Command: command, RequirePTY: true}, func(chunk string) {
+		chunks = append(chunks, chunk)
+		if trimmed := strings.TrimSpace(chunk); trimmed != "" {
+			EmitOutput(ctx, trimmed)
+		}
+		if prompted {
+			return
+		}
+		combined := strings.Join(chunks, "")
+		if privilege.CountPromptMatches(method, combined, "") == 0 {
+			return
+		}
+		prompted = true
+		passwordUsed = pw
+		if strings.TrimSpace(passwordUsed) == "" {
+			if prompter == nil {
+				setPromptErr(fmt.Errorf("no privilege prompt handler available"))
+				return
+			}
+			resp, err := prompter.RequestPassword(ctx, privilege.PromptRequest{Target: target, Method: method, User: user})
+			if err != nil {
+				setPromptErr(err)
+				return
+			}
+			if resp.Abort {
+				setPromptErr(fmt.Errorf("privilege prompt aborted"))
+				return
+			}
+			passwordUsed = resp.Password
+		}
+		if err := router.Inject(passwordUsed); err != nil {
+			setPromptErr(err)
+		}
+	})
+	if err != nil {
+		return executor.ExecResult{}, true, err
+	}
+	if err := router.BindSession(session); err != nil {
+		return executor.ExecResult{}, true, err
+	}
+
+	run, waitErr := session.Wait()
+	promptErrMu.Lock()
+	localPromptErr := promptErr
+	promptErrMu.Unlock()
+	if localPromptErr != nil {
+		return executor.ExecResult{}, true, localPromptErr
+	}
+	if waitErr != nil {
+		return executor.ExecResult{}, true, waitErr
+	}
+
+	combined := strings.Join(chunks, "")
+	run.Stdout = privilege.SanitizeOutput(method, combined, "")
+	if privilege.IsAuthFailure(combined, privilege.CountPromptMatches(method, combined, "")) {
+		cache.Delete(target, method, user)
+	}
+	if run.ExitCode == 0 && strings.TrimSpace(passwordUsed) != "" {
+		cache.Set(target, method, user, passwordUsed)
+	}
+	return run, true, nil
+}
+
+func executeWithBecome(
+	ctx context.Context,
+	exec executor.Executor,
+	command string,
+	rawMethod string,
+	user string,
+	cache *privilege.Cache,
+	prompter privilege.PromptHandler,
+) (executor.ExecResult, bool, error) {
+	method, ok := privilege.ParseMethod(rawMethod)
+	if !ok || method == privilege.MethodNone {
+		return executor.ExecResult{}, false, nil
+	}
+	if executor.CommandPlatform(exec) == executor.PlatformWindows {
+		return executor.ExecResult{}, false, fmt.Errorf("privilege escalation is not supported on Windows targets")
+	}
+
+	plan, err := privilege.BuildPlan(method, user, command)
+	if err != nil {
+		return executor.ExecResult{}, true, err
+	}
+
+	// 0) Verify the target user exists before attempting any escalation.
+	//    An unknown user causes su/sudo to fail with misleading auth errors.
+	if plan.UserCheckCommand != "" {
+		check, checkErr := exec.Execute(ctx, plan.UserCheckCommand)
+		if checkErr != nil || check.ExitCode != 0 {
+			msg := fmt.Sprintf("privilege escalation aborted: user %q does not exist on this host", plan.User)
+			return executor.ExecResult{Stdout: msg, ExitCode: 1}, true, nil
+		}
+	}
+
+	// 1) su: try runuser(1) first — works without a password when running as root.
+	if method == privilege.MethodSU && plan.NonInteractiveRun != "" {
+		run, runErr := exec.Execute(ctx, plan.NonInteractiveRun)
+		if runErr == nil && run.ExitCode == 0 {
+			return run, true, nil
+		}
+	}
+
+	// 2) sudo: validate non-interactive access, then run without a password.
+	if method == privilege.MethodSudo && plan.ValidateCommand != "" {
+		validate, _ := exec.Execute(ctx, plan.ValidateCommand)
+		if privilege.ClassifyValidateResult(validate) == privilege.ValidateAllowed {
+			run, runErr := exec.Execute(ctx, plan.NonInteractiveRun)
+			return run, true, runErr
+		}
+	}
+
+	ie, ok := exec.(executor.InteractiveExecutor)
+	if !ok {
+		// No interactive executor — try profile-source fallback as last resort.
+		if plan.ProfileFallbackRun != "" {
+			run, runErr := exec.Execute(ctx, plan.ProfileFallbackRun)
+			if runErr == nil && run.ExitCode == 0 {
+				run.Stdout = "[Profile Fallback: ran as current user with target user's environment]\n" + run.Stdout
+				return run, true, nil
+			}
+		}
+		return executor.ExecResult{}, true, fmt.Errorf("interactive execution is required for %s but executor does not support it", method)
+	}
+
+	target := exec.Target()
+	if strings.TrimSpace(target) == "" {
+		target = "localhost"
+	}
+	pw, _ := cache.Get(target, method, plan.User)
+	if strings.TrimSpace(pw) == "" {
+		if prompter == nil {
+			return executor.ExecResult{}, true, fmt.Errorf("no privilege prompt handler available")
+		}
+		resp, err := prompter.RequestPassword(ctx, privilege.PromptRequest{Target: target, Method: method, User: plan.User})
+		if err != nil {
+			return executor.ExecResult{}, true, err
+		}
+		if resp.Abort {
+			return executor.ExecResult{}, true, fmt.Errorf("privilege prompt aborted")
+		}
+		pw = resp.Password
+	}
+
+	router := newStdinRouter(exec)
+	var chunks []string
+	session, err := ie.ExecuteInteractive(ctx, executor.InteractiveSpec{Command: plan.InteractiveRun, RequirePTY: plan.RequirePTY}, func(chunk string) {
+		chunks = append(chunks, chunk)
+		if trimmed := strings.TrimSpace(chunk); trimmed != "" {
+			EmitOutput(ctx, trimmed)
+		}
+		if plan.PromptToken != "" && strings.Contains(chunk, plan.PromptToken) {
+			_ = router.Inject(pw)
+		}
+	})
+	if err != nil {
+		return executor.ExecResult{}, true, err
+	}
+	if err := router.BindSession(session); err != nil {
+		return executor.ExecResult{}, true, err
+	}
+
+	run, waitErr := session.Wait()
+	if waitErr != nil {
+		return executor.ExecResult{}, true, waitErr
+	}
+
+	combined := strings.Join(chunks, "")
+	run.Stdout = privilege.SanitizeOutput(method, combined, plan.PromptToken)
+	if privilege.IsAuthFailure(combined, privilege.CountPromptMatches(method, combined, plan.PromptToken)) {
+		cache.Delete(target, method, plan.User)
+	}
+	if run.ExitCode == 0 {
+		cache.Set(target, method, plan.User, pw)
+	}
+	return run, true, nil
+}
+
+func renderExecResult(exec executor.Executor, result executor.ExecResult) string {
+	lines := []string{
+		fmt.Sprintf("Execution Context: %s", executor.ExecutionContextLabel(exec)),
+		fmt.Sprintf("[Exit Code: %d]", result.ExitCode),
+	}
+	stdout := strings.TrimSpace(result.Stdout)
+	stderr := strings.TrimSpace(result.Stderr)
+	if stdout != "" {
+		lines = append(lines, stdout)
+	}
+	if stderr != "" {
+		lines = append(lines, "[stderr]", stderr)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}

@@ -1,0 +1,377 @@
+== ENV ==
+OS_USER=oracle
+ORACLE_HOME=/home/oracle/app/oracle/product/23.0.0
+ORACLE_SID=AI26
+SQLPLUS=/home/oracle/app/oracle/product/23.0.0/bin/sqlplus
+TKPROF=/home/oracle/app/oracle/product/23.0.0/bin/tkprof
+RUN_ID=20260421071243
+TRACE_DIR=/home/oracle/app/oracle/diag/rdbms/ai26/AI26/trace
+DB_HOST=192.168.0.120
+SELECTED_PDB=AI_DB
+DEFAULT_TABLESPACE=AIMACT
+== ROOT/PDB DISCOVERY ==
+
+NAME			       CDB OPEN_MODE		LOG_MODE
+------------------------------ --- -------------------- ------------
+AI26			       YES READ WRITE		NOARCHIVELOG
+
+    CON_ID NAME 			  OPEN_MODE	       RES
+---------- ------------------------------ -------------------- ---
+	 2 PDB$SEED			  READ ONLY	       NO
+	 4 AI_DB			  READ WRITE	       NO
+== LAB SETUP ==
+
+Session altered.
+
+
+PL/SQL procedure successfully completed.
+
+
+User created.
+
+
+Grant succeeded.
+
+
+Table created.
+
+Elapsed: 00:00:00.12
+
+PL/SQL procedure successfully completed.
+
+Elapsed: 00:00:00.07
+
+TUNE_LAB_ROWS
+-------------
+       120000
+
+1 row selected.
+
+Elapsed: 00:00:00.04
+== TRACE_BEFORE_SQLPLUS ==
+
+Session altered.
+
+Elapsed: 00:00:00.00
+
+Session altered.
+
+Elapsed: 00:00:00.00
+
+Session altered.
+
+Elapsed: 00:00:00.00
+
+Session altered.
+
+Elapsed: 00:00:00.00
+
+MISS_COUNT
+----------
+	 0
+
+1 row selected.
+
+Elapsed: 00:00:00.02
+
+Session altered.
+
+Elapsed: 00:00:00.00
+TRACE_FILE_BEFORE=/home/oracle/app/oracle/diag/rdbms/ai26/AI26/trace/AI26_ora_419339_INFRACTL_BEFORE_20260421071243.trc
+TKPROF_FILE_BEFORE=/tmp/infractl_oracle_tune_20260421071243/BEFORE.tkprof.txt
+== TKPROF_BEFORE_TARGET_SQL ==
+Trace file: /home/oracle/app/oracle/diag/rdbms/ai26/AI26/trace/AI26_ora_419339_INFRACTL_BEFORE_20260421071243.trc
+Trace file version:
+   Version 23.26.1.0.0
+   Build label:    RDBMS_23.26.1.0.0DBRU_LINUX.X64_260116.1
+Sort options: exeela  fchela  prsela  
+********************************************************************************
+count    = number of times OCI procedure was executed
+cpu      = cpu time in seconds executing 
+elapsed  = elapsed time in seconds executing
+disk     = number of physical reads of buffers from disk
+query    = number of buffers gotten for consistent read
+current  = number of buffers gotten in current mode (usually for update)
+rows     = number of rows processed by the fetch or execute call
+--------------------------------------------------------------------------------
+
+*** SESSION ID:(167.31560) 2026-04-21T07:12:44.354921+09:00
+
+********************************************************************************
+
+SQL ID: 2wjd4ghg83xd0 Plan Hash: 709906913
+
+SELECT /* INFRACTL_BEFORE_20260421071243 */ COUNT(*) AS miss_count
+FROM TUNE_LAB
+WHERE lookup_key = -1
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        1      0.00       0.00          0          0          1           0
+Execute      1      0.00       0.00          0          0          0           0
+Fetch        2      0.01       0.01          0       3643          0           1
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        4      0.01       0.01          0       3643          1           1
+
+Misses in library cache during parse: 1
+Optimizer mode: ALL_ROWS
+Parsing user id: 155  
+Number of plan statistics captured: 1
+
+Rows (1st) Rows (avg) Rows (max)  Row Source Operation
+---------- ---------- ----------  ---------------------------------------------------
+         1          1          1  SORT AGGREGATE (cr=3643 pr=0 pw=0 time=14396 us starts=1 direct read=0 direct write=0)
+         0          0          0   TABLE ACCESS FULL TUNE_LAB (cr=3643 pr=0 pw=0 time=14390 us starts=1 direct read=0 direct write=0 cost=1006 size=48 card=12)
+
+********************************************************************************
+
+SQL ID: dbmdavb6ydwb4 Plan Hash: 0
+
+ALTER SESSION SET SQL_TRACE=FALSE
+
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        1      0.00       0.00          0          0          0           0
+Execute      1      0.00       0.00          0          0          0           0
+Fetch        0      0.00       0.00          0          0          0           0
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        2      0.00       0.00          0          0          0           0
+
+Misses in library cache during parse: 0
+Parsing user id: 155  
+
+
+
+********************************************************************************
+
+OVERALL TOTALS FOR ALL NON-RECURSIVE STATEMENTS
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        2      0.00       0.00          0          0          1           0
+Execute      2      0.00       0.00          0          0          0           0
+Fetch        2      0.01       0.01          0       3643          0           1
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        6      0.01       0.01          0       3643          1           1
+
+Misses in library cache during parse: 1
+
+
+OVERALL TOTALS FOR ALL RECURSIVE STATEMENTS
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        8      0.00       0.00          0          0          0           0
+Execute     13      0.00       0.00          6          2         21           1
+Fetch       24      0.00       0.00          0         41          0          12
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total       45      0.00       0.00          6         43         21          13
+
+Misses in library cache during parse: 8
+Misses in library cache during execute: 8
+
+    2  user  SQL statements in session.
+    8  internal SQL statements in session.
+   10  SQL statements in session.
+********************************************************************************
+Trace file: /home/oracle/app/oracle/diag/rdbms/ai26/AI26/trace/AI26_ora_419339_INFRACTL_BEFORE_20260421071243.trc
+Trace file compatibility: 12.2.0.0
+Sort options: exeela  fchela  prsela  
+       1  session in tracefile.
+       2  user  SQL statements in trace file.
+       8  internal SQL statements in trace file.
+      10  SQL statements in trace file.
+      10  unique SQL statements in trace file.
+     164  lines in trace file.
+       0  elapsed seconds in trace file.
+
+
+== TUNING ==
+
+Index created.
+
+Elapsed: 00:00:00.06
+
+PL/SQL procedure successfully completed.
+
+Elapsed: 00:00:00.19
+== TRACE_AFTER_SQLPLUS ==
+
+Session altered.
+
+Elapsed: 00:00:00.00
+
+Session altered.
+
+Elapsed: 00:00:00.00
+
+Session altered.
+
+Elapsed: 00:00:00.00
+
+Session altered.
+
+Elapsed: 00:00:00.00
+
+MISS_COUNT
+----------
+	 0
+
+1 row selected.
+
+Elapsed: 00:00:00.00
+
+Session altered.
+
+Elapsed: 00:00:00.01
+TRACE_FILE_AFTER=/home/oracle/app/oracle/diag/rdbms/ai26/AI26/trace/AI26_ora_419354_INFRACTL_AFTER_20260421071243.trc
+TKPROF_FILE_AFTER=/tmp/infractl_oracle_tune_20260421071243/AFTER.tkprof.txt
+== TKPROF_AFTER_TARGET_SQL ==
+Trace file: /home/oracle/app/oracle/diag/rdbms/ai26/AI26/trace/AI26_ora_419354_INFRACTL_AFTER_20260421071243.trc
+Trace file version:
+   Version 23.26.1.0.0
+   Build label:    RDBMS_23.26.1.0.0DBRU_LINUX.X64_260116.1
+Sort options: exeela  fchela  prsela  
+********************************************************************************
+count    = number of times OCI procedure was executed
+cpu      = cpu time in seconds executing 
+elapsed  = elapsed time in seconds executing
+disk     = number of physical reads of buffers from disk
+query    = number of buffers gotten for consistent read
+current  = number of buffers gotten in current mode (usually for update)
+rows     = number of rows processed by the fetch or execute call
+--------------------------------------------------------------------------------
+
+*** SESSION ID:(167.37953) 2026-04-21T07:12:44.700364+09:00
+
+********************************************************************************
+
+SQL ID: 1a791gbxbxyhu Plan Hash: 3433411444
+
+SELECT /* INFRACTL_AFTER_20260421071243 */ COUNT(*) AS miss_count
+FROM TUNE_LAB
+WHERE lookup_key = -1
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        1      0.00       0.00          0          1          0           0
+Execute      1      0.00       0.00          0          0          0           0
+Fetch        2      0.00       0.00          0          2          0           1
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        4      0.00       0.00          0          3          0           1
+
+Misses in library cache during parse: 1
+Optimizer mode: ALL_ROWS
+Parsing user id: 155  
+Number of plan statistics captured: 1
+
+Rows (1st) Rows (avg) Rows (max)  Row Source Operation
+---------- ---------- ----------  ---------------------------------------------------
+         1          1          1  SORT AGGREGATE (cr=2 pr=0 pw=0 time=85 us starts=1 direct read=0 direct write=0)
+         0          0          0   INDEX RANGE SCAN IX_TUNE_LAB_LOOKUP (cr=2 pr=0 pw=0 time=79 us starts=1 direct read=0 direct write=0 cost=1 size=48 card=12)(object id 124638)
+
+********************************************************************************
+
+SQL ID: dbmdavb6ydwb4 Plan Hash: 0
+
+ALTER SESSION SET SQL_TRACE=FALSE
+
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        1      0.00       0.00          0          0          0           0
+Execute      1      0.00       0.00          0          0          0           0
+Fetch        0      0.00       0.00          0          0          0           0
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        2      0.00       0.00          0          0          0           0
+
+Misses in library cache during parse: 0
+Parsing user id: 155  
+
+
+
+********************************************************************************
+
+OVERALL TOTALS FOR ALL NON-RECURSIVE STATEMENTS
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        2      0.00       0.00          0          1          0           0
+Execute      2      0.00       0.00          0          0          0           0
+Fetch        2      0.00       0.00          0          2          0           1
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        6      0.00       0.00          0          3          0           1
+
+Misses in library cache during parse: 1
+
+
+OVERALL TOTALS FOR ALL RECURSIVE STATEMENTS
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        0      0.00       0.00          0          0          0           0
+Execute      0      0.00       0.00          0          0          0           0
+Fetch        0      0.00       0.00          0          0          0           0
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        0      0.00       0.00          0          0          0           0
+
+Misses in library cache during parse: 0
+
+    2  user  SQL statements in session.
+    0  internal SQL statements in session.
+    2  SQL statements in session.
+********************************************************************************
+Trace file: /home/oracle/app/oracle/diag/rdbms/ai26/AI26/trace/AI26_ora_419354_INFRACTL_AFTER_20260421071243.trc
+Trace file compatibility: 12.2.0.0
+Sort options: exeela  fchela  prsela  
+       1  session in tracefile.
+       2  user  SQL statements in trace file.
+       0  internal SQL statements in trace file.
+       2  SQL statements in trace file.
+       2  unique SQL statements in trace file.
+      57  lines in trace file.
+       0  elapsed seconds in trace file.
+
+
+== DB_HEALTH_CHECK ==
+-- INSTANCE
+
+INSTANCE_NAME	     STATUS	  DATABASE_STATUS    HOST_NAME
+-------------------- ------------ ------------------ ----------------------------------------------------------------
+AI26		     OPEN	  ACTIVE	     ai26
+-- DATABASE
+
+NAME			       CDB OPEN_MODE		DATABASE_ROLE	 LOG_MODE
+------------------------------ --- -------------------- ---------------- ------------
+AI26			       YES READ WRITE		PRIMARY 	 NOARCHIVELOG
+-- PDBS
+
+    CON_ID NAME 			  OPEN_MODE	       RES
+---------- ------------------------------ -------------------- ---
+	 2 PDB$SEED			  READ ONLY	       NO
+	 4 AI_DB			  READ WRITE	       NO
+-- PDB TABLESPACE TOP
+
+TABLESPACE_NAME 		 USED_PCT
+------------------------------ ----------
+VIDEO				     14.6
+AIMACT				     11.6
+WEBSEARCH			      6.8
+ASSET				      4.9
+AI_DAT				      4.5
+-- ACTIVE USER SESSIONS
+
+ACTIVE_USER_SESSIONS
+--------------------
+		   1
+-- LOCK WAITS
+
+LOCK_WAITS
+----------
+	 0
+== CLEANUP ==
+SCENARIO_STATUS=OK
+ARTIFACT_DIR=/tmp/infractl_oracle_tune_20260421071243
+
+[stderr]

@@ -1,0 +1,227 @@
+// Package query
+// File: hook_metadata.go
+// Description: Hook matcher 를 위한 도구/인자 기반 메타데이터 계산
+// Responsibility: tool name + args 로부터 HookMetadata(ReadOnly/DiskModifying/NetworkAccess/DangerScore) 산출
+
+// Ported from: internal/preflight/shell_precheck.go (isReadOnlyShellCommand 의 핵심 로직만 간추림).
+// 핵심 패턴: 셸 계열 도구는 첫 단어 기준 allow-list, 그 외 도구는 이름 매핑.
+
+package query
+
+import (
+	"context"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/executor/shell"
+	_ "github.com/yourorg/infractl/internal/executor/shell/bash"       // register bash provider
+	_ "github.com/yourorg/infractl/internal/executor/shell/powershell" // register powershell provider
+	"github.com/yourorg/infractl/internal/hooks"
+)
+
+// shellReadOnlyCommands 는 출력/조회만 하는 대표 셸 명령어 집합이다.
+// 완전한 목록은 아니며 hook matcher 용 best-effort 힌트다. 정밀 검증은 shell_validator 프롬프트가 담당.
+var shellReadOnlyCommands = map[string]bool{
+	"awk": true, "cat": true, "df": true, "du": true, "echo": true, "env": true,
+	"find": true, "free": true, "grep": true, "head": true, "hostname": true,
+	"id": true, "ls": true, "netstat": true, "printenv": true, "ps": true,
+	"pwd": true, "ss": true, "stat": true, "tail": true, "test": true,
+	"uname": true, "uptime": true, "which": true, "whoami": true,
+	"dir": true, "gci": true, "get-childitem": true, "get-content": true,
+	"get-item": true, "measure-object": true, "select-object": true,
+	"sort-object": true, "test-path": true, "where-object": true,
+}
+
+// networkToolNames 는 네트워크 I/O 가 수반되는 도구 이름이다.
+var networkToolNames = map[string]bool{
+	"http_request": true,
+	"http_fetch":   true,
+	"web_fetch":    true,
+	"web_search":   true,
+	"curl":         true,
+}
+
+// diskModifyingToolNames 는 파일시스템 쓰기가 명백한 도구 이름이다.
+var diskModifyingToolNames = map[string]bool{
+	"file_write":  true,
+	"file_edit":   true,
+	"file_append": true,
+	"file_delete": true,
+	"write":       true,
+	"edit":        true,
+}
+
+// readOnlyToolNames 는 파일시스템 읽기만 하는 도구 이름이다.
+var readOnlyToolNames = map[string]bool{
+	"file_read":         true,
+	"ask_user_question": true,
+	"read":              true,
+	"glob":              true,
+	"grep":              true,
+	"ls":                true,
+}
+
+// ComputeMetadata 는 tool 이름과 파싱된 인자로부터 HookMetadata 를 산출한다.
+// hook matcher 에 넘겨줄 힌트 용도로, 완전한 분류기가 아니다.
+func ComputeMetadata(toolName string, args map[string]any) hooks.HookMetadata {
+	name := strings.ToLower(toolName)
+
+	if isShellTool(name) {
+		return shellMetadata(args)
+	}
+
+	md := hooks.HookMetadata{}
+	switch {
+	case networkToolNames[name]:
+		md.NetworkAccess = true
+		md.ReadOnly = true // 네트워크 조회는 로컬 상태를 변경하지 않으므로 ReadOnly 로 간주
+		md.DangerScore = "low"
+	case diskModifyingToolNames[name]:
+		md.DiskModifying = true
+		md.DangerScore = "medium"
+	case readOnlyToolNames[name]:
+		md.ReadOnly = true
+		md.DangerScore = "low"
+	}
+	return md
+}
+
+// isShellTool 은 셸 실행 도구인지 확인한다.
+func isShellTool(name string) bool {
+	switch name {
+	case "bash", "shell_exec", "shell", "exec":
+		return true
+	}
+	return false
+}
+
+// shellMetadata 는 셸 도구의 command 인자로부터 AST 분석 기반 메타데이터를 산출한다.
+// provider.Analyze 실패 시 보수적으로 DiskModifying=true, DangerScore="medium" 반환 (FAIL-CLOSED).
+func shellMetadata(args map[string]any) hooks.HookMetadata {
+	cmd, _ := args["command"].(string)
+	if cmd == "" {
+		return hooks.HookMetadata{DiskModifying: true, DangerScore: "medium"}
+	}
+	if isShellCommandReadOnly(cmd) {
+		return hooks.HookMetadata{ReadOnly: true, DangerScore: "low"}
+	}
+
+	// hook metadata는 항상 bash 의미론으로 분석 (인프라 명령은 POSIX 스타일)
+	p, err := shell.Lookup("bash")
+	if err != nil {
+		return hooks.HookMetadata{DiskModifying: true, DangerScore: "medium"}
+	}
+
+	analysis, err := p.Analyze(context.Background(), cmd)
+	if err != nil {
+		return hooks.HookMetadata{DiskModifying: true, DangerScore: "medium"}
+	}
+
+	if analysis.IsReadOnly {
+		return hooks.HookMetadata{ReadOnly: true, DangerScore: "low"}
+	}
+
+	score := "medium"
+	if analysis.DangerScore >= 70 {
+		score = "high"
+	} else if analysis.DangerScore < 40 {
+		score = "low"
+	}
+	return hooks.HookMetadata{DiskModifying: true, DangerScore: score}
+}
+
+// isShellCommandReadOnly 는 command 의 첫 단어가 read-only allow-list 에 있는지 본다.
+// 파이프/세미콜론으로 연결된 다중 세그먼트는 각 세그먼트 첫 단어가 모두 allow-list 여야 한다.
+func isShellCommandReadOnly(command string) bool {
+	if hasShellWriteRedirection(command) {
+		return false
+	}
+	for _, seg := range splitShellSegments(command) {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		fields := strings.Fields(seg)
+		if len(fields) == 0 {
+			continue
+		}
+		head := strings.ToLower(commandBase(fields[0]))
+		if !shellReadOnlyCommands[head] {
+			return false
+		}
+	}
+	return true
+}
+
+// splitShellSegments 는 |, &&, ||, ; 로 명령을 분할한다. 따옴표 무시의 단순 분할이다.
+func splitShellSegments(command string) []string {
+	var parts []string
+	start := 0
+	inSingle := false
+	inDouble := false
+	escaped := false
+
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inDouble && ch == '`' {
+			escaped = true
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if inSingle || inDouble {
+			continue
+		}
+		if strings.HasPrefix(command[i:], "&&") || strings.HasPrefix(command[i:], "||") {
+			parts = append(parts, command[start:i])
+			i++
+			start = i + 1
+			continue
+		}
+		if ch == ';' || ch == '|' {
+			parts = append(parts, command[start:i])
+			start = i + 1
+		}
+	}
+	parts = append(parts, command[start:])
+	return parts
+}
+
+// commandBase 는 경로 형태의 명령에서 마지막 요소만 뽑는다 (/usr/bin/ls → ls).
+func commandBase(s string) string {
+	if idx := strings.LastIndex(s, "/"); idx >= 0 {
+		s = s[idx+1:]
+	}
+	return s
+}
+
+// hasShellWriteRedirection 은 > 또는 >> 가 있고 /dev/null 이 아니면 true.
+func hasShellWriteRedirection(command string) bool {
+	// 단순 문자열 탐색 — heredoc(<<) 과 비교(<) 는 무시.
+	i := 0
+	for i < len(command) {
+		ch := command[i]
+		if ch == '>' {
+			// /dev/null 리다이렉션은 무시
+			rest := strings.TrimSpace(command[i+1:])
+			rest = strings.TrimPrefix(rest, ">")
+			rest = strings.TrimSpace(rest)
+			if strings.HasPrefix(rest, "/dev/null") {
+				i++
+				continue
+			}
+			return true
+		}
+		i++
+	}
+	return false
+}

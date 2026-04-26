@@ -1,0 +1,269 @@
+[setup] db=C:\Dev\Infractl\bin\.infractl\infractl.db server=a100 host=192.168.0.3 user=koreaf16 log=scratch\k8s_a100_verify_20260419_162000.log
+
+[protected candidates: vllm/llama]
+dbs           pod/llama-cpp-qwen35-122b-6b9778dd64-5ps6q     1/1     Running   3 (17h ago)    17h     192.168.208.166   aisvr   <none>           <none>
+dbs           pod/vllm-gemma4-26b-awq-fp8-595cb8cccf-hkzk8   1/1     Running   0              23h     192.168.208.169   aisvr   <none>           <none>
+dbs           deployment.apps/llama-cpp-gemma4-31b-opus-distill   0/0     0            0           28h     llama-cpp                  ghcr.io/ggml-org/llama.cpp:server-cuda                app=llama-cpp-gemma4-31b-opus-distill
+dbs           deployment.apps/llama-cpp-qwen35-122b               1/1     1            1           26h     llama-cpp                  ghcr.io/ggml-org/llama.cpp:server-cuda                app=llama-cpp-qwen35-122b
+dbs           deployment.apps/vllm-gemma4-26b-awq-fp8             1/1     1            1           30h     vllm                       vllm-gemma4:latest                                    app=vllm-gemma4-26b-awq-fp8
+dbs           deployment.apps/vllm-gemma4-31b-awq-4bit-32k        0/0     0            0           30h     vllm                       vllm/vllm-openai:gemma4                               app=vllm-gemma4-31b-awq-4bit-32k
+dbs           deployment.apps/vllm-qwen35-27b                     0/0     0            0           47h     qwen35-27b                 vllm/vllm-openai:latest                               app=vllm-qwen35-27b
+dbs           deployment.apps/vllm-qwen35-35b                     0/0     0            0           32h     vllm                       vllm/vllm-openai:v0.19.0                              app=vllm-qwen35-35b
+dbs           deployment.apps/vllm-qwen36-35b                     0/0     0            0           47h     vllm                       vllm/vllm-openai:latest                               app=vllm-qwen36-35b
+dbs           service/llama-cpp-qwen35-122b-svc              NodePort    10.96.16.99      <none>        8000:30434/TCP           26h     app=llama-cpp-qwen35-122b
+dbs           service/qwen35-27b-service                     NodePort    10.96.199.9      <none>        80:30447/TCP             4d21h   app=vllm-qwen35-27b
+dbs           service/qwen35-35b-service                     NodePort    10.101.77.197    <none>        80:30446/TCP             32h     app=vllm-qwen35-35b
+dbs           service/vllm-1-7b-service                      NodePort    10.101.56.110    <none>        8000:30439/TCP           6d5h    app=vllm-1-7b
+dbs           service/vllm-gemma4-26b-awq-fp8-service        NodePort    10.99.50.228     <none>        80:30435/TCP             30h     app=vllm-gemma4-26b-awq-fp8
+dbs           service/vllm-gemma4-31b-awq-4bit-32k-service   NodePort    10.101.13.162    <none>        8000:30443/TCP           30h     app=vllm-gemma4-31b-awq-4bit-32k
+dbs           service/vllm-gemma4-31b-awq-gpu2-service       NodePort    10.107.126.104   <none>        8000:30438/TCP           41h     app=vllm-gemma4-31b-awq-gpu2
+dbs           service/vllm-gemma4-gpu2-128k-service          NodePort    10.101.139.119   <none>        8000:30440/TCP           41h     app=vllm-gemma4-gpu2-128k
+dbs           service/vllm-gpt-oss-20b-service               NodePort    10.111.46.98     <none>        8000:30444/TCP           47h     app=vllm-gpt-oss-20b
+
+[summary]
+- PASS create labeled configmap
+  command/tool: kubectl -n infractl-k8s-test-162003 create configmap infractl-k8s-cm --from-literal=probe=ok
+  output:
+    Execution Context: a100 (bash over ssh)
+    [Exit Code: 0]
+    configmap/infractl-k8s-cm created
+- PASS create pause deployment
+  command/tool: kubectl -n infractl-k8s-test-162003 create deployment infractl-k8s-deploy --image=registry.k8s.io/pause:3.9 --replicas=1
+  output:
+    Execution Context: a100 (bash over ssh)
+    [Exit Code: 0]
+    deployment.apps/infractl-k8s-deploy created
+- PASS create test namespace
+  command/tool: kubectl create namespace infractl-k8s-test-162003
+  output:
+    Execution Context: a100 (bash over ssh)
+    [Exit Code: 0]
+    namespace/infractl-k8s-test-162003 created
+- PASS describe safe pod
+  command/tool: k8s_query {"action":"describe","name":"calico-kube-controllers-658d97c59c-w4np8","namespace":"kube-system","resource":"pod","target":"a100"}
+  output:
+    Name:                 calico-kube-controllers-658d97c59c-w4np8
+    Namespace:            kube-system
+    Priority:             2000000000
+    Priority Class Name:  system-cluster-critical
+    Service Account:      calico-kube-controllers
+    Node:                 aisvr/172.16.100.100
+    Start Time:           Tue, 31 Mar 2026 18:01:25 +0900
+    Labels:               k8s-app=calico-kube-controllers
+                          pod-template-hash=658d97c59c
+    Annotations:          cni.projectcalico.org/containerID: 164f842e3c7a1f61ca71c7a9d5dadd907bd8d56223b22d773ddbc9f4487e97cb
+                          cni.projectcalico.org/podIP: 192.168.208.188/32
+                          cni.projectcalico.org/podIPs: 192.168.208.188/32
+    Status:               Running
+    IP:                   192.168.208.188
+    IPs:
+      IP:           192.168.208.188
+    Controlled By:  ReplicaSet/calico-kube-controllers-658d97c59c
+    Containers:
+      calico-kube-controllers:
+        Container ID:   containerd://e742140e871d325faae90642a94ec5bfe47300be93806c37c205ed054d574cae
+        Image:          docker.io/calico/kube-controllers:v3.25.0
+        Image ID:       docker.io/calico/kube-controllers@sha256:c45af3a9692d87a527451cf544557138fedf86f92b6e39bf2003e2fdb848dce3
+        Port:           <none>
+        Host Port:      <none>
+        State:          Running
+          Started:      Sun, 05 Apr 2026 20:21:29 +0900
+        Last State:     Terminated
+          Reason:       Unknown
+          Exit Code:    255
+          Started:      Sun, 05 Apr 2026 16:50:56 +0900
+          Finished:     Sun, 05 Apr 2026 20:20:20 +0900
+        Ready:          True
+        Restart Count:  9
+        Liveness:       exec [/usr/bin/check-status -l] delay=10s timeout=10s period=10s #success=1 #failure=6
+        Readiness:      exec [/usr/bin/check-status -r] delay=0s timeout=1s period=10s #success=1 #failure=3
+        Environment:
+          ENABLED_CONTROLLERS:  node
+          DATASTORE_TYPE:       kubernetes
+        Mounts:
+          /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-pfm4c (ro)
+    Conditions:
+      Type                        Status
+      PodReadyToStartContainers   True 
+      Initialized                 True 
+      Ready                       True 
+      ContainersReady             True 
+      PodScheduled                True 
+    Volumes:
+      kube-api-access-pfm4c:
+        Type:                    Projected (a volume that contains injected data from multiple sources)
+        TokenExpirationSeconds:  3607
+        ConfigMapName:           kube-root-ca.crt
+        ConfigMapOptional:       <nil>
+        DownwardAPI:             true
+    QoS Class:                   BestEffort
+    Node-Selectors:              kubernetes.io/os=linux
+    Tolerations:                 CriticalAddonsOnly op=Exists
+                                 node-role.kubernetes.io/control-plane:NoSchedule
+                                 node-role.kubernetes.io/master:NoSchedule
+                                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                                 node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+    Events:                      <none>
+- PASS describe test deployment
+  command/tool: k8s_query {"action":"describe","name":"infractl-k8s-deploy","namespace":"infractl-k8s-test-162003","resource":"deployment","target":"a100"}
+  output:
+    Name:                   infractl-k8s-deploy
+    Namespace:              infractl-k8s-test-162003
+    CreationTimestamp:      Sun, 19 Apr 2026 16:20:05 +0900
+    Labels:                 app=infractl-k8s-deploy
+    Annotations:            deployment.kubernetes.io/revision: 1
+    Selector:               app=infractl-k8s-deploy
+    Replicas:               1 desired | 1 updated | 1 total | 0 available | 1 unavailable
+    StrategyType:           RollingUpdate
+    MinReadySeconds:        0
+    RollingUpdateStrategy:  25% max unavailable, 25% max surge
+    Pod Template:
+      Labels:  app=infractl-k8s-deploy
+      Containers:
+       pause:
+        Image:        registry.k8s.io/pause:3.9
+        Port:         <none>
+        Host Port:    <none>
+        Environment:  <none>
+        Mounts:       <none>
+      Volumes:        <none>
+    Conditions:
+      Type           Status  Reason
+      ----           ------  ------
+      Progressing    True    NewReplicaSetAvailable
+      Available      False   MinimumReplicasUnavailable
+    OldReplicaSets:  <none>
+    NewReplicaSet:   infractl-k8s-deploy-588b6fb47c (1/1 replicas created)
+    Events:
+      Type    Reason             Age   From                   Message
+      ----    ------             ----  ----                   -------
+      Normal  ScalingReplicaSet  1s    deployment-controller  Scaled up replica set infractl-k8s-deploy-588b6fb47c to 1
+      Normal  ScalingReplicaSet  1s    deployment-controller  Scaled down replica set infractl-k8s-deploy-588b6fb47c to 0 from 1
+      Normal  ScalingReplicaSet  0s    deployment-controller  Scaled up replica set infractl-k8s-deploy-588b6fb47c to 1 from 0
+- PASS get configmap by selector
+  command/tool: k8s_query {"action":"get","namespace":"infractl-k8s-test-162003","output":"wide","resource":"configmaps","selector":"infractl-test=true","target":"a100"}
+  output:
+    NAME              DATA   AGE
+    infractl-k8s-cm   1      1s
+- PASS get events
+  command/tool: k8s_query {"action":"get","namespace":"all","output":"wide","resource":"events","target":"a100"}
+  output:
+    [stderr]
+    No resources found
+- PASS get namespaces
+  command/tool: k8s_query {"action":"get","output":"wide","resource":"namespaces","target":"a100"}
+  output:
+    NAME              STATUS   AGE
+    dbs               Active   17d
+    default           Active   18d
+    kube-node-lease   Active   18d
+    kube-public       Active   18d
+    kube-system       Active   18d
+    searxng           Active   6d16h
+- PASS get nodes wide
+  command/tool: k8s_query {"action":"get","output":"wide","resource":"nodes","target":"a100"}
+  output:
+    NAME    STATUS   ROLES           AGE   VERSION    INTERNAL-IP      EXTERNAL-IP   OS-IMAGE                      KERNEL-VERSION                 CONTAINER-RUNTIME
+    aisvr   Ready    control-plane   18d   v1.29.15   172.16.100.100   <none>        Rocky Linux 9.7 (Blue Onyx)   5.14.0-611.36.1.el9_7.x86_64   containerd://2.2.2
+- PASS get test deployment
+  command/tool: k8s_query {"action":"get","namespace":"infractl-k8s-test-162003","output":"wide","resource":"deployments","target":"a100"}
+  output:
+    NAME                  READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES                      SELECTOR
+    infractl-k8s-deploy   0/1     1            0           0s    pause        registry.k8s.io/pause:3.9   app=infractl-k8s-deploy
+- PASS label configmap
+  command/tool: kubectl -n infractl-k8s-test-162003 label configmap infractl-k8s-cm infractl-test=true
+  output:
+    Execution Context: a100 (bash over ssh)
+    [Exit Code: 0]
+    configmap/infractl-k8s-cm labeled
+- PASS logs missing name validation
+  command/tool: k8s_query {"action":"logs","namespace":"infractl-k8s-test-162003","target":"a100"}
+  output:
+    error: pod name is required for logs action
+- PASS logs safe pod
+  command/tool: k8s_query {"action":"logs","name":"calico-kube-controllers-658d97c59c-w4np8","namespace":"kube-system","tail_lines":20,"target":"a100"}
+  output:
+    2026-04-18 23:54:43.735 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-18 23:54:43.742 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 00:51:12.569 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 00:51:12.576 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 01:42:56.410 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 01:42:56.416 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 02:36:03.292 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 02:36:03.299 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 03:34:03.367 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 03:34:03.374 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 04:04:12.210 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 04:04:12.217 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 04:48:22.746 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 04:48:22.753 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 05:29:44.367 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 05:29:44.374 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 06:02:47.671 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 06:02:47.678 [INFO][1] resources.go 350: Main client watcher loop
+    2026-04-19 07:02:15.998 [INFO][1] resources.go 378: Terminating main client watcher loop
+    2026-04-19 07:02:16.006 [INFO][1] resources.go 350: Main client watcher loop
+- PASS multi get pods/services/deployments
+  command/tool: k8s_query {"action":"get","namespace":"all","output":"wide","resources":["pods","services","deployments"],"target":"a100"}
+  output:
+    [pods]
+    NAMESPACE     NAME                                       READY   STATUS    RESTARTS       AGE     IP                NODE    NOMINATED NODE   READINESS GATES
+    dbs           llama-cpp-qwen35-122b-6b9778dd64-5ps6q     1/1     Running   3 (17h ago)    17h     192.168.208.166   aisvr   <none>           <none>
+    dbs           vllm-gemma4-26b-awq-fp8-595cb8cccf-hkzk8   1/1     Running   0              23h     192.168.208.169   aisvr   <none>           <none>
+    kube-system   calico-kube-controllers-658d97c59c-w4np8   1/1     Running   9 (13d ago)    18d     192.168.208.188   aisvr   <none>           <none>
+    kube-system   calico-node-288tg                          1/1     Running   5 (13d ago)    17d     172.16.100.100    aisvr   <none>           <none>
+    kube-system   coredns-76f75df574-qz8lr                   1/1     Running   9 (13d ago)    18d     192.168.208.185   aisvr   <none>           <none>
+    kube-system   coredns-76f75df574-sg9vj                   1/1     Running   9 (13d ago)    18d     192.168.208.187   aisvr   <none>           <none>
+    kube-system   etcd-aisvr                                 1/1     Running   43 (13d ago)   18d     172.16.100.100    aisvr   <none>           <none>
+    kube-system   kube-apiserver-aisvr                       1/1     Running   41 (13d ago)   18d     172.16.100.100    aisvr   <none>           <none>
+    kube-system   kube-controller-manager-aisvr              1/1     Running   45 (13d ago)   18d     172.16.100.100    aisvr   <none>           <none>
+    kube-system   kube-proxy-stbbj                           1/1     Running   8 (13d ago)    18d     172.16.100.100    aisvr   <none>           <none>
+    kube-system   kube-scheduler-aisvr                       1/1     Running   42 (13d ago)   18d     172.16.100.100    aisvr   <none>           <none>
+    kube-system   nvidia-device-plugin-daemonset-8tqsq       1/1     Running   0              4d21h   192.168.208.162   aisvr   <none>           <none>
+    searxng       searxng-866d7c98fb-xv9b9                   1/1     Running   0              6d8h    192.168.208.149   aisvr   <none>           <none>
+    
+    [services]
+    NAMESPACE     NAME                                   TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                  AGE     SELECTOR
+    dbs           embedding-service                      NodePort    10.101.25.213    <none>        8081:30436/TCP           47h     app=tei-embedding
+    dbs           llama-cpp-qwen35-122b-svc              NodePort    10.96.16.99      <none>        8000:30434/TCP           26h     app=llama-cpp-qwen35-122b
+    dbs           qwen35-27b-service                     NodePort    10.96.199.9      <none>        80:30447/TCP             4d21h   app=vllm-qwen35-27b
+    dbs           qwen35-35b-service                     NodePort    10.101.77.197    <none>        80:30446/TCP             32h     app=vllm-qwen35-35b
+    dbs           qwen36-35b-service                     NodePort    10.100.80.159    <none>        80:30442/TCP             47h     app=sglang-qwen36-35b
+    dbs           sglang-qwen35-27b-service              NodePort    10.102.49.25     <none>        8000:30445/TCP           32h     app=sglang-qwen35-27b
+    dbs           sglang-reranker-service                NodePort    10.97.189.219    <none>        80:30437/TCP             47h     app=sglang-qwen3-reranker-4b
+    dbs           tabbyapi-gemma4-exl3-gpu2-service      NodePort    10.103.97.52     <none>        8000:30432/TCP           45h     app=tabbyapi-gemma4-exl3-gpu2
+    dbs           vllm-1-7b-service                      NodePort    10.101.56.110    <none>        8000:30439/TCP           6d5h    app=vllm-1-7b
+    dbs           vllm-gemma4-26b-awq-fp8-service        NodePort    10.99.50.228     <none>        80:30435/TCP             30h     app=vllm-gemma4-26b-awq-fp8
+    dbs           vllm-gemma4-31b-awq-4bit-32k-service   NodePort    10.101.13.162    <none>        8000:30443/TCP           30h     app=vllm-gemma4-31b-awq-4bit-32k
+    dbs           vllm-gemma4-31b-awq-gpu2-service       NodePort    10.107.126.104  
+    [... truncated ...]
+- PASS scale deployment down
+  command/tool: kubectl -n infractl-k8s-test-162003 scale deployment/infractl-k8s-deploy --replicas=0
+  output:
+    Execution Context: a100 (bash over ssh)
+    [Exit Code: 0]
+    deployment.apps/infractl-k8s-deploy scaled
+- PASS scale deployment up
+  command/tool: kubectl -n infractl-k8s-test-162003 scale deployment/infractl-k8s-deploy --replicas=1
+  output:
+    Execution Context: a100 (bash over ssh)
+    [Exit Code: 0]
+    deployment.apps/infractl-k8s-deploy scaled
+- FAIL top nodes
+  command/tool: k8s_query {"action":"top","resource":"nodes","target":"a100"}
+  note: metrics-server/top unavailable
+  output:
+    kubectl error (exit 1):
+    error: Metrics API not available
+- PASS verify deployment scaled down
+  command/tool: k8s_query {"action":"get","name":"infractl-k8s-deploy","namespace":"infractl-k8s-test-162003","output":"wide","resource":"deployments","target":"a100"}
+  output:
+    NAME                  READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES                      SELECTOR
+    infractl-k8s-deploy   0/0     0            0           1s    pause        registry.k8s.io/pause:3.9   app=infractl-k8s-deploy
+
+[done] log=scratch\k8s_a100_verify_20260419_162000.log
+
+[cleanup] kubectl delete namespace infractl-k8s-test-162003 exit=0
+namespace "infractl-k8s-test-162003" deleted
+
+

@@ -1,0 +1,999 @@
+exit_code: 0
+
+stdout:
+UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+lines 1-42/42 (END)...skipping...
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+
+No previous tag  (press RETURN)lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+...skipping...
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+/
+
+No previous regular expression  (press RETURN)
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+...skipping...
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+No next tag  (press RETURN)
+
+lines 1-42/42 (END)
+...skipping...
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+/
+
+No previous regular expression  (press RETURN)  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+No next tag  (press RETURN)
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+...skipping...
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+set mark: ...skipping...
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+/
+
+No previous regular expression  (press RETURN)
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+...skipping...
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+set mark: ...skipping...
+  UNIT                       LOAD   ACT>
+  accounts-daemon.service    loaded act>
+  atd.service                loaded act>
+  auditd.service             loaded act>
+  avahi-daemon.service       loaded act>
+  chronyd.service            loaded act>
+  colord.service             loaded act>
+  crond.service              loaded act>
+  cups.service               loaded act>
+  dbus-broker.service        loaded act>
+  gdm.service                loaded act>
+  gssproxy.service           loaded act>
+  hypervkvpd.service         loaded act>
+  hypervvssd.service         loaded act>
+  irqbalance.service         loaded act>
+  libstoragemgmt.service     loaded act>
+  mcelog.service             loaded act>
+  ModemManager.service       loaded act>
+  mysqld.service             loaded act>
+  NetworkManager.service     loaded act>
+  polkit.service             loaded act>
+  rpcbind.service            loaded act>
+  rsyslog.service            loaded act>
+  rtkit-daemon.service       loaded act>
+  sshd.service               loaded act>
+  switcheroo-control.service loaded act>
+  systemd-hostnamed.service  loaded act>
+  systemd-journald.service   loaded act>
+  systemd-logind.service     loaded act>
+  systemd-udevd.service      loaded act>
+  tuned-ppd.service          loaded act>
+  tuned.service              loaded act>
+  udisks2.service            loaded act>
+  upower.service             loaded act>
+  user@1000.service          loaded act>
+  user@42.service            loaded act>
+  wpa_supplicant.service     loaded act>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+36 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-42/42 (END)
+No next tag  (press RETURN)
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+-
+log file: iimmppllyy  pprreessss::
+
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+lines 1-42/42 (END)
+lines 1-42/42 (END)

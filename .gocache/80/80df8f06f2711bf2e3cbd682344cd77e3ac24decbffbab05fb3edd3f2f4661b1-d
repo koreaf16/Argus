@@ -1,0 +1,3 @@
+./client.go
+./manager.go
+./protocol.go

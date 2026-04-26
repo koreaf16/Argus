@@ -1,0 +1,111 @@
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+call:infractl:shell_exec{target: 'oracle', command: 'lsnrctl status'}[assistant_tool_calls] count=1
+  - id=inline_1 name=shell_exec args={"command":"lsnrctl status","target":"oracle"}
+
+[tool_use_start] id=inline_1 name=shell_exec input={"command":"lsnrctl status","target":"oracle"}
+
+[tool_result] id=inline_1 name=shell_exec status=ok
+Execution Context: oracle (bash over ssh)
+[Exit Code: 0]
+LSNRCTL for Linux: Version 23.26.1.0.0 - Production on 19-APR-2026 16:56:37
+
+Copyright (c) 1991, 2026, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.120)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 23.26.1.0.0 - Production
+Start Date                19-APR-2026 16:51:51
+Uptime                    0 days 0 hr. 4 min. 46 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /home/oracle/app/oracle/product/23.0.0/network/admin/listener.ora
+Listener Log File         /home/oracle/app/oracle/diag/tnslsnr/ai26/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.0.120)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+Services Summary...
+Service "4a1b2456a04ff266e0637800a8c04be1" has 1 instance(s).
+  Instance "AI26", status READY, has 1 handler(s) for this service...
+Service "AI26" has 1 instance(s).
+  Instance "AI26", status READY, has 1 handler(s) for this service...
+Service "AI26XDB" has 1 instance(s).
+  Instance "AI26", status READY, has 1 handler(s) for this service...
+Service "ai_db" has 1 instance(s).
+  Instance "AI26", status READY, has 1 handler(s) for this service...
+The command completed successfully
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+[assistant_tool_calls] count=1
+  - id=inline_2 name=shell_exec args={"command":"lsnrctl stop && lsnrctl start && lsnrctl status","target":"oracle"}
+
+[tool_use_start] id=inline_2 name=shell_exec input={"command":"lsnrctl stop && lsnrctl start && lsnrctl status","target":"oracle"}
+
+[tool_result] id=inline_2 name=shell_exec status=ok
+Execution Context: oracle (bash over ssh)
+[Exit Code: 0]
+LSNRCTL for Linux: Version 23.26.1.0.0 - Production on 19-APR-2026 16:56:37
+
+Copyright (c) 1991, 2026, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.120)(PORT=1521)))
+The command completed successfully
+
+LSNRCTL for Linux: Version 23.26.1.0.0 - Production on 19-APR-2026 16:56:37
+
+Copyright (c) 1991, 2026, Oracle.  All rights reserved.
+
+Starting /home/oracle/app/oracle/product/23.0.0/bin/tnslsnr: please wait...
+
+TNSLSNR for Linux: Version 23.26.1.0.0 - Production
+System parameter file is /home/oracle/app/oracle/product/23.0.0/network/admin/listener.ora
+Log messages written to /home/oracle/app/oracle/diag/tnslsnr/ai26/listener/alert/log.xml
+Listening on: (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.0.120)(PORT=1521)))
+Listening on: (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.120)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 23.26.1.0.0 - Production
+Start Date                19-APR-2026 16:56:38
+Uptime                    0 days 0 hr. 0 min. 0 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /home/oracle/app/oracle/product/23.0.0/network/admin/listener.ora
+Listener Log File         /home/oracle/app/oracle/diag/tnslsnr/ai26/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.0.120)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+The listener supports no services
+The command completed successfully
+
+LSNRCTL for Linux: Version 23.26.1.0.0 - Production on 19-APR-2026 16:56:38
+
+Copyright (c) 1991, 2026, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.120)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 23.26.1.0.0 - Production
+Start Date                19-APR-2026 16:56:38
+Uptime                    0 days 0 hr. 0 min. 0 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /home/oracle/app/oracle/product/23.0.0/network/admin/listener.ora
+Listener Log File         /home/oracle/app/oracle/diag/tnslsnr/ai26/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.0.120)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+The listener supports no services
+The command completed successfully
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+
+[terminal] reason=completed err=<nil>

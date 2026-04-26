@@ -1,0 +1,18 @@
+# test log
+getenv GOTMPDIR
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\sessions
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\memory
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\todos
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\plans
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\worktrees
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\scheduled-tasks
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001
+stat C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\sessions
+open C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\sessions\resume-id.json.tmp
+open C:\Users\jhkwa\AppData\Local\Temp\TestInitializeSessionResumeLoadsSnapshot4124653557\001\sessions\resume-id.json
+open C:\Users\jhkwa\AppData\Local\Temp

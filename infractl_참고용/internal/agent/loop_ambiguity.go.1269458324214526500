@@ -1,0 +1,130 @@
+﻿package agent
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/llm"
+	"github.com/yourorg/infractl/internal/store"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+var (
+	serverConnectPattern = regexp.MustCompile(`(?i)\b(ssh|server|host|workspace)\b|워크스페이스|서버|접속|로그인`)
+	dbConnectPattern     = regexp.MustCompile(`(?i)\b(db|database|oracle|mysql|postgres|postgresql|mariadb|pdb|instance|sid|sqlplus|psql)\b|데이터베이스|디비`)
+
+	dbInstanceConnectPattern = regexp.MustCompile(`(?i)(instance|sid|pdb|sqlplus|psql|mysql)\s*(login|connect)|데이터베이스.*접속|디비.*접속`)
+)
+
+// resolveAmbiguity asks the user when a request can mean either selecting an SSH
+// workspace or activating/connecting to a service inside that workspace.
+func (a *Agent) resolveAmbiguity(ctx context.Context, userInput string, classification ClassifyResult, servers []store.Server) (bool, string) {
+	mentionsCount := 0
+	for _, srv := range servers {
+		if mentionsAlias(userInput, srv.Name) {
+			mentionsCount++
+		}
+	}
+
+	isAmbiguous := false
+	if mentionsCount > 1 {
+		isAmbiguous = true
+	} else if mentionsCount == 1 {
+		hasWorkspaceSignal := serverConnectPattern.MatchString(userInput)
+		hasDBSignal := dbConnectPattern.MatchString(userInput)
+		if hasWorkspaceSignal && hasDBSignal {
+			isAmbiguous = true
+		}
+	}
+
+	isConnectorSelected := false
+	for _, g := range classification.ToolGroups {
+		if g == "connector" || g == "discovery" {
+			isConnectorSelected = true
+			break
+		}
+	}
+	if isConnectorSelected && strings.Contains(userInput, "서버") && !strings.Contains(strings.ToUpper(userInput), "PDB") && !dbInstanceConnectPattern.MatchString(userInput) {
+		isAmbiguous = true
+	}
+
+	if !isAmbiguous {
+		return false, ""
+	}
+
+	if a.yoroMode {
+		return true, "full_connect"
+	}
+
+	if a.questionHandler == nil {
+		return false, ""
+	}
+
+	resp, err := a.questionHandler.RequestQuestion(ctx, tools.QuestionRequest{
+		Header:   "Connect",
+		Question: "Do you want to select only the SSH workspace, or also discover/activate services inside it?",
+		Options: []tools.QuestionOption{
+			{Label: "Workspace only", Description: "Connect/select the SSH workspace and verify hostname, user, and working directory."},
+			{Label: "Workspace and services", Description: "Select the workspace, then discover or activate DB/service connectors inside it."},
+		},
+	})
+	if err != nil {
+		return false, ""
+	}
+	if resp.SelectedIndex < 0 {
+		return false, ""
+	}
+
+	if resp.SelectedLabel == "Workspace only" {
+		return true, "server_only"
+	}
+	return true, "full_connect"
+}
+
+// handleServerOnlyConnect selects/verifies the SSH workspace without activating services.
+func (a *Agent) handleServerOnlyConnect(ctx context.Context, userInput string, servers []store.Server) error {
+	var targetSrv *store.Server
+	for _, srv := range servers {
+		if mentionsAlias(userInput, srv.Name) {
+			targetSrv = &srv
+			break
+		}
+	}
+
+	if targetSrv != nil {
+		a.applyActiveServer(targetSrv)
+	}
+
+	target := "localhost"
+	if a.activeServer != nil {
+		target = a.activeServer.Name
+	}
+
+	exec, err := a.manager.Get(target)
+	if err != nil {
+		return fmt.Errorf("executor not found: %w", err)
+	}
+
+	verificationCmd := "hostname && whoami && pwd"
+	a.handler.OnThinking("fast", a.modelName)
+	res, err := exec.Execute(ctx, verificationCmd)
+	if err != nil {
+		a.handler.OnError(fmt.Errorf("verification failed: %w", err))
+	}
+
+	combined := res.Stdout
+	if res.Stderr != "" {
+		combined += "\n" + res.Stderr
+	}
+
+	finalResp := fmt.Sprintf("Workspace connection verified.\n\n**Execution result (%s):**\n```\n%s\n```", target, strings.TrimSpace(combined))
+	a.handler.OnResponse(finalResp)
+
+	assistantMsg := llm.Message{Role: llm.RoleAssistant, Content: finalResp}
+	a.history = append(a.history, assistantMsg)
+	a.saveSessionMessage(ctx, assistantMsg)
+
+	return nil
+}

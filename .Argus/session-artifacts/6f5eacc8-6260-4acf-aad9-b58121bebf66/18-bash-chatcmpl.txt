@@ -1,0 +1,2851 @@
+exit_code: 0
+
+stdout:
+=
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+lines 1-26/26 (END)...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+
+No previous tag  (press RETURN)
+...skipping...
+
+                   SUMMARY OF LESS COMM>
+
+      Commands marked with * may be pre>
+      Notes in parentheses indicate the>
+      A key preceded by a caret indicat>
+
+  h  H                 Display this hel>
+  q  :q  Q  :Q  ZZ     Exit.
+ -------------------------------------->
+
+                           MOVING
+
+  e  ^E  j  ^N  CR  *  Forward  one lin>
+  y  ^Y  k  ^K  ^P  *  Backward one lin>
+  f  ^F  ^V  SPACE  *  Forward  one win>
+  b  ^B  ESC-v      *  Backward one win>
+  z                 *  Forward  one win>
+  w                 *  Backward one win>
+  ESC-SPACE         *  Forward  one win>
+  d  ^D             *  Forward  one hal>
+  u  ^U             *  Backward one hal>
+  ESC-)  RightArrow *  Right one half s>
+  ESC-(  LeftArrow  *  Left  one half s>
+  ESC-}  ^RightArrow   Right to last co>
+  ESC-{  ^LeftArrow    Left  to first c>
+  F                    Forward forever;>
+  ESC-F                Like F but stop >
+  r  ^R  ^L            Repaint screen.
+  R                    Repaint screen, >
+        ------------------------------->
+        Default "window" is the screen >
+        Default "half-window" is half o>
+ -------------------------------------->
+
+                          SEARCHING
+
+  /pattern          *  Search forward f>
+  ?pattern          *  Search backward >
+  n                 *  Repeat previous >
+  N                 *  Repeat previous >
+  ESC-n             *  Repeat previous >
+  ESC-N             *  Repeat previous >
+  ESC-u                Undo (toggle) se>
+  ESC-U                Clear search hig>
+  &pattern          *  Display only mat>
+        ------------------------------->
+        A search pattern may begin with>
+        ^N or !  Search for NON-matchin>
+        ^E or *  Search multiple files >
+        ^F or @  Start search at FIRST >
+        ^K       Highlight matches, but>
+        ^R       Don't use REGULAR EXPR>
+        ^W       WRAP search if no matc>
+ -------------------------------------->
+
+                           JUMPING
+
+  g  <  ESC-<       *  Go to first line>
+  G  >  ESC->       *  Go to last line >
+  p  %              *  Go to beginning >
+  t                 *  Go to the (N-th)>
+  T                 *  Go to the (N-th)>
+  {  (  [           *  Find close brack>
+  }  )  ]           *  Find open bracke>
+  ESC-^F <c1> <c2>  *  Find close brack>
+  ESC-^B <c1> <c2>  *  Find open bracke>
+        ------------------------------->
+        Each "find close bracket" comma>
+          matching the (N-th) open brac>
+        Each "find open bracket" comman>
+          matching the (N-th) close bra>
+
+  m<letter>            Mark the current>
+  M<letter>            Mark the current>
+  '<letter>            Go to a previous>
+  ''                   Go to the previo>
+  ^X^X                 Same as '.
+  ESC-M<letter>        Clear a mark.
+ Press RETURN for more, or q when done
+        ------------------------------->
+ Press RETURN for more, or q when done
+        A mark is any upper-case or low>
+        Certain marks are predefined:
+             ^  means  beginning of the>
+             $  means  end of the file
+ -------------------------------------->
+
+                        CHANGING FILES
+
+  :e [file]            Examine a new fi>
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-t>
+  :p                *  Examine the (N-t>
+  :x                *  Examine the firs>
+  :d                   Delete the curre>
+  =  ^G  :f            Print current fi>
+ -------------------------------------->
+
+                    MISCELLANEOUS COMMA>
+
+  -<flag>              Toggle a command>
+  --<name>             Toggle a command>
+  _<flag>              Display the sett>
+  __<name>             Display the sett>
+  +cmd                 Execute the less>
+
+  !command             Execute the shel>
+  |Xcommand            Pipe file betwee>
+  s file               Save input to a >
+  v                    Edit the current>
+  V                    Print version nu>
+ -------------------------------------->
+
+                           OPTIONS
+
+        Most options may be changed eit>
+        or from within less by using th>
+        Options may be given in one of >
+        character preceded by a -, or a>
+
+  -?  ........  --help
+                  Display help (from co>
+  -a  ........  --search-skip-screen
+                  Search skips current >
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search starts just af>
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically a>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Repaint by clearing r>
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D xcolor  .  --color=xcolor
+                  Set screen colors.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regula>
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file f>
+  -g  ........  --hilite-search
+                  Highlight only last m>
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any m>
+  --old-bot
+                  Revert to the old bot>
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in search>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all se>
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of ta>
+  -J  ........  --status-column
+                  Display a status colu>
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+ Press RETURN for more, or q when done
+No next tag  (press RETURN)
+  -K  ........  --quit-on-intr
+ Press RETURN for more, or q when done
+...skipping...
+        Certain marks are predefined:
+             ^  means  beginning of the>
+             $  means  end of the file
+ -------------------------------------->
+
+                        CHANGING FILES
+
+  :e [file]            Examine a new fi>
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-t>
+  :p                *  Examine the (N-t>
+  :x                *  Examine the firs>
+  :d                   Delete the curre>
+  =  ^G  :f            Print current fi>
+ -------------------------------------->
+
+                    MISCELLANEOUS COMMA>
+
+  -<flag>              Toggle a command>
+  --<name>             Toggle a command>
+  _<flag>              Display the sett>
+  __<name>             Display the sett>
+  +cmd                 Execute the less>
+
+  !command             Execute the shel>
+  |Xcommand            Pipe file betwee>
+  s file               Save input to a >
+  v                    Edit the current>
+  V                    Print version nu>
+ -------------------------------------->
+
+                           OPTIONS
+
+        Most options may be changed eit>
+        or from within less by using th>
+        Options may be given in one of >
+        character preceded by a -, or a>
+
+  -?  ........  --help
+                  Display help (from co>
+  -a  ........  --search-skip-screen
+                  Search skips current >
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search starts just af>
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically a>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Repaint by clearing r>
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D xcolor  .  --color=xcolor
+                  Set screen colors.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regula>
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file f>
+  -g  ........  --hilite-search
+                  Highlight only last m>
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any m>
+  --old-bot
+                  Revert to the old bot>
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in search>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all se>
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of ta>
+  -J  ........  --status-column
+                  Display a status colu>
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+  -K  ........  --quit-on-intr
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+/
+        Certain marks are predefined:
+             ^  means  beginning of the>
+             $  means  end of the file
+ -------------------------------------->
+
+                        CHANGING FILES
+
+  :e [file]            Examine a new fi>
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-t>
+  :p                *  Examine the (N-t>
+  :x                *  Examine the firs>
+  :d                   Delete the curre>
+  =  ^G  :f            Print current fi>
+ -------------------------------------->
+
+                    MISCELLANEOUS COMMA>
+
+  -<flag>              Toggle a command>
+  --<name>             Toggle a command>
+  _<flag>              Display the sett>
+  __<name>             Display the sett>
+  +cmd                 Execute the less>
+
+  !command             Execute the shel>
+  |Xcommand            Pipe file betwee>
+  s file               Save input to a >
+  v                    Edit the current>
+  V                    Print version nu>
+ -------------------------------------->
+
+                           OPTIONS
+
+        Most options may be changed eit>
+        or from within less by using th>
+        Options may be given in one of >
+        character preceded by a -, or a>
+
+  -?  ........  --help
+                  Display help (from co>
+  -a  ........  --search-skip-screen
+                  Search skips current >
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search starts just af>
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically a>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Repaint by clearing r>
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D xcolor  .  --color=xcolor
+                  Set screen colors.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regula>
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file f>
+  -g  ........  --hilite-search
+                  Highlight only last m>
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any m>
+  --old-bot
+                  Revert to the old bot>
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in search>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all se>
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of ta>
+  -J  ........  --status-column
+                  Display a status colu>
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+  -K  ........  --quit-on-intr
+
+Pattern not found  (press RETURN)
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+                  Exit less in response>
+  -L  ........  --no-lessopen
+                  Ignore the LESSOPEN e>
+  -m  -M  ....  --long-prompt  --LONG-P>
+                  Set prompt style.
+  -n  ........  --line-numbers
+                  Don't use line number>
+  -N  ........  --LINE-NUMBERS
+                  Use line numbers.
+  -o [file]  .  --log-file=[file]
+                  Copy to log file (sta>
+  -O [file]  .  --LOG-FILE=[file]
+                  Copy to log file (unc>
+  -p [pattern]  --pattern=[pattern]
+                  Start at pattern (fro>
+  -P [prompt]   --prompt=[prompt]
+                  Define new prompt.
+  -q  -Q  ....  --quiet  --QUIET  --sil>
+                  Quiet the terminal be>
+  -r  -R  ....  --raw-control-chars  -->
+                  Output "raw" control >
+  -s  ........  --squeeze-blank-lines
+                  Squeeze multiple blan>
+  -S  ........  --chop-long-lines
+                  Chop (truncate) long >
+  -t [tag]  ..  --tag=[tag]
+                  Find a tag.
+  -T [tagsfile] --tag-file=[tagsfile]
+                  Use an alternate tags>
+  -u  -U  ....  --underline-special  -->
+                  Change handling of ba>
+  -V  ........  --version
+                  Display the version n>
+  -w  ........  --hilite-unread
+                  Highlight first new l>
+  -W  ........  --HILITE-UNREAD
+                  Highlight first new l>
+  -x [N[,...]]  --tabs=[N[,...]]
+                  Set tab stops.
+  -X  ........  --no-init
+                  Don't use termcap ini>
+  -y [N]  ....  --max-forw-scroll=[N]
+                  Forward scroll limit.
+  -z [N]  ....  --window=[N]
+                  Set size of window.
+  -" [c[c]]  .  --quotes=[c[c]]
+                  Set shell quote chara>
+  -~  ........  --tilde
+                  Don't display tildes >
+  -# [N]  ....  --shift=[N]
+                  Set horizontal scroll>
+                --file-size
+                  Automatically determi>
+                --follow-name
+                  The F command changes>
+                --incsearch
+                  Search file as each p>
+                --line-num-width=N
+                  Set the width of the >
+                --mouse
+                  Enable mouse input.
+                --no-keypad
+                  Don't send termcap ke>
+                --no-histdups
+                  Remove duplicates fro>
+                --rscroll=C
+                  Set the character use>
+                --save-marks
+                  Retain marks across i>
+                --status-col-width=N
+                  Set the width of the >
+                --use-backslash
+                  Subsequent options us>
+                --use-color
+                  Enables colored text.
+                --wheel-lines=N
+                  Each click of the mou>
+
+
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+  -K  ........  --quit-on-intr
+                  Use a lesskey file.
+  -k [file]  .  --lesskey-file=[file]
+                  Display a status colu>
+  -J  ........  --status-column
+                  Screen position of ta>
+  -j [N]  ....  --jump-target=[N]
+                  Ignore case in all se>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in search>
+  -i  ........  --ignore-case
+                  Backward scroll limit.
+  -h [N]  ....  --max-back-scroll=[N]
+                  Revert to the old bot>
+  --old-bot
+                  Don't highlight any m>
+  -G  ........  --HILITE-SEARCH
+                  Highlight only last m>
+  -g  ........  --hilite-search
+                  Quit if entire file f>
+  -F  ........  --quit-if-one-screen
+                  Force open non-regula>
+  -f  ........  --force
+                  Quit at end of file.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Set screen colors.
+  -D xcolor  .  --color=xcolor
+                  Dumb terminal.
+  -d  ........  --dumb
+                  Repaint by clearing r>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Don't automatically a>
+  -B  ........  --auto-buffers
+                  Number of buffers.
+  -b [N]  ....  --buffers=[N]
+                  Search starts just af>
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search skips current >
+  -a  ........  --search-skip-screen
+                  Display help (from co>
+
+ Press RETURN for more, or q when done
+No next tag  (press RETURN)
+  ESC-M<letter>        Clear a mark.
+  ^X^X                 Same as '.
+  ''                   Go to the previo>
+  '<letter>            Go to a previous>
+  M<letter>            Mark the current>
+  m<letter>            Mark the current>
+
+          matching the (N-th) close bra>
+        Each "find open bracket" comman>
+          matching the (N-th) open brac>
+        Each "find close bracket" comma>
+        ------------------------------->
+  ESC-^B <c1> <c2>  *  Find open bracke>
+  ESC-^F <c1> <c2>  *  Find close brack>
+  }  )  ]           *  Find open bracke>
+  {  (  [           *  Find close brack>
+  T                 *  Go to the (N-th)>
+  t                 *  Go to the (N-th)>
+  p  %              *  Go to beginning >
+  G  >  ESC->       *  Go to last line >
+  g  <  ESC-<       *  Go to first line>
+
+                           JUMPING
+
+ -------------------------------------->
+        ^W       WRAP search if no matc>
+        ^R       Don't use REGULAR EXPR>
+        ^K       Highlight matches, but>
+        ^F or @  Start search at FIRST >
+        ^E or *  Search multiple files >
+        ^N or !  Search for NON-matchin>
+        A search pattern may begin with>
+        ------------------------------->
+  &pattern          *  Display only mat>
+  ESC-U                Clear search hig>
+  ESC-u                Undo (toggle) se>
+  ESC-N             *  Repeat previous >
+  ESC-n             *  Repeat previous >
+  N                 *  Repeat previous >
+  n                 *  Repeat previous >
+  ?pattern          *  Search backward >
+  /pattern          *  Search forward f>
+
+                          SEARCHING
+
+ -------------------------------------->
+        Default "half-window" is half o>
+        Default "window" is the screen >
+        ------------------------------->
+  R                    Repaint screen, >
+  r  ^R  ^L            Repaint screen.
+  ESC-F                Like F but stop >
+  F                    Forward forever;>
+  ESC-{  ^LeftArrow    Left  to first c>
+  ESC-}  ^RightArrow   Right to last co>
+  ESC-(  LeftArrow  *  Left  one half s>
+  ESC-)  RightArrow *  Right one half s>
+  u  ^U             *  Backward one hal>
+  d  ^D             *  Forward  one hal>
+  ESC-SPACE         *  Forward  one win>
+  w                 *  Backward one win>
+  z                 *  Forward  one win>
+  b  ^B  ESC-v      *  Backward one win>
+  f  ^F  ^V  SPACE  *  Forward  one win>
+  y  ^Y  k  ^K  ^P  *  Backward one lin>
+  e  ^E  j  ^N  CR  *  Forward  one lin>
+
+                           MOVING
+
+ -------------------------------------->
+  q  :q  Q  :Q  ZZ     Exit.
+  h  H                 Display this hel>
+
+      A key preceded by a caret indicat>
+      Notes in parentheses indicate the>
+      Commands marked with * may be pre>
+
+                   SUMMARY OF LESS COMM>
+
+
+ Press RETURN for more, or q when done
+
+ Press RETURN for more, or q when done
+No next tag  (press RETURN)
+ Press RETURN for more, or q when done
+-
+log file: hhoowwss  tthhaatt  yyoouu  aarree  ccuurrrreennttllyy  iire currently innssiiddee  aa  ****ppaaggeerrside a **pager****  ((lliikkeellyy  ``lleess* (likely `lesss``)),,  wwhhiicchh  iiss  uu`), which is usseedd  ttoo  ddiissppllaayy  ed to display lloonngg  oouuttppuuttss  oonnong outputs onee  ssccrreeeenn  aatt  aa  tt screen at a tiimmee..  TThhee  ``((EENNDD))me. The `(END)``  aatt  tthhee  bboottttoomm at the bottom  iinnddiiccaatteess  yyoouu  indicates you hhaavvee  rreeaacchheedd  tthhave reached thee  eenndd  ooff  tthhee  llii end of the lisstt..
+/bin/bash: -c: 줄 1: 예기치 않은 토큰 '(' 근처에서 문법 오류
+/bin/bash: -c: 줄 1: `lessecho -p0x22 -d0x22 -e\\ -n0x3b -n0x20 -n0x2a -n0x3f -n0x9 -n0xa -n0x27 -n0x22 -n0x28 -n0x29 -n0x3c -n0x3e -n0x5b -n0x5d -n0x7c -n0x26 -n0x5e -n0x60 -n0x23 -n0x5c -n0x24 -n0x25 -n0x3d -n0x7e -n0x7b -n0x7d -n0x2c -- hows that you are currently inside a **pager** (likely `less`), which is used to display long outputs one screen at a time. The `(END)` at the bottom indicates you have reached the end of the list.'
+
+ Press RETURN for more, or q when done
+        ------------------------------->
+ Press RETURN for more, or q when done
+No previous tag  (press RETURN)
+ Press RETURN for more, or q when done
+        A mark is any upper-case or low>
+        Certain marks are predefined:
+             ^  means  beginning of the>
+             $  means  end of the file
+ -------------------------------------->
+
+                        CHANGING FILES
+
+  :e [file]            Examine a new fi>
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-t>
+  :p                *  Examine the (N-t>
+  :x                *  Examine the firs>
+  :d                   Delete the curre>
+  =  ^G  :f            Print current fi>
+ -------------------------------------->
+
+                    MISCELLANEOUS COMMA>
+
+  -<flag>              Toggle a command>
+  --<name>             Toggle a command>
+  _<flag>              Display the sett>
+  __<name>             Display the sett>
+  +cmd                 Execute the less>
+
+  !command             Execute the shel>
+  |Xcommand            Pipe file betwee>
+  s file               Save input to a >
+  v                    Edit the current>
+  V                    Print version nu>
+ -------------------------------------->
+
+                           OPTIONS
+
+        Most options may be changed eit>
+        or from within less by using th>
+        Options may be given in one of >
+        character preceded by a -, or a>
+
+  -?  ........  --help
+                  Display help (from co>
+  -a  ........  --search-skip-screen
+                  Search skips current >
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search starts just af>
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically a>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Repaint by clearing r>
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D xcolor  .  --color=xcolor
+                  Set screen colors.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regula>
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file f>
+  -g  ........  --hilite-search
+                  Highlight only last m>
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any m>
+  --old-bot
+                  Revert to the old bot>
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in search>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all se>
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of ta>
+  -J  ........  --status-column
+                  Display a status colu>
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+ Press RETURN for more, or q when done
+  -K  ........  --quit-on-intr
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+No next tag  (press RETURN)
+ Press RETURN for more, or q when done
+No next tag  (press RETURN)
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+-
+log file:   vviieeww  aanndd  rreettuurrnn  ttoo  tthhee  ccoommmmaan to the commanndd  pprroommpptt  ssoo  yyood prompt so youu  ccaann  ttyyppee  yyoouurr can type your  nneexxtt  ccoommmmaanndd,,  next command, ssiimmppllyy  pprreessss::
+
+Log file is already in use  (press RETURN)        Certain marks are predefined:
+             ^  means  beginning of the>
+             $  means  end of the file
+ -------------------------------------->
+
+                        CHANGING FILES
+
+  :e [file]            Examine a new fi>
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-t>
+  :p                *  Examine the (N-t>
+  :x                *  Examine the firs>
+  :d                   Delete the curre>
+  =  ^G  :f            Print current fi>
+ -------------------------------------->
+
+                    MISCELLANEOUS COMMA>
+
+  -<flag>              Toggle a command>
+  --<name>             Toggle a command>
+  _<flag>              Display the sett>
+  __<name>             Display the sett>
+  +cmd                 Execute the less>
+
+  !command             Execute the shel>
+  |Xcommand            Pipe file betwee>
+  s file               Save input to a >
+  v                    Edit the current>
+  V                    Print version nu>
+ -------------------------------------->
+
+                           OPTIONS
+
+        Most options may be changed eit>
+        or from within less by using th>
+        Options may be given in one of >
+        character preceded by a -, or a>
+
+  -?  ........  --help
+                  Display help (from co>
+  -a  ........  --search-skip-screen
+                  Search skips current >
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search starts just af>
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically a>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Repaint by clearing r>
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D xcolor  .  --color=xcolor
+                  Set screen colors.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regula>
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file f>
+  -g  ........  --hilite-search
+                  Highlight only last m>
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any m>
+  --old-bot
+                  Revert to the old bot>
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in search>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all se>
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of ta>
+  -J  ........  --status-column
+                  Display a status colu>
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+  -K  ........  --quit-on-intr
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+                  Exit less in response>
+  -L  ........  --no-lessopen
+                  Ignore the LESSOPEN e>
+  -m  -M  ....  --long-prompt  --LONG-P>
+                  Set prompt style.
+  -n  ........  --line-numbers
+                  Don't use line number>
+  -N  ........  --LINE-NUMBERS
+                  Use line numbers.
+  -o [file]  .  --log-file=[file]
+                  Copy to log file (sta>
+  -O [file]  .  --LOG-FILE=[file]
+                  Copy to log file (unc>
+  -p [pattern]  --pattern=[pattern]
+                  Start at pattern (fro>
+  -P [prompt]   --prompt=[prompt]
+                  Define new prompt.
+  -q  -Q  ....  --quiet  --QUIET  --sil>
+                  Quiet the terminal be>
+  -r  -R  ....  --raw-control-chars  -->
+                  Output "raw" control >
+  -s  ........  --squeeze-blank-lines
+                  Squeeze multiple blan>
+  -S  ........  --chop-long-lines
+                  Chop (truncate) long >
+  -t [tag]  ..  --tag=[tag]
+                  Find a tag.
+  -T [tagsfile] --tag-file=[tagsfile]
+                  Use an alternate tags>
+  -u  -U  ....  --underline-special  -->
+                  Change handling of ba>
+  -V  ........  --version
+                  Display the version n>
+  -w  ........  --hilite-unread
+                  Highlight first new l>
+  -W  ........  --HILITE-UNREAD
+                  Highlight first new l>
+  -x [N[,...]]  --tabs=[N[,...]]
+                  Set tab stops.
+  -X  ........  --no-init
+                  Don't use termcap ini>
+  -y [N]  ....  --max-forw-scroll=[N]
+                  Forward scroll limit.
+  -z [N]  ....  --window=[N]
+                  Set size of window.
+  -" [c[c]]  .  --quotes=[c[c]]
+                  Set shell quote chara>
+  -~  ........  --tilde
+                  Don't display tildes >
+  -# [N]  ....  --shift=[N]
+                  Set horizontal scroll>
+                --file-size
+                  Automatically determi>
+                --follow-name
+                  The F command changes>
+                --incsearch
+                  Search file as each p>
+                --line-num-width=N
+                  Set the width of the >
+                --mouse
+                  Enable mouse input.
+                --no-keypad
+                  Don't send termcap ke>
+                --no-histdups
+                  Remove duplicates fro>
+                --rscroll=C
+                  Set the character use>
+                --save-marks
+                  Retain marks across i>
+                --status-col-width=N
+                  Set the width of the >
+                --use-backslash
+                  Subsequent options us>
+                --use-color
+                  Enables colored text.
+                --wheel-lines=N
+                  Each click of the mou>
+
+
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+Finishing logfile... (interrupt to abort)
+...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+Brackets: (())
+
+No bracket in top line  (press RETURN)
+No previous tag  (press RETURN)
+...skipping...
+
+                   SUMMARY OF LESS COMM>
+
+      Commands marked with * may be pre>
+      Notes in parentheses indicate the>
+      A key preceded by a caret indicat>
+
+  h  H                 Display this hel>
+  q  :q  Q  :Q  ZZ     Exit.
+ -------------------------------------->
+
+                           MOVING
+
+  e  ^E  j  ^N  CR  *  Forward  one lin>
+  y  ^Y  k  ^K  ^P  *  Backward one lin>
+  f  ^F  ^V  SPACE  *  Forward  one win>
+  b  ^B  ESC-v      *  Backward one win>
+  z                 *  Forward  one win>
+  w                 *  Backward one win>
+  ESC-SPACE         *  Forward  one win>
+  d  ^D             *  Forward  one hal>
+  u  ^U             *  Backward one hal>
+  ESC-)  RightArrow *  Right one half s>
+  ESC-(  LeftArrow  *  Left  one half s>
+  ESC-}  ^RightArrow   Right to last co>
+  ESC-{  ^LeftArrow    Left  to first c>
+  F                    Forward forever;>
+  ESC-F                Like F but stop >
+  r  ^R  ^L            Repaint screen.
+  R                    Repaint screen, >
+        ------------------------------->
+        Default "window" is the screen >
+        Default "half-window" is half o>
+ -------------------------------------->
+
+                          SEARCHING
+
+  /pattern          *  Search forward f>
+  ?pattern          *  Search backward >
+  n                 *  Repeat previous >
+  N                 *  Repeat previous >
+  ESC-n             *  Repeat previous >
+  ESC-N             *  Repeat previous >
+  ESC-u                Undo (toggle) se>
+  ESC-U                Clear search hig>
+  &pattern          *  Display only mat>
+        ------------------------------->
+        A search pattern may begin with>
+        ^N or !  Search for NON-matchin>
+        ^E or *  Search multiple files >
+        ^F or @  Start search at FIRST >
+        ^K       Highlight matches, but>
+        ^R       Don't use REGULAR EXPR>
+        ^W       WRAP search if no matc>
+ -------------------------------------->
+
+                           JUMPING
+
+  g  <  ESC-<       *  Go to first line>
+  G  >  ESC->       *  Go to last line >
+  p  %              *  Go to beginning >
+  t                 *  Go to the (N-th)>
+  T                 *  Go to the (N-th)>
+  {  (  [           *  Find close brack>
+  }  )  ]           *  Find open bracke>
+  ESC-^F <c1> <c2>  *  Find close brack>
+  ESC-^B <c1> <c2>  *  Find open bracke>
+        ------------------------------->
+        Each "find close bracket" comma>
+          matching the (N-th) open brac>
+        Each "find open bracket" comman>
+          matching the (N-th) close bra>
+
+  m<letter>            Mark the current>
+  M<letter>            Mark the current>
+  '<letter>            Go to a previous>
+  ''                   Go to the previo>
+  ^X^X                 Same as '.
+  ESC-M<letter>        Clear a mark.
+ Press RETURN for more, or q when done
+        ------------------------------->
+ Press RETURN for more, or q when done
+        A mark is any upper-case or low>
+        Certain marks are predefined:
+             ^  means  beginning of the>
+             $  means  end of the file
+ -------------------------------------->
+
+                        CHANGING FILES
+
+  :e [file]            Examine a new fi>
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-t>
+  :p                *  Examine the (N-t>
+  :x                *  Examine the firs>
+  :d                   Delete the curre>
+  =  ^G  :f            Print current fi>
+ -------------------------------------->
+
+                    MISCELLANEOUS COMMA>
+
+  -<flag>              Toggle a command>
+  --<name>             Toggle a command>
+  _<flag>              Display the sett>
+  __<name>             Display the sett>
+  +cmd                 Execute the less>
+
+  !command             Execute the shel>
+  |Xcommand            Pipe file betwee>
+  s file               Save input to a >
+  v                    Edit the current>
+  V                    Print version nu>
+ -------------------------------------->
+
+                           OPTIONS
+
+        Most options may be changed eit>
+        or from within less by using th>
+        Options may be given in one of >
+        character preceded by a -, or a>
+
+  -?  ........  --help
+                  Display help (from co>
+  -a  ........  --search-skip-screen
+                  Search skips current >
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search starts just af>
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically a>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Repaint by clearing r>
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D xcolor  .  --color=xcolor
+                  Set screen colors.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regula>
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file f>
+  -g  ........  --hilite-search
+                  Highlight only last m>
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any m>
+  --old-bot
+                  Revert to the old bot>
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in search>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all se>
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of ta>
+  -J  ........  --status-column
+                  Display a status colu>
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+  -K  ........  --quit-on-intr
+ Press RETURN for more, or q when done
+No next tag  (press RETURN)
+No next tag  (press RETURN)
+                  Exit less in response>
+ Press RETURN for more, or q when done
+...skipping...
+             ^  means  beginning of the>
+             $  means  end of the file
+ -------------------------------------->
+
+                        CHANGING FILES
+
+  :e [file]            Examine a new fi>
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-t>
+  :p                *  Examine the (N-t>
+  :x                *  Examine the firs>
+  :d                   Delete the curre>
+  =  ^G  :f            Print current fi>
+ -------------------------------------->
+
+                    MISCELLANEOUS COMMA>
+
+  -<flag>              Toggle a command>
+  --<name>             Toggle a command>
+  _<flag>              Display the sett>
+  __<name>             Display the sett>
+  +cmd                 Execute the less>
+
+  !command             Execute the shel>
+  |Xcommand            Pipe file betwee>
+  s file               Save input to a >
+  v                    Edit the current>
+  V                    Print version nu>
+ -------------------------------------->
+
+                           OPTIONS
+
+        Most options may be changed eit>
+        or from within less by using th>
+        Options may be given in one of >
+        character preceded by a -, or a>
+
+  -?  ........  --help
+                  Display help (from co>
+  -a  ........  --search-skip-screen
+                  Search skips current >
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search starts just af>
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically a>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Repaint by clearing r>
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D xcolor  .  --color=xcolor
+                  Set screen colors.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regula>
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file f>
+  -g  ........  --hilite-search
+                  Highlight only last m>
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any m>
+  --old-bot
+                  Revert to the old bot>
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in search>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all se>
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of ta>
+  -J  ........  --status-column
+                  Display a status colu>
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+  -K  ........  --quit-on-intr
+                  Exit less in response>
+ Press RETURN for more, or q when done
+  -L  ........  --no-lessopen
+                  Ignore the LESSOPEN e>
+  -m  -M  ....  --long-prompt  --LONG-P>
+                  Set prompt style.
+  -n  ........  --line-numbers
+                  Don't use line number>
+  -N  ........  --LINE-NUMBERS
+                  Use line numbers.
+  -o [file]  .  --log-file=[file]
+                  Copy to log file (sta>
+  -O [file]  .  --LOG-FILE=[file]
+                  Copy to log file (unc>
+  -p [pattern]  --pattern=[pattern]
+                  Start at pattern (fro>
+  -P [prompt]   --prompt=[prompt]
+                  Define new prompt.
+  -q  -Q  ....  --quiet  --QUIET  --sil>
+                  Quiet the terminal be>
+  -r  -R  ....  --raw-control-chars  -->
+                  Output "raw" control >
+  -s  ........  --squeeze-blank-lines
+                  Squeeze multiple blan>
+  -S  ........  --chop-long-lines
+                  Chop (truncate) long >
+  -t [tag]  ..  --tag=[tag]
+                  Find a tag.
+  -T [tagsfile] --tag-file=[tagsfile]
+                  Use an alternate tags>
+  -u  -U  ....  --underline-special  -->
+                  Change handling of ba>
+  -V  ........  --version
+                  Display the version n>
+  -w  ........  --hilite-unread
+                  Highlight first new l>
+  -W  ........  --HILITE-UNREAD
+                  Highlight first new l>
+  -x [N[,...]]  --tabs=[N[,...]]
+                  Set tab stops.
+  -X  ........  --no-init
+                  Don't use termcap ini>
+  -y [N]  ....  --max-forw-scroll=[N]
+                  Forward scroll limit.
+  -z [N]  ....  --window=[N]
+                  Set size of window.
+  -" [c[c]]  .  --quotes=[c[c]]
+                  Set shell quote chara>
+  -~  ........  --tilde
+                  Don't display tildes >
+  -# [N]  ....  --shift=[N]
+                  Set horizontal scroll>
+                --file-size
+                  Automatically determi>
+                --follow-name
+                  The F command changes>
+                --incsearch
+                  Search file as each p>
+                --line-num-width=N
+                  Set the width of the >
+                --mouse
+                  Enable mouse input.
+                --no-keypad
+                  Don't send termcap ke>
+                --no-histdups
+                  Remove duplicates fro>
+                --rscroll=C
+                  Set the character use>
+                --save-marks
+                  Retain marks across i>
+                --status-col-width=N
+                  Set the width of the >
+                --use-backslash
+                  Subsequent options us>
+                --use-color
+                  Enables colored text.
+                --wheel-lines=N
+                  Each click of the mou>
+
+
+ -------------------------------------->
+ Press RETURN for more, or q when done
+goto mark: 
+
+Mark not set  (press RETURN)
+goto mark: 
+
+Invalid mark letter    (press RETURN)
+
+                          LINE EDITING
+
+        These keys can be used to edit >
+        on the "command line" at the bo>
+
+ RightArrow ..................... ESC-l>
+ LeftArrow ...................... ESC-h>
+ ctrl-RightArrow  ESC-RightArrow  ESC-w>
+ ctrl-LeftArrow   ESC-LeftArrow   ESC-b>
+ HOME ........................... ESC-0>
+ END ............................ ESC-$>
+ BACKSPACE ............................>
+ DELETE ......................... ESC-x>
+ ctrl-BACKSPACE   ESC-BACKSPACE .......>
+ ctrl-DELETE .... ESC-DELETE .... ESC-X>
+ ctrl-U ......... ESC (MS-DOS only) ...>
+ UpArrow ........................ ESC-k>
+ DownArrow ...................... ESC-j>
+ TAB ..................................>
+ SHIFT-TAB ...................... ESC-T>
+ ctrl-L ...............................>
+ress g to see it again, or q when done
+ress g to see it again, or q when done
+...skipping...
+  -S  ........  --chop-long-lines
+                  Chop (truncate) long >
+  -t [tag]  ..  --tag=[tag]
+                  Find a tag.
+  -T [tagsfile] --tag-file=[tagsfile]
+                  Use an alternate tags>
+  -u  -U  ....  --underline-special  -->
+                  Change handling of ba>
+  -V  ........  --version
+                  Display the version n>
+  -w  ........  --hilite-unread
+                  Highlight first new l>
+  -W  ........  --HILITE-UNREAD
+                  Highlight first new l>
+  -x [N[,...]]  --tabs=[N[,...]]
+                  Set tab stops.
+  -X  ........  --no-init
+                  Don't use termcap ini>
+  -y [N]  ....  --max-forw-scroll=[N]
+                  Forward scroll limit.
+  -z [N]  ....  --window=[N]
+                  Set size of window.
+  -" [c[c]]  .  --quotes=[c[c]]
+                  Set shell quote chara>
+  -~  ........  --tilde
+                  Don't display tildes >
+  -# [N]  ....  --shift=[N]
+                  Set horizontal scroll>
+                --file-size
+                  Automatically determi>
+                --follow-name
+                  The F command changes>
+                --incsearch
+                  Search file as each p>
+                --line-num-width=N
+                  Set the width of the >
+                --mouse
+                  Enable mouse input.
+                --no-keypad
+                  Don't send termcap ke>
+                --no-histdups
+                  Remove duplicates fro>
+                --rscroll=C
+                  Set the character use>
+                --save-marks
+                  Retain marks across i>
+                --status-col-width=N
+                  Set the width of the >
+                --use-backslash
+                  Subsequent options us>
+                --use-color
+                  Enables colored text.
+                --wheel-lines=N
+                  Each click of the mou>
+
+
+ -------------------------------------->
+
+                          LINE EDITING
+
+        These keys can be used to edit >
+        on the "command line" at the bo>
+
+ RightArrow ..................... ESC-l>
+ LeftArrow ...................... ESC-h>
+ ctrl-RightArrow  ESC-RightArrow  ESC-w>
+ ctrl-LeftArrow   ESC-LeftArrow   ESC-b>
+ HOME ........................... ESC-0>
+ END ............................ ESC-$>
+ BACKSPACE ............................>
+ DELETE ......................... ESC-x>
+ ctrl-BACKSPACE   ESC-BACKSPACE .......>
+ ctrl-DELETE .... ESC-DELETE .... ESC-X>
+ ctrl-U ......... ESC (MS-DOS only) ...>
+ UpArrow ........................ ESC-k>
+ DownArrow ...................... ESC-j>
+ TAB ..................................>
+ SHIFT-TAB ...................... ESC-T>
+ ctrl-L ...............................>
+ress g to see it again, or q when done
+
+ress g to see it again, or q when done
+ress g to see it again, or q when done...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+No next tag  (press RETURN)
+lines 1-26/26 (END)
+Brackets: (())
+
+Nothing in bottom line  (press RETURN)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+No previous tag  (press RETURN)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+/
+
+Pattern not found  (press RETURN)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+No next tag  (press RETURN)
+
+lines 1-26/26 (END)
+...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+/
+
+Pattern not found  (press RETURN)
+lines 1-26/26 (END)
+No next tag  (press RETURN)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+set mark: ...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+/
+
+Pattern not found  (press RETURN)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+set mark: ...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+No next tag  (press RETURN)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+-
+log file: iimmppllyy  pprreessss  tthhee  ****EEnntteerr****  ((oorr **Enter** (or  ****RReettuurrnn****))  kkee**Return**) keyy  oonn  yyoouurr  kkeeyybboo on your keyboaarrdd..
+/bin/bash: -c: 줄 1: 예기치 않은 토큰 '(' 근처에서 문법 오류
+/bin/bash: -c: 줄 1: `lessecho -p0x22 -d0x22 -e\\ -n0x3b -n0x20 -n0x2a -n0x3f -n0x9 -n0xa -n0x27 -n0x22 -n0x28 -n0x29 -n0x3c -n0x3e -n0x5b -n0x5d -n0x7c -n0x26 -n0x5e -n0x60 -n0x23 -n0x5c -n0x24 -n0x25 -n0x3d -n0x7e -n0x7b -n0x7d -n0x2c -- imply press the **Enter** (or **Return**) key on your keyboard.'
+
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+...skipping...
+
+                   SUMMARY OF LESS COMM>
+
+      Commands marked with * may be pre>
+      Notes in parentheses indicate the>
+      A key preceded by a caret indicat>
+
+  h  H                 Display this hel>
+  q  :q  Q  :Q  ZZ     Exit.
+ -------------------------------------->
+
+                           MOVING
+
+  e  ^E  j  ^N  CR  *  Forward  one lin>
+  y  ^Y  k  ^K  ^P  *  Backward one lin>
+  f  ^F  ^V  SPACE  *  Forward  one win>
+  b  ^B  ESC-v      *  Backward one win>
+  z                 *  Forward  one win>
+  w                 *  Backward one win>
+  ESC-SPACE         *  Forward  one win>
+  d  ^D             *  Forward  one hal>
+  u  ^U             *  Backward one hal>
+  ESC-)  RightArrow *  Right one half s>
+  ESC-(  LeftArrow  *  Left  one half s>
+  ESC-}  ^RightArrow   Right to last co>
+  ESC-{  ^LeftArrow    Left  to first c>
+  F                    Forward forever;>
+  ESC-F                Like F but stop >
+  r  ^R  ^L            Repaint screen.
+  R                    Repaint screen, >
+        ------------------------------->
+        Default "window" is the screen >
+        Default "half-window" is half o>
+ -------------------------------------->
+
+                          SEARCHING
+
+  /pattern          *  Search forward f>
+  ?pattern          *  Search backward >
+  n                 *  Repeat previous >
+  N                 *  Repeat previous >
+  ESC-n             *  Repeat previous >
+  ESC-N             *  Repeat previous >
+  ESC-u                Undo (toggle) se>
+  ESC-U                Clear search hig>
+  &pattern          *  Display only mat>
+        ------------------------------->
+        A search pattern may begin with>
+        ^N or !  Search for NON-matchin>
+        ^E or *  Search multiple files >
+        ^F or @  Start search at FIRST >
+        ^K       Highlight matches, but>
+        ^R       Don't use REGULAR EXPR>
+        ^W       WRAP search if no matc>
+ -------------------------------------->
+
+                           JUMPING
+
+  g  <  ESC-<       *  Go to first line>
+  G  >  ESC->       *  Go to last line >
+  p  %              *  Go to beginning >
+  t                 *  Go to the (N-th)>
+  T                 *  Go to the (N-th)>
+  {  (  [           *  Find close brack>
+  }  )  ]           *  Find open bracke>
+  ESC-^F <c1> <c2>  *  Find close brack>
+  ESC-^B <c1> <c2>  *  Find open bracke>
+        ------------------------------->
+        Each "find close bracket" comma>
+          matching the (N-th) open brac>
+        Each "find open bracket" comman>
+          matching the (N-th) close bra>
+
+  m<letter>            Mark the current>
+  M<letter>            Mark the current>
+  '<letter>            Go to a previous>
+  ''                   Go to the previo>
+  ^X^X                 Same as '.
+  ESC-M<letter>        Clear a mark.
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+No next tag  (press RETURN)
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+
+ Press RETURN for more, or q when done
+
+ Press RETURN for more, or q when done
+        ------------------------------->
+ Press RETURN for more, or q when done
+/
+
+Pattern not found  (press RETURN)
+        A mark is any upper-case or low>
+ Press RETURN for more, or q when done
+        Certain marks are predefined:
+             ^  means  beginning of the>
+             $  means  end of the file
+ -------------------------------------->
+
+                        CHANGING FILES
+
+  :e [file]            Examine a new fi>
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-t>
+  :p                *  Examine the (N-t>
+  :x                *  Examine the firs>
+  :d                   Delete the curre>
+  =  ^G  :f            Print current fi>
+ -------------------------------------->
+
+                    MISCELLANEOUS COMMA>
+
+  -<flag>              Toggle a command>
+  --<name>             Toggle a command>
+  _<flag>              Display the sett>
+  __<name>             Display the sett>
+  +cmd                 Execute the less>
+
+  !command             Execute the shel>
+  |Xcommand            Pipe file betwee>
+  s file               Save input to a >
+  v                    Edit the current>
+  V                    Print version nu>
+ -------------------------------------->
+
+                           OPTIONS
+
+        Most options may be changed eit>
+        or from within less by using th>
+        Options may be given in one of >
+        character preceded by a -, or a>
+
+  -?  ........  --help
+                  Display help (from co>
+ Press RETURN for more, or q when done
+?
+
+Pattern not found  (press RETURN)
+No previous tag  (press RETURN)
+ Press RETURN for more, or q when done
+  -a  ........  --search-skip-screen
+ Press RETURN for more, or q when done
+                  Search skips current >
+  -A  ........  --SEARCH-SKIP-SCREEN
+                  Search starts just af>
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically a>
+  -c  -C  ....  --clear-screen --CLEAR->
+                  Repaint by clearing r>
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D xcolor  .  --color=xcolor
+                  Set screen colors.
+  -e  -E  ....  --quit-at-eof  --QUIT-A>
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regula>
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file f>
+  -g  ........  --hilite-search
+                  Highlight only last m>
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any m>
+  --old-bot
+                  Revert to the old bot>
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in search>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all se>
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of ta>
+  -J  ........  --status-column
+                  Display a status colu>
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+  -K  ........  --quit-on-intr
+                  Exit less in response>
+  -L  ........  --no-lessopen
+                  Ignore the LESSOPEN e>
+  -m  -M  ....  --long-prompt  --LONG-P>
+                  Set prompt style.
+  -n  ........  --line-numbers
+                  Don't use line number>
+  -N  ........  --LINE-NUMBERS
+                  Use line numbers.
+  -o [file]  .  --log-file=[file]
+                  Copy to log file (sta>
+  -O [file]  .  --LOG-FILE=[file]
+                  Copy to log file (unc>
+  -p [pattern]  --pattern=[pattern]
+                  Start at pattern (fro>
+  -P [prompt]   --prompt=[prompt]
+                  Define new prompt.
+  -q  -Q  ....  --quiet  --QUIET  --sil>
+                  Quiet the terminal be>
+  -r  -R  ....  --raw-control-chars  -->
+                  Output "raw" control >
+  -s  ........  --squeeze-blank-lines
+                  Squeeze multiple blan>
+  -S  ........  --chop-long-lines
+                  Chop (truncate) long >
+  -t [tag]  ..  --tag=[tag]
+                  Find a tag.
+  -T [tagsfile] --tag-file=[tagsfile]
+                  Use an alternate tags>
+  -u  -U  ....  --underline-special  -->
+                  Change handling of ba>
+  -V  ........  --version
+                  Display the version n>
+  -w  ........  --hilite-unread
+                  Highlight first new l>
+  -W  ........  --HILITE-UNREAD
+                  Highlight first new l>
+  -x [N[,...]]  --tabs=[N[,...]]
+                  Set tab stops.
+  -X  ........  --no-init
+                  Don't use termcap ini>
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+?
+
+Pattern not found  (press RETURN)
+  -y [N]  ....  --max-forw-scroll=[N]
+                  Forward scroll limit.
+  -z [N]  ....  --window=[N]
+                  Set size of window.
+  -" [c[c]]  .  --quotes=[c[c]]
+                  Set shell quote chara>
+  -~  ........  --tilde
+                  Don't display tildes >
+  -# [N]  ....  --shift=[N]
+                  Set horizontal scroll>
+                --file-size
+                  Automatically determi>
+                --follow-name
+                  The F command changes>
+                --incsearch
+                  Search file as each p>
+                --line-num-width=N
+                  Set the width of the >
+                --mouse
+                  Enable mouse input.
+                --no-keypad
+                  Don't send termcap ke>
+                --no-histdups
+                  Remove duplicates fro>
+                --rscroll=C
+                  Set the character use>
+                --save-marks
+                  Retain marks across i>
+                --status-col-width=N
+                  Set the width of the >
+                --use-backslash
+                  Subsequent options us>
+                --use-color
+                  Enables colored text.
+                --wheel-lines=N
+                  Each click of the mou>
+
+
+ -------------------------------------->
+
+ Press RETURN for more, or q when done
+                          LINE EDITING
+
+        These keys can be used to edit >
+        on the "command line" at the bo>
+
+ RightArrow ..................... ESC-l>
+ LeftArrow ...................... ESC-h>
+ ctrl-RightArrow  ESC-RightArrow  ESC-w>
+ ctrl-LeftArrow   ESC-LeftArrow   ESC-b>
+ HOME ........................... ESC-0>
+ END ............................ ESC-$>
+ BACKSPACE ............................>
+ DELETE ......................... ESC-x>
+ ctrl-BACKSPACE   ESC-BACKSPACE .......>
+ ctrl-DELETE .... ESC-DELETE .... ESC-X>
+ ctrl-U ......... ESC (MS-DOS only) ...>
+ UpArrow ........................ ESC-k>
+ DownArrow ...................... ESC-j>
+ TAB ..................................>
+ SHIFT-TAB ...................... ESC-T>
+ ctrl-L ...............................>
+ress g to see it again, or q when done
+ress g to see it again, or q when done
+-
+log file: yysstteemmccttll``  uusseess  aa  ""ppaaggeerr""  pprroogga "pager" progrraamm  ((uussuuaallllyy  ``llam (usually `leessss``))  ttoo  ddiissppllaass`) to displayy  rreessuullttss..  BBeeccaa results. Becauussee  yyoouurr  oouuttppuuttse your output  wwaass  eemmppttyy  ((iitt  was empty (it sshhoowwss  oonnllyy  ``~~``  hows only `~` ssyymmbboollss,,  wwhhiicchh  ymbols, which rreepprreesseenntt  eemmppttyyepresent empty  lliinneess  iinn  aa  tteexxlines in a textt  vviieewweerr)),,  tthhee   viewer), the ppaaggeerr  iiss  wwaaiittiinnager is waitingg  ffoorr  yyoouu  ttoo  aacc for you to ackknnoowwlleeddggee  tthhaatt  nowledge that yyoouu  hhaavvee  rreeaacchheeou have reachedd  tthhee  eenndd  ooff  tthh the end of thee  ffiillee..
+/bin/bash: -c: 줄 1: '`'를 찾는 도중 예상하지 못한 파일의 끝
+/bin/bash: -c: 줄 2: 문법 오류: 예기치 않은 파일의 끝
+
+Cannot write to "ystemctl` uses a "pager" program (usually `less`) to display results. Because your output was empty (it shows only `~` symbols, which represent empty lines in a text viewer), the pager is waiting for you to acknowledge that you have reached the end of the file."  (press RETURN)  -S  ........  --chop-long-lines
+                  Chop (truncate) long >
+  -t [tag]  ..  --tag=[tag]
+                  Find a tag.
+  -T [tagsfile] --tag-file=[tagsfile]
+                  Use an alternate tags>
+  -u  -U  ....  --underline-special  -->
+                  Change handling of ba>
+  -V  ........  --version
+                  Display the version n>
+  -w  ........  --hilite-unread
+                  Highlight first new l>
+  -W  ........  --HILITE-UNREAD
+                  Highlight first new l>
+  -x [N[,...]]  --tabs=[N[,...]]
+                  Set tab stops.
+  -X  ........  --no-init
+                  Don't use termcap ini>
+  -y [N]  ....  --max-forw-scroll=[N]
+                  Forward scroll limit.
+  -z [N]  ....  --window=[N]
+                  Set size of window.
+  -" [c[c]]  .  --quotes=[c[c]]
+                  Set shell quote chara>
+  -~  ........  --tilde
+                  Don't display tildes >
+  -# [N]  ....  --shift=[N]
+                  Set horizontal scroll>
+                --file-size
+                  Automatically determi>
+                --follow-name
+                  The F command changes>
+                --incsearch
+                  Search file as each p>
+                --line-num-width=N
+                  Set the width of the >
+                --mouse
+                  Enable mouse input.
+                --no-keypad
+                  Don't send termcap ke>
+                --no-histdups
+                  Remove duplicates fro>
+                --rscroll=C
+                  Set the character use>
+                --save-marks
+                  Retain marks across i>
+                --status-col-width=N
+                  Set the width of the >
+                --use-backslash
+                  Subsequent options us>
+                --use-color
+                  Enables colored text.
+                --wheel-lines=N
+                  Each click of the mou>
+
+
+ -------------------------------------->
+
+                          LINE EDITING
+
+        These keys can be used to edit >
+        on the "command line" at the bo>
+
+ RightArrow ..................... ESC-l>
+ LeftArrow ...................... ESC-h>
+ ctrl-RightArrow  ESC-RightArrow  ESC-w>
+ ctrl-LeftArrow   ESC-LeftArrow   ESC-b>
+ HOME ........................... ESC-0>
+ END ............................ ESC-$>
+ BACKSPACE ............................>
+ DELETE ......................... ESC-x>
+ ctrl-BACKSPACE   ESC-BACKSPACE .......>
+ ctrl-DELETE .... ESC-DELETE .... ESC-X>
+ ctrl-U ......... ESC (MS-DOS only) ...>
+ UpArrow ........................ ESC-k>
+ DownArrow ...................... ESC-j>
+ TAB ..................................>
+ SHIFT-TAB ...................... ESC-T>
+ ctrl-L ...............................>
+ress g to see it again, or q when done
+ress g to see it again, or q when done
+ress g to see it again, or q when done
+ress g to see it again, or q when done
+No next tag  (press RETURN)
+ress g to see it again, or q when done
+
+ress g to see it again, or q when done
+...skipping...
+  -S  ........  --chop-long-lines
+                  Chop (truncate) long >
+  -t [tag]  ..  --tag=[tag]
+                  Find a tag.
+  -T [tagsfile] --tag-file=[tagsfile]
+                  Use an alternate tags>
+  -u  -U  ....  --underline-special  -->
+                  Change handling of ba>
+  -V  ........  --version
+                  Display the version n>
+  -w  ........  --hilite-unread
+                  Highlight first new l>
+  -W  ........  --HILITE-UNREAD
+                  Highlight first new l>
+  -x [N[,...]]  --tabs=[N[,...]]
+                  Set tab stops.
+  -X  ........  --no-init
+                  Don't use termcap ini>
+  -y [N]  ....  --max-forw-scroll=[N]
+                  Forward scroll limit.
+  -z [N]  ....  --window=[N]
+                  Set size of window.
+  -" [c[c]]  .  --quotes=[c[c]]
+                  Set shell quote chara>
+  -~  ........  --tilde
+                  Don't display tildes >
+  -# [N]  ....  --shift=[N]
+                  Set horizontal scroll>
+                --file-size
+                  Automatically determi>
+                --follow-name
+                  The F command changes>
+                --incsearch
+                  Search file as each p>
+                --line-num-width=N
+                  Set the width of the >
+                --mouse
+                  Enable mouse input.
+                --no-keypad
+                  Don't send termcap ke>
+                --no-histdups
+                  Remove duplicates fro>
+                --rscroll=C
+                  Set the character use>
+                --save-marks
+                  Retain marks across i>
+                --status-col-width=N
+                  Set the width of the >
+                --use-backslash
+                  Subsequent options us>
+                --use-color
+                  Enables colored text.
+                --wheel-lines=N
+                  Each click of the mou>
+
+
+ -------------------------------------->
+
+                          LINE EDITING
+
+        These keys can be used to edit >
+        on the "command line" at the bo>
+
+ RightArrow ..................... ESC-l>
+ LeftArrow ...................... ESC-h>
+ ctrl-RightArrow  ESC-RightArrow  ESC-w>
+ ctrl-LeftArrow   ESC-LeftArrow   ESC-b>
+ HOME ........................... ESC-0>
+ END ............................ ESC-$>
+ BACKSPACE ............................>
+ DELETE ......................... ESC-x>
+ ctrl-BACKSPACE   ESC-BACKSPACE .......>
+ ctrl-DELETE .... ESC-DELETE .... ESC-X>
+ ctrl-U ......... ESC (MS-DOS only) ...>
+ UpArrow ........................ ESC-k>
+ DownArrow ...................... ESC-j>
+ TAB ..................................>
+ SHIFT-TAB ...................... ESC-T>
+ ctrl-L ...............................>
+ress g to see it again, or q when done
+
+ress g to see it again, or q when done
+                  Squeeze multiple blan>
+  -s  ........  --squeeze-blank-lines
+                  Output "raw" control >
+  -r  -R  ....  --raw-control-chars  -->
+                  Quiet the terminal be>
+  -q  -Q  ....  --quiet  --QUIET  --sil>
+                  Define new prompt.
+  -P [prompt]   --prompt=[prompt]
+                  Start at pattern (fro>
+  -p [pattern]  --pattern=[pattern]
+                  Copy to log file (unc>
+  -O [file]  .  --LOG-FILE=[file]
+                  Copy to log file (sta>
+  -o [file]  .  --log-file=[file]
+                  Use line numbers.
+  -N  ........  --LINE-NUMBERS
+                  Don't use line number>
+  -n  ........  --line-numbers
+                  Set prompt style.
+  -m  -M  ....  --long-prompt  --LONG-P>
+                  Ignore the LESSOPEN e>
+  -L  ........  --no-lessopen
+                  Exit less in response>
+  -K  ........  --quit-on-intr
+                  Use a lesskey file.
+  -k [file]  .  --lesskey-file=[file]
+                  Display a status colu>
+  -J  ........  --status-column
+                  Screen position of ta>
+  -j [N]  ....  --jump-target=[N]
+                  Ignore case in all se>
+  -I  ........  --IGNORE-CASE
+                  Ignore case in search>
+  -i  ........  --ignore-case
+                  Backward scroll limit.
+  -h [N]  ....  --max-back-scroll=[N]
+                  Revert to the old bot>
+  --old-bot
+                  Don't highlight any m>
+  -G  ........  --HILITE-SEARCH
+
+ Press RETURN for more, or q when done
+-
+log file: eeffuull  kkeeyyss  iinn  tthhiiss  vviieeww::****
+
+ Press RETURN for more, or q when done
+ Press RETURN for more, or q when done
+                  Don't send termcap ke>
+                --no-histdups
+                  Remove duplicates fro>
+                --rscroll=C
+                  Set the character use>
+                --save-marks
+                  Retain marks across i>
+                --status-col-width=N
+                  Set the width of the >
+                --use-backslash
+                  Subsequent options us>
+                --use-color
+                  Enables colored text.
+                --wheel-lines=N
+                  Each click of the mou>
+
+
+ -------------------------------------->
+
+                          LINE EDITING
+
+        These keys can be used to edit >
+        on the "command line" at the bo>
+
+ RightArrow ..................... ESC-l>
+ LeftArrow ...................... ESC-h>
+ ctrl-RightArrow  ESC-RightArrow  ESC-w>
+ ctrl-LeftArrow   ESC-LeftArrow   ESC-b>
+ HOME ........................... ESC-0>
+ END ............................ ESC-$>
+ BACKSPACE ............................>
+ DELETE ......................... ESC-x>
+ ctrl-BACKSPACE   ESC-BACKSPACE .......>
+ ctrl-DELETE .... ESC-DELETE .... ESC-X>
+ ctrl-U ......... ESC (MS-DOS only) ...>
+ UpArrow ........................ ESC-k>
+ DownArrow ...................... ESC-j>
+ TAB ..................................>
+ SHIFT-TAB ...................... ESC-T>
+ ctrl-L ...............................>
+ress g to see it again, or q when done
+
+ress g to see it again, or q when done
+
+ress g to see it again, or q when done
+ress g to see it again, or q when done
+ress g to see it again, or q when done
+ress g to see it again, or q when done...skipping...
+  UNIT                      LOAD   ACTI>
+  auditd.service            loaded acti>
+  chronyd.service           loaded acti>
+  containerd.service        loaded acti>
+  crond.service             loaded acti>
+  dbus-broker.service       loaded acti>
+  docker.service            loaded acti>
+  getty@tty1.service        loaded acti>
+  getty@tty2.service        loaded acti>
+  irqbalance.service        loaded acti>
+  kubelet.service           loaded acti>
+  NetworkManager.service    loaded acti>
+  nvidia-dcgm.service       loaded acti>
+  rsyslog.service           loaded acti>
+  sshd.service              loaded acti>
+  systemd-hostnamed.service loaded acti>
+  systemd-journald.service  loaded acti>
+  systemd-logind.service    loaded acti>
+  systemd-udevd.service     loaded acti>
+  user@0.service            loaded acti>
+  user@1000.service         loaded acti>
+
+LOAD   = Reflects whether the unit defi>
+ACTIVE = The high-level unit activation>
+SUB    = The low-level unit activation >
+20 loaded units listed.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+lines 1-26/26 (END)
+ ::  
+lines 1-26/26 (END)
+No previous tag  (press RETURN)
+lines 1-26/26 (END)
+
+lines 1-26/26 (END)
+>

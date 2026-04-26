@@ -1,0 +1,358 @@
+// Package tui
+// File: progress_tree.go
+// Description: Claude CLI 스타일 에이전트 진행 트리 렌더링
+// Responsibility: 도구 실행 진행 상황을 트리 형태로 실시간 표시
+
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"time"
+)
+
+// 트리 문자 상수
+const (
+	treeBranch    = "├─"
+	treeLastBranch = "└─"
+	treePipe      = "│"
+	treeResult    = "⎿"
+	treeIndent    = "   "
+	treeBranchPad = "   " // branch 후 들여쓰기
+)
+
+// progressStatus는 진행 항목의 상태를 나타낸다.
+type progressStatus int
+
+const (
+	statusRunning progressStatus = iota
+	statusWaiting
+	statusDone
+	statusError
+)
+
+// progressItem은 단일 도구 실행 항목이다.
+type progressItem struct {
+	toolID     string
+	toolName   string
+	target     string
+	args       map[string]any
+	status     progressStatus
+	duration   time.Duration
+	startTime  time.Time
+	lastOutput string
+	metadataJSON string
+}
+
+// progressTree는 현재 턴의 도구 실행 트리를 관리한다.
+type progressTree struct {
+	items  []progressItem
+	phases []phase // Phase 기반 그룹핑 (비어 있으면 flat 모드)
+	width  int
+}
+
+// newProgressTree는 새 progressTree를 생성한다.
+func newProgressTree() *progressTree {
+	return &progressTree{}
+}
+
+// AddTool은 새 도구 실행을 트리에 추가한다.
+func (pt *progressTree) AddTool(toolID, name, target string, args map[string]any) {
+	pt.items = append(pt.items, progressItem{
+		toolID:    toolID,
+		toolName:  name,
+		target:    target,
+		args:      args,
+		status:    statusRunning,
+		startTime: time.Now(),
+	})
+}
+
+// CompleteTool은 toolID에 해당하는 도구를 완료 처리한다.
+func (pt *progressTree) CompleteTool(toolID string, duration time.Duration, success bool, metadataJSON string) {
+	for i := range pt.items {
+		if pt.items[i].toolID == toolID && pt.items[i].status == statusRunning {
+			pt.items[i].duration = duration
+			pt.items[i].metadataJSON = metadataJSON
+			if success {
+				if meta, ok := parseTaskProgressMetadata(metadataJSON); ok && meta.PendingVerification() {
+					pt.items[i].status = statusWaiting
+				} else {
+					pt.items[i].status = statusDone
+				}
+			} else {
+				pt.items[i].status = statusError
+			}
+			break
+		}
+	}
+	// Phase 상태 재계산
+	if len(pt.phases) > 0 {
+		pt.updatePhaseStatuses()
+	}
+}
+
+// SetOutput은 toolID 도구의 최근 출력을 설정한다.
+func (pt *progressTree) SetOutput(toolID, line string) {
+	for i := range pt.items {
+		if pt.items[i].toolID == toolID && pt.items[i].status == statusRunning {
+			pt.items[i].lastOutput = truncateStr(line, 60)
+			return
+		}
+	}
+}
+
+func (pt *progressTree) UpdateTaskProgress(toolID, metadataJSON string) {
+	for i := range pt.items {
+		if pt.items[i].toolID != toolID {
+			continue
+		}
+		pt.items[i].metadataJSON = metadataJSON
+		if meta, ok := parseTaskProgressMetadata(metadataJSON); ok {
+			if meta.PendingVerification() {
+				pt.items[i].status = statusWaiting
+			} else if meta.VerificationStatus == "verified" {
+				pt.items[i].status = statusDone
+			}
+		}
+		break
+	}
+	if len(pt.phases) > 0 {
+		pt.updatePhaseStatuses()
+	}
+}
+
+// AddToolWithPhase는 Phase에 소속된 도구를 트리에 추가한다.
+// Phase가 아직 선언되지 않았으면 자동으로 생성한다.
+func (pt *progressTree) AddToolWithPhase(toolID, name, target, phaseID, phaseDesc string, args map[string]any) {
+	pt.AddTool(toolID, name, target, args)
+
+	// Phase 찾기 또는 생성
+	for i := range pt.phases {
+		if pt.phases[i].id == phaseID {
+			pt.phases[i].tools = append(pt.phases[i].tools, toolID)
+			pt.phases[i].status = statusRunning
+			return
+		}
+	}
+	pt.phases = append(pt.phases, phase{
+		id:          phaseID,
+		description: phaseDesc,
+		status:      statusRunning,
+		tools:       []string{toolID},
+	})
+}
+
+// DeclarePhase는 아직 도구가 없는 Phase를 미리 선언한다 (pending 상태).
+func (pt *progressTree) DeclarePhase(id, description string) {
+	for _, ph := range pt.phases {
+		if ph.id == id {
+			return // 이미 존재
+		}
+	}
+	pt.phases = append(pt.phases, phase{
+		id:          id,
+		description: description,
+	})
+}
+
+// HasPhase는 해당 ID의 Phase가 존재하는지 확인한다.
+func (pt *progressTree) HasPhase(id string) bool {
+	for _, ph := range pt.phases {
+		if ph.id == id {
+			return true
+		}
+	}
+	return false
+}
+
+// updatePhaseStatuses는 소속 도구들의 상태를 기반으로 각 Phase의 상태를 갱신한다.
+func (pt *progressTree) updatePhaseStatuses() {
+	for i := range pt.phases {
+		pt.phases[i].status = pt.calcPhaseStatus(pt.phases[i].tools)
+	}
+}
+
+func (pt *progressTree) calcPhaseStatus(toolIDs []string) progressStatus {
+	if len(toolIDs) == 0 {
+		return 0 // pending (zero value)
+	}
+	hasRunning := false
+	hasError := false
+	allDone := true
+	for _, tid := range toolIDs {
+		for _, item := range pt.items {
+			if item.toolID == tid {
+				switch item.status {
+				case statusRunning:
+					hasRunning = true
+					allDone = false
+				case statusWaiting:
+					allDone = false
+				case statusError:
+					hasError = true
+				case statusDone:
+					// ok
+				}
+			}
+		}
+	}
+	if hasRunning {
+		return statusRunning
+	}
+	if hasError {
+		return statusError
+	}
+	if !allDone {
+		return statusWaiting
+	}
+	if allDone {
+		return statusDone
+	}
+	return 0
+}
+
+// Reset은 트리를 초기화한다.
+func (pt *progressTree) Reset() {
+	pt.items = nil
+	pt.phases = nil
+}
+
+// IsEmpty는 트리가 비어있는지 확인한다.
+func (pt *progressTree) IsEmpty() bool {
+	return len(pt.items) == 0
+}
+
+// RunningCount는 실행 중인 항목 수를 반환한다.
+func (pt *progressTree) RunningCount() int {
+	count := 0
+	for _, item := range pt.items {
+		if item.status == statusRunning {
+			count++
+		}
+	}
+	return count
+}
+
+func (pt *progressTree) WaitingCount() int {
+	count := 0
+	for _, item := range pt.items {
+		if item.status == statusWaiting {
+			count++
+		}
+	}
+	return count
+}
+
+// View는 진행 트리를 렌더링한다.
+// Phase가 있으면 Phase 그룹 뷰, 없으면 flat 뷰를 사용한다.
+func (pt *progressTree) View() string {
+	if len(pt.items) == 0 {
+		return ""
+	}
+
+	// Phase 모드: Phase 그룹별 렌더링
+	if len(pt.phases) > 0 {
+		return renderPhaseView(pt.phases, pt.items)
+	}
+
+	// Flat 모드 (기존 동작)
+
+	var b strings.Builder
+
+	// 헤더
+	running := pt.RunningCount()
+	waiting := pt.WaitingCount()
+	if len(pt.items) == 1 && running == 1 {
+		item := pt.items[0]
+		elapsed := formatElapsedShort(time.Since(item.startTime))
+		displayName := toolDisplayName(item.toolName)
+		arg := toolDisplayArg(item.toolName, item.args)
+		label := displayName
+		if arg != "" {
+			label = displayName + " " + arg
+		}
+		b.WriteString(treeIndent + StyleClaude().Render("●") + " ")
+		b.WriteString(StyleThinking.Render(label + "..."))
+		b.WriteString(" " + StyleCmdBoxDim.Render("("+elapsed+")"))
+		if item.lastOutput != "" {
+			b.WriteString("\n" + treeIndent + treeBranchPad +
+				StyleTreeLine.Render(treeResult) + "  " +
+				StyleCmdBoxDim.Render(item.lastOutput))
+		}
+		return b.String()
+	}
+
+	// 복수 항목 헤더
+	b.WriteString(treeIndent + StyleClaude().Render("●") + " ")
+	if running > 0 {
+		b.WriteString(StyleThinking.Render(fmt.Sprintf("Running %d tools...", running)))
+	} else if waiting > 0 {
+		b.WriteString(StyleCmdBoxDim.Render(fmt.Sprintf("%d tasks waiting for verification", waiting)))
+	} else {
+		b.WriteString(StyleInfoBarDim.Render(fmt.Sprintf("%d tool uses", len(pt.items))))
+	}
+
+	// 트리 항목
+	for i, item := range pt.items {
+		isLast := i == len(pt.items)-1
+		b.WriteString("\n")
+		b.WriteString(renderTreeItem(item, isLast))
+	}
+
+	return b.String()
+}
+
+// renderTreeItem은 단일 트리 항목을 렌더링한다.
+func renderTreeItem(item progressItem, isLast bool) string {
+	branch := treeBranch
+	if isLast {
+		branch = treeLastBranch
+	}
+
+	var b strings.Builder
+	b.WriteString(treeIndent + treeBranchPad + StyleTreeLine.Render(branch) + " ")
+	b.WriteString(StyleCmdBoxToolName.Render(toolDisplayName(item.toolName)))
+
+	if item.target != "" && item.target != "localhost" {
+		b.WriteString(StyleCmdBoxDim.Render(" → ") + StyleCmdBoxTarget.Render(item.target))
+	}
+
+	// 상태 표시
+	switch item.status {
+	case statusWaiting:
+		elapsed := formatElapsedShort(item.duration)
+		b.WriteString(" " + StyleCmdBoxDim.Render("(검증 대기, "+elapsed+")"))
+	case statusDone:
+		elapsed := formatElapsedShort(item.duration)
+		b.WriteString(" " + StyleCmdBoxDim.Render("("+elapsed+")"))
+	case statusError:
+		elapsed := formatElapsedShort(item.duration)
+		b.WriteString(" " + StyleError.Render("✗") + " " +
+			StyleCmdBoxDim.Render("("+elapsed+")"))
+	case statusRunning:
+		elapsed := formatElapsedShort(time.Since(item.startTime))
+		b.WriteString(" " + StyleCmdBoxDim.Render("("+elapsed+")"))
+	}
+
+	// 실행 중이고 출력이 있으면 하위 표시
+	if item.status == statusRunning && item.lastOutput != "" {
+		continueLine := treePipe
+		if isLast {
+			continueLine = " "
+		}
+		b.WriteString("\n" + treeIndent + treeBranchPad +
+			StyleTreeLine.Render(continueLine+"  "+treeResult) + "  " +
+			StyleCmdBoxDim.Render(item.lastOutput))
+	}
+
+	return b.String()
+}
+
+// progressLabel은 도구명과 대상을 결합한 표시 레이블을 반환한다.
+func progressLabel(item progressItem) string {
+	if item.target != "" && item.target != "localhost" {
+		return item.toolName + " → " + item.target
+	}
+	return item.toolName
+}

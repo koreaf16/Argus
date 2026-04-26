@@ -1,0 +1,23 @@
+# test log
+getenv NO_COLOR
+getenv CLICOLOR
+getenv CI
+getenv CLICOLOR_FORCE
+getenv GOTMPDIR
+open C:\Users\jhkwa\AppData\Local\Temp\TestLoadUIRuntimeConfig_Defaults1977153018\001\missing.json
+getenv ARGUS_DISABLE_MOUSE
+getenv ARGUS_DISABLE_OSC52
+open C:\Users\jhkwa\AppData\Local\Temp
+getenv GOTMPDIR
+open C:\Users\jhkwa\AppData\Local\Temp\TestLoadUIRuntimeConfig_FromSettingsAndEnvOverride4159781499\001\settings.json
+getenv ARGUS_DISABLE_MOUSE
+getenv ARGUS_DISABLE_OSC52
+open C:\Users\jhkwa\AppData\Local\Temp\TestLoadUIRuntimeConfig_FromSettingsAndEnvOverride4159781499\001\settings.json
+getenv ARGUS_DISABLE_MOUSE
+getenv ARGUS_DISABLE_OSC52
+getenv ARGUS_DISABLE_MOUSE
+getenv ARGUS_DISABLE_OSC52
+open C:\Users\jhkwa\AppData\Local\Temp\TestLoadUIRuntimeConfig_FromSettingsAndEnvOverride4159781499\001\settings.json
+getenv ARGUS_DISABLE_MOUSE
+getenv ARGUS_DISABLE_OSC52
+open C:\Users\jhkwa\AppData\Local\Temp

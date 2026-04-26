@@ -1,0 +1,363 @@
+package privilege
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"sync"
+
+	"github.com/yourorg/infractl/internal/executor"
+)
+
+// Method identifies the privilege escalation mechanism.
+type Method string
+
+const (
+	MethodNone Method = ""
+	MethodSudo Method = "sudo"
+	MethodSU   Method = "su"
+)
+
+var (
+	// ErrAuthFailed indicates that the provided privilege password was rejected.
+	ErrAuthFailed = errors.New("privilege authentication failed")
+	// ErrPermissionDenied indicates that privilege escalation is not allowed for the target account.
+	ErrPermissionDenied = errors.New("privilege escalation is not permitted")
+)
+
+var (
+	passwordPromptRegex = regexp.MustCompile(`(?i)(\[sudo\]\s+password for .*:|\[sudo\]\s+[A-Za-z0-9_.-]+의 암호:|password:|passphrase for .*:|password for .*:|password for [^ ]+|[A-Za-z0-9_.-]+@[A-Za-z0-9_.:-]+'s password:|암호:|パスワード:)`)
+	sudoDeniedRegex     = regexp.MustCompile(`(?i)(not in the sudoers file|is not allowed to run sudo|may not run sudo|permission denied)`)
+	authFailureRegex    = regexp.MustCompile(`(?i)(authentication failure|sorry, try again|incorrect password)`)
+)
+
+// ParseMethod normalizes the raw method string into a supported privilege method.
+func ParseMethod(raw string) (Method, bool) {
+	switch Method(strings.ToLower(strings.TrimSpace(raw))) {
+	case MethodNone:
+		return MethodNone, true
+	case MethodSudo:
+		return MethodSudo, true
+	case MethodSU:
+		return MethodSU, true
+	default:
+		return MethodNone, false
+	}
+}
+
+// NormalizeUser returns the effective privilege target user.
+func NormalizeUser(user string) string {
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return "root"
+	}
+	return user
+}
+
+// PromptRequest describes a privilege password prompt shown to the user.
+type PromptRequest struct {
+	Target string
+	Method Method
+	User   string
+}
+
+// PromptResponse is the user's response to a privilege password prompt.
+type PromptResponse struct {
+	Password string
+	Abort    bool
+}
+
+// PromptHandler collects privilege passwords from the user.
+type PromptHandler interface {
+	RequestPassword(context.Context, PromptRequest) (PromptResponse, error)
+}
+
+// CacheKey scopes in-memory privilege passwords to a target and escalation profile.
+type CacheKey struct {
+	Target string
+	Method Method
+	User   string
+}
+
+// Cache stores privilege passwords in memory for the lifetime of the process.
+type Cache struct {
+	mu     sync.RWMutex
+	values map[CacheKey]string
+}
+
+// NewCache builds an empty privilege cache.
+func NewCache() *Cache {
+	return &Cache{values: make(map[CacheKey]string)}
+}
+
+// Get returns a cached password when present.
+func (c *Cache) Get(target string, method Method, user string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	key := cacheKey(target, method, user)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	value, ok := c.values[key]
+	return value, ok
+}
+
+// Set stores a password in memory.
+func (c *Cache) Set(target string, method Method, user, password string) {
+	if c == nil || strings.TrimSpace(password) == "" {
+		return
+	}
+	key := cacheKey(target, method, user)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.values[key] = password
+}
+
+// List returns all cached privilege keys (no passwords exposed).
+func (c *Cache) List() []CacheKey {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	keys := make([]CacheKey, 0, len(c.values))
+	for k := range c.values {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// Delete removes a cached password.
+func (c *Cache) Delete(target string, method Method, user string) {
+	if c == nil {
+		return
+	}
+	key := cacheKey(target, method, user)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.values, key)
+}
+
+func cacheKey(target string, method Method, user string) CacheKey {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		target = "localhost"
+	}
+	return CacheKey{
+		Target: strings.ToLower(target),
+		Method: method,
+		User:   NormalizeUser(user),
+	}
+}
+
+// Context bundles privilege dependencies passed alongside an executor.
+type Context struct {
+	Cache         *Cache
+	PromptHandler PromptHandler
+}
+
+// ContextProvider exposes privilege dependencies to tools.
+type ContextProvider interface {
+	PrivilegeContext() Context
+}
+
+// WrappedExecutor forwards executor calls while exposing privilege dependencies.
+type WrappedExecutor struct {
+	executor.Executor
+	ctx Context
+}
+
+// WrapExecutor attaches privilege context to an executor.
+func WrapExecutor(exec executor.Executor, ctx Context) executor.Executor {
+	if exec == nil {
+		return nil
+	}
+	return WrappedExecutor{Executor: exec, ctx: ctx}
+}
+
+// PrivilegeContext returns the attached privilege dependencies.
+func (w WrappedExecutor) PrivilegeContext() Context {
+	return w.ctx
+}
+
+// ExecuteStream forwards stream execution when supported.
+func (w WrappedExecutor) ExecuteStream(ctx context.Context, command string, onLine func(string)) (executor.ExecSession, error) {
+	se, ok := w.Executor.(executor.StreamExecutor)
+	if !ok {
+		return nil, fmt.Errorf("stream execution is not supported on %s", executor.ExecutionContextLabel(w.Executor))
+	}
+	return se.ExecuteStream(ctx, command, onLine)
+}
+
+// InjectStdin forwards stdin injection when supported.
+func (w WrappedExecutor) InjectStdin(line string) error {
+	inj, ok := w.Executor.(executor.StdinInjector)
+	if !ok {
+		return fmt.Errorf("stdin injection is not supported on %s", executor.ExecutionContextLabel(w.Executor))
+	}
+	return inj.InjectStdin(line)
+}
+
+// SendEOF forwards EOF/EOT signaling when supported.
+func (w WrappedExecutor) SendEOF() error {
+	sender, ok := w.Executor.(executor.StdinEOFSender)
+	if !ok {
+		return fmt.Errorf("stdin EOF is not supported on %s", executor.ExecutionContextLabel(w.Executor))
+	}
+	return sender.SendEOF()
+}
+
+// ExecuteInteractive forwards interactive execution when supported.
+func (w WrappedExecutor) ExecuteInteractive(ctx context.Context, spec executor.InteractiveSpec, onChunk func(string)) (executor.ExecSession, error) {
+	ie, ok := w.Executor.(executor.InteractiveExecutor)
+	if !ok {
+		return nil, fmt.Errorf("interactive execution is not supported on %s", executor.ExecutionContextLabel(w.Executor))
+	}
+	return ie.ExecuteInteractive(ctx, spec, onChunk)
+}
+
+// Platform forwards target platform metadata when available.
+func (w WrappedExecutor) Platform() executor.Platform {
+	return executor.PlatformFromExecutor(w.Executor)
+}
+
+// ShellName forwards the preferred shell label.
+func (w WrappedExecutor) ShellName() string {
+	return executor.ShellNameForExecutor(w.Executor)
+}
+
+// Plan describes the commands needed to execute a shell command with elevated privileges.
+type Plan struct {
+	Method             Method
+	User               string
+	UserCheckCommand   string // pre-flight: verify the target OS user exists
+	ValidateCommand    string
+	NonInteractiveRun  string
+	InteractiveRun     string
+	ProfileFallbackRun string // last-resort: source user profile as current user
+	PromptToken        string
+	RequirePTY         bool
+}
+
+// BuildPlan constructs a privilege execution plan for Unix-like targets.
+//
+// Execution order:
+//  1. UserCheckCommand  — abort early if the target user does not exist.
+//  2. ValidateCommand   — check whether sudo can run non-interactively (sudo only).
+//  3. NonInteractiveRun — preferred path (no password required).
+//  4. InteractiveRun    — fallback requiring PTY + password injection.
+//  5. ProfileFallbackRun — last resort: source the user's login profile as the
+//     current SSH user (environment only, no user-context switch).
+func BuildPlan(method Method, user, command string) (Plan, error) {
+	method, ok := ParseMethod(string(method))
+	if !ok || method == MethodNone {
+		return Plan{}, fmt.Errorf("unsupported privilege method: %q", method)
+	}
+
+	user = NormalizeUser(user)
+	quotedUser := executor.QuotePOSIX(user)
+	quotedCmd := executor.QuotePOSIX(command)
+
+	// Profile source fallback: runs as the current SSH user but loads the target
+	// user's login environment. Useful when neither sudo nor su is available.
+	profileFallback := fmt.Sprintf(
+		"bash -c 'homedir=$(getent passwd %s | cut -d: -f6); shell=$(getent passwd %s | cut -d: -f7); "+
+			"for f in \"$homedir/.bash_profile\" \"$homedir/.profile\" \"$homedir/.bashrc\"; do "+
+			"[ -r \"$f\" ] && source \"$f\" 2>/dev/null && break; done; %s'",
+		quotedUser, quotedUser, command,
+	)
+
+	switch method {
+	case MethodSudo:
+		promptToken := "__INFRACTL_PRIVILEGE_PASSWORD__"
+		return Plan{
+			Method: method,
+			User:   user,
+			// id(1) is POSIX-portable and queries NSS (handles LDAP/AD users too).
+			UserCheckCommand:   fmt.Sprintf("id %s >/dev/null 2>&1", quotedUser),
+			ValidateCommand:    fmt.Sprintf("sudo -n -u %s -v 2>&1", quotedUser),
+			NonInteractiveRun:  fmt.Sprintf("sudo -n -u %s -- bash -l -c %s", quotedUser, quotedCmd),
+			InteractiveRun:     fmt.Sprintf("sudo -S -p %s -u %s -- bash -l -c %s", executor.QuotePOSIX(promptToken), quotedUser, quotedCmd),
+			ProfileFallbackRun: profileFallback,
+			PromptToken:        promptToken,
+			RequirePTY:         true,
+		}, nil
+	case MethodSU:
+		// su - already launches a login shell; no need to wrap with bash -lc.
+		// runuser(1) is preferred on systemd hosts (no password needed when root),
+		// but we keep su as the universal fallback.
+		return Plan{
+			Method:             method,
+			User:               user,
+			UserCheckCommand:   fmt.Sprintf("id %s >/dev/null 2>&1", quotedUser),
+			NonInteractiveRun:  fmt.Sprintf("runuser -l %s -c %s", quotedUser, quotedCmd),
+			InteractiveRun:     fmt.Sprintf("su - %s -c %s", quotedUser, quotedCmd),
+			ProfileFallbackRun: profileFallback,
+			RequirePTY:         true,
+		}, nil
+	default:
+		return Plan{}, fmt.Errorf("unsupported privilege method: %q", method)
+	}
+}
+
+// ValidateStatus classifies the result of a sudo non-interactive validation attempt.
+type ValidateStatus int
+
+const (
+	ValidateUnknown ValidateStatus = iota
+	ValidateAllowed
+	ValidateNeedsPassword
+	ValidateDenied
+)
+
+// ClassifyValidateResult classifies the result of `sudo -n -v`.
+// sudo -n이 non-zero로 종료되고 명시적 "거부" 메시지가 없으면 비밀번호가 필요한 것으로 간주한다.
+// 영어 외 locale(한국어, 일본어 등)에도 동작한다.
+func ClassifyValidateResult(result executor.ExecResult) ValidateStatus {
+	if result.ExitCode == 0 {
+		return ValidateAllowed
+	}
+	combined := strings.TrimSpace(result.Stdout + "\n" + result.Stderr)
+	if sudoDeniedRegex.MatchString(combined) {
+		return ValidateDenied
+	}
+	return ValidateNeedsPassword
+}
+
+// IsAuthFailure reports whether the interactive output indicates password rejection.
+func IsAuthFailure(output string, promptCount int) bool {
+	if promptCount > 1 {
+		return true
+	}
+	return authFailureRegex.MatchString(output)
+}
+
+// CountPromptMatches counts password prompt occurrences in the current output.
+func CountPromptMatches(method Method, output string, promptToken string) int {
+	switch method {
+	case MethodSudo:
+		if promptToken != "" {
+			return strings.Count(output, promptToken)
+		}
+		return len(passwordPromptRegex.FindAllStringIndex(output, -1))
+	case MethodSU:
+		return len(passwordPromptRegex.FindAllStringIndex(output, -1))
+	default:
+		return 0
+	}
+}
+
+// SanitizeOutput removes privilege prompt artifacts from terminal output.
+func SanitizeOutput(method Method, output, promptToken string) string {
+	output = strings.ReplaceAll(output, "\r\n", "\n")
+	output = strings.ReplaceAll(output, "\r", "")
+	if promptToken != "" {
+		output = strings.ReplaceAll(output, promptToken, "")
+	}
+	if method == MethodSU || (method == MethodSudo && promptToken == "") {
+		output = passwordPromptRegex.ReplaceAllString(output, "")
+	}
+	return strings.TrimSpace(output)
+}

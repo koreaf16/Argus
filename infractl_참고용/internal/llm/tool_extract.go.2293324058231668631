@@ -1,0 +1,916 @@
+// Package llm
+// File: tool_extract.go
+// Description: ??쎈뱜?귐됱빪 delta 獄??紐껋뵬????용뮞?紐꾨퓠??tool call???곕뗄???롫뮉 ???퐣
+// Responsibility: JSON夷똛ML ?臾믩뻼 <tool_call> ?됰뗀以????뼓 獄?delta ?袁⑹읅/鈺곌퀬鍮
+
+package llm
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync/atomic"
+)
+
+// inlineIDSeq는 인라인 tool call ID의 전역 단조 증가 시퀀스이다.
+// 응답마다 idx가 0부터 재시작하면 동일 세션 내 중복 ID가 발생하므로,
+// 전역 카운터로 세션 전체에 걸쳐 고유한 ID를 보장한다.
+var inlineIDSeq int64
+
+var (
+	// reLLMTrailingBS: 문자열 종료 직전의 미이스케이프 백슬래시-따옴표.
+	// 케이스: "C:\", → "C:\\",  (Windows 경로 trailing backslash)
+	reLLMTrailingBS = regexp.MustCompile(`\\"([,}\]"])`)
+
+	// reLLMInvalidEsc: 유효하지 않은 JSON 이스케이프 시퀀스.
+	// 케이스: \U, \p 등 JSON 표준 외 문자 → \\U, \\p
+	reLLMInvalidEsc = regexp.MustCompile(`\\([^"\\/bfnrtu])`)
+	// reLLMMissingColonAfterKey: key-value 쌍에서 콜론(:)이 누락된 패턴을 보정한다.
+	// 케이스: {"name":"x", "arguments" {"description":"..."}}
+	reLLMMissingColonAfterKey = regexp.MustCompile(`([,{]\s*"[^"]+")\s+(\{|\[|"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)`)
+
+	// reShorthandNoArgs: {"tool_name"} 단축 형식 (인자 없음).
+	// 케이스: 모델이 인자 없는 툴 호출 시 {"tool_name"} 형태로 출력하는 경우.
+	reShorthandNoArgs = regexp.MustCompile(`^\{\s*"([a-zA-Z_][a-zA-Z0-9_]*)"\s*\}$`)
+
+	// reCallTag: call:name { args } </call:name> 형식 (닫는 태그 포함)
+	reCallTag = regexp.MustCompile(`(?s)call:([a-zA-Z_][a-zA-Z0-9_]*)\s*(\{.*?\})\s*</call:[a-zA-Z_][a-zA-Z0-9_]*>`)
+
+	// reGemmaCall: call:name{args} 형식 (Gemma 4/3)
+	// 케이스: call:process_list{target:sandbox}
+	reGemmaCall = regexp.MustCompile(`call:((?:[a-zA-Z_][a-zA-Z0-9_]*:)*[a-zA-Z_][a-zA-Z0-9_]*)\s*\{([^}]*)\}`)
+)
+
+// extractInlineToolCalls????용뮞?紐꾨퓠??<tool_call>...</tool_call> ?됰뗀以?????뼓??뺣뼄.
+// JSON ?類ㅻ뻼("{"name":...}") ??Qwen3.5 XML ?類ㅻ뻼("<function=NAME>...") ??筌뤴뫀紐?筌왖?癒곕립??
+// ???뼓???源껊궗???됰뗀以?? content?癒?퐣 ??볤탢??랁? ??? ??용뮞?硫? cleanedContent嚥?獄쏆꼹???뺣뼄.
+func stripThinking(content string) string {
+	// 1단계: 명시적인 태그 제거
+	for _, pair := range [3][2]string{
+		{"<think>", "</think>"},
+		{"<thought>", "</thought>"},
+		{"<thinking>", "</thinking>"},
+	} {
+		open, close := pair[0], pair[1]
+		for {
+			start := strings.Index(content, open)
+			if start < 0 {
+				break
+			}
+			end := strings.Index(content[start:], close)
+			if end < 0 {
+				break
+			}
+			content = content[:start] + content[start+end+len(close):]
+		}
+	}
+
+	// 2단계: 태그 없는 'thought' 키워드 및 불필요한 공백/줄바꿈 제거
+	lines := strings.Split(content, "\n")
+	var cleanedLines []string
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		lowerLine := strings.ToLower(trimmedLine)
+		// 'thought' 단독 행이거나 'thought:' 등으로 시작하는 행 제외
+		if lowerLine == "thought" || strings.HasPrefix(lowerLine, "thought:") {
+			continue
+		}
+		cleanedLines = append(cleanedLines, line)
+	}
+	return strings.Join(cleanedLines, "\n")
+}
+
+func sanitizeAssistantContent(content string) string {
+	// ExtractInlineToolCalls removes <tool_call> tags and call:name{} patterns,
+	// and internally calls stripThinking.
+	_, content = ExtractInlineToolCalls(content)
+
+	content = stripOrphanThinkingClosers(content)
+	content = stripLeakedReasoningPrelude(content)
+	return strings.TrimSpace(content)
+}
+
+func SanitizeAssistantContent(content string) string {
+	return sanitizeAssistantContent(content)
+}
+
+func stripLeakedReasoningPrelude(content string) string {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	trimmed := strings.TrimSpace(normalized)
+	if trimmed == "" {
+		return ""
+	}
+
+	paragraphs := splitParagraphs(trimmed)
+	if len(paragraphs) == 0 || !looksLikeReasoningLeak(paragraphs[0]) {
+		return trimmed
+	}
+
+	lastLeakIdx := -1
+	for i := len(paragraphs) - 1; i >= 0; i-- {
+		if looksLikeReasoningLeak(paragraphs[i]) {
+			lastLeakIdx = i
+			if i+1 < len(paragraphs) {
+				return strings.TrimSpace(strings.Join(paragraphs[i+1:], "\n\n"))
+			}
+			break
+		}
+	}
+
+	if lastLeakIdx >= 0 {
+		return ""
+	}
+	return trimmed
+}
+
+func stripOrphanThinkingClosers(content string) string {
+	lower := strings.ToLower(content)
+	closers := []string{"</think>", "</thinking>", "</thought>"}
+	lastIdx := -1
+	lastLen := 0
+	for _, closer := range closers {
+		if idx := strings.LastIndex(lower, closer); idx >= 0 && idx > lastIdx {
+			lastIdx = idx
+			lastLen = len(closer)
+		}
+	}
+	if lastIdx >= 0 {
+		tail := strings.TrimSpace(content[lastIdx+lastLen:])
+		if tail != "" {
+			return tail
+		}
+	}
+	replacer := strings.NewReplacer(
+		"</think>", "",
+		"</thinking>", "",
+		"</thought>", "",
+	)
+	return replacer.Replace(content)
+}
+
+func splitParagraphs(content string) []string {
+	var paragraphs []string
+	var current []string
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == "" {
+			if len(current) > 0 {
+				paragraphs = append(paragraphs, strings.TrimSpace(strings.Join(current, "\n")))
+				current = nil
+			}
+			continue
+		}
+		current = append(current, line)
+	}
+	if len(current) > 0 {
+		paragraphs = append(paragraphs, strings.TrimSpace(strings.Join(current, "\n")))
+	}
+	return paragraphs
+}
+
+func looksLikeReasoningLeak(paragraph string) bool {
+	lower := strings.ToLower(strings.TrimSpace(paragraph))
+	if lower == "" {
+		return false
+	}
+
+	markers := []string{
+		"thinking process:",
+		"the user is saying",
+		"this is a casual greeting",
+		"according to my rules",
+		"i should not call any tools",
+		"i'll respond in",
+		"i will respond in",
+		"analyze the input:",
+		"determine the appropriate response:",
+		"draft the response:",
+		"refine the response",
+		"final polish:",
+		"check against constraints:",
+		"final output generation",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+
+	return regexp.MustCompile(`(?m)^\s*\d+\.\s*(analyze|determine|draft|refine|check|final)\b`).MatchString(lower)
+}
+
+func hasPossibleReasoningLeakPrefix(content string) bool {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	trimmed := strings.TrimSpace(normalized)
+	if trimmed == "" {
+		return false
+	}
+
+	firstParagraph := trimmed
+	if idx := strings.Index(firstParagraph, "\n\n"); idx >= 0 {
+		firstParagraph = strings.TrimSpace(firstParagraph[:idx])
+	}
+	lower := strings.ToLower(firstParagraph)
+	if looksLikeReasoningLeak(lower) {
+		return true
+	}
+
+	markers := []string{
+		"thinking process:",
+		"the user is saying",
+		"this is a casual greeting",
+		"according to my rules",
+		"i should not call any tools",
+		"i'll respond in",
+		"i will respond in",
+		"analyze the input:",
+		"determine the appropriate response:",
+		"draft the response:",
+		"refine the response",
+		"final polish:",
+		"check against constraints:",
+		"final output generation",
+	}
+	for _, marker := range markers {
+		if strings.HasPrefix(marker, lower) || strings.HasPrefix(lower, marker) {
+			return true
+		}
+	}
+
+	return regexp.MustCompile(`(?m)^\s*\d+\.?\s*[a-z]*$`).MatchString(lower)
+}
+
+func hasUnclosedThinkingTag(content string) bool {
+	lower := strings.ToLower(content)
+	pairs := [][2]string{
+		{"<think>", "</think>"},
+		{"<thinking>", "</thinking>"},
+		{"<thought>", "</thought>"},
+	}
+	for _, pair := range pairs {
+		open, close := pair[0], pair[1]
+		lastOpen := strings.LastIndex(lower, open)
+		lastClose := strings.LastIndex(lower, close)
+		if lastOpen >= 0 && lastClose < lastOpen {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDanglingThinkingTagSuffix(content string) bool {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	if lower == "" {
+		return false
+	}
+	fragments := []string{
+		"<", "</", "<t", "</t", "<th", "</th", "<thi", "</thi",
+		"<thin", "</thin", "<think", "</think",
+		"<thinki", "</thinki", "<thinkin", "</thinkin",
+		"<thought", "</thought",
+	}
+	for _, frag := range fragments {
+		if strings.HasSuffix(lower, frag) {
+			return true
+		}
+	}
+	return false
+}
+
+func ExtractInlineToolCalls(content string) (calls []ToolCall, cleanedContent string) {
+	content = stripThinking(content)
+
+	// Normalize various tags to <tool_call> for easier processing
+	tagsToNormalize := []string{"tool_code", "tool_calls", "invoke", "call", "execute", "action"}
+	for _, tag := range tagsToNormalize {
+		content = strings.ReplaceAll(content, "<"+tag+">", "<tool_call>")
+		content = strings.ReplaceAll(content, "</"+tag+">", "</tool_call>")
+	}
+
+	const openTag = "<tool_call>"
+	const closeTag = "</tool_call>"
+
+	var sb strings.Builder
+	remaining := content
+
+	for idx := 0; ; idx++ {
+		start := strings.Index(remaining, openTag)
+		if start < 0 {
+			sb.WriteString(remaining)
+			break
+		}
+		// ??볥젃 ??롮벥 ??용뮞?紐껊뮉 域밸챶?嚥?癰귣똻??
+		sb.WriteString(remaining[:start])
+		remaining = remaining[start+len(openTag):]
+
+		end := strings.Index(remaining, closeTag)
+		if end < 0 {
+			// ??ル뮉 ??볥젃 ??곸벉 ???癒??癰귣벊?????ル굝利?
+			sb.WriteString(openTag)
+			sb.WriteString(remaining)
+			break
+		}
+		jsonStr := strings.TrimSpace(remaining[:end])
+		remaining = remaining[end+len(closeTag):]
+
+		// 1??뽰맄: JSON ?類ㅻ뻼 {"name":"...", "arguments":{...}}
+		// 1단계: JSON 포맷 {"name":"...", "arguments":{...}}
+		// 원본 파싱 실패 시 LLM JSON repair(백슬래시 이스케이프 보정)를 한 번 더 시도.
+		// 주 케이스: Windows 경로 미이스케이프 (예: "path":"C:\")
+		candidates := []string{jsonStr}
+		if repaired := repairLLMJSON(jsonStr); repaired != jsonStr {
+			candidates = append(candidates, repaired)
+		}
+		var matched bool
+		for _, candidate := range candidates {
+			var rawCall struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}
+			if err := json.Unmarshal([]byte(candidate), &rawCall); err == nil && rawCall.Name != "" {
+				var args map[string]any
+				if err := json.Unmarshal(rawCall.Arguments, &args); err == nil {
+					normalizeTodoWriteArgs(args)
+					if argBytes, err := json.Marshal(args); err == nil {
+						calls = append(calls, ToolCall{
+							ID:   fmt.Sprintf("inline_%d", atomic.AddInt64(&inlineIDSeq, 1)),
+							Type: "function",
+							Function: FunctionCall{
+								Name:      rawCall.Name,
+								Arguments: string(argBytes),
+							},
+						})
+						matched = true
+						break
+					}
+				}
+				// fallback if args unmarshal fails
+				argStr := string(rawCall.Arguments)
+				if argStr == "" || argStr == "null" {
+					argStr = "{}"
+				}
+				calls = append(calls, ToolCall{
+					ID:   fmt.Sprintf("inline_%d", atomic.AddInt64(&inlineIDSeq, 1)),
+					Type: "function",
+					Function: FunctionCall{
+						Name:      rawCall.Name,
+						Arguments: argStr,
+					},
+				})
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+
+		// 2??뽰맄: Qwen3.5 XML-like ?類ㅻ뻼 <function=NAME><parameter=K>V</parameter>...
+		if tc := parseQwenXMLToolCall(jsonStr); tc != nil {
+			tc.ID = fmt.Sprintf("inline_%d", atomic.AddInt64(&inlineIDSeq, 1))
+			calls = append(calls, *tc)
+			continue
+		}
+
+		// 3단계: 단축 형식 파싱 — {"tool_name"} 또는 {"tool_name": {...args}}
+		if tc := parseShorthandToolCall(jsonStr); tc != nil {
+			tc.ID = fmt.Sprintf("inline_%d", atomic.AddInt64(&inlineIDSeq, 1))
+			calls = append(calls, *tc)
+			continue
+		}
+
+		slog.Debug("inline tool_call parse failed (json+xml+shorthand)", "content", jsonStr)
+	}
+
+	// 4단계: call:NAME 형식 파싱
+	// <tool_call> 태그 외부나 태그가 아예 없는 경우를 위해 cleanedContent에서 직접 추출한다.
+	finalContent := sb.String()
+
+	// 4.1: call:name { args } </call:name> (닫는 태그 포함) 우선 추출
+	tagMatches := reCallTag.FindAllStringSubmatchIndex(finalContent, -1)
+	if len(tagMatches) > 0 {
+		var newCleaned strings.Builder
+		lastIdx := 0
+		for _, m := range tagMatches {
+			newCleaned.WriteString(finalContent[lastIdx:m[0]])
+			name := finalContent[m[2]:m[3]]
+			argsRaw := finalContent[m[4]:m[5]]
+			if tc := parseGemmaToolCall(name, argsRaw); tc != nil {
+				tc.ID = fmt.Sprintf("inline_%d", atomic.AddInt64(&inlineIDSeq, 1))
+				calls = append(calls, *tc)
+			} else {
+				newCleaned.WriteString(finalContent[m[0]:m[1]])
+			}
+			lastIdx = m[1]
+		}
+		newCleaned.WriteString(finalContent[lastIdx:])
+		finalContent = newCleaned.String()
+	}
+
+	// 4.2: call:name{args} (Gemma-style, 닫는 태그 없음) 추출
+	matches := reGemmaCall.FindAllStringSubmatchIndex(finalContent, -1)
+	if len(matches) > 0 {
+		var newCleaned strings.Builder
+		lastIdx := 0
+		for _, m := range matches {
+			newCleaned.WriteString(finalContent[lastIdx:m[0]])
+			name := finalContent[m[2]:m[3]]
+			argsRaw := finalContent[m[4]:m[5]]
+			if tc := parseGemmaToolCall(name, argsRaw); tc != nil {
+				tc.ID = fmt.Sprintf("inline_%d", atomic.AddInt64(&inlineIDSeq, 1))
+				calls = append(calls, *tc)
+			} else {
+				newCleaned.WriteString(finalContent[m[0]:m[1]])
+			}
+			lastIdx = m[1]
+		}
+		newCleaned.WriteString(finalContent[lastIdx:])
+		finalContent = newCleaned.String()
+	}
+
+	return calls, strings.TrimSpace(finalContent)
+}
+
+// parseGemmaToolCall은 Gemma의 call:name{key:val, ...} 형식을 파싱한다.
+func hasInlineToolCallCandidate(content string) bool {
+	return strings.Contains(content, "<tool_call>") ||
+		strings.Contains(content, "<tool_code>") ||
+		strings.Contains(content, "<|tool_call>") ||
+		strings.Contains(content, "call:")
+}
+
+func parseGemmaToolCall(name, argsRaw string) *ToolCall {
+	if name == "" {
+		return nil
+	}
+	name = normalizeGemmaToolName(name)
+
+	// Gemma 특유의 이스케이프 처리: <|"|> -> "
+	argsRaw = normalizeGemmaArgMarkers(argsRaw)
+
+	// 인자 파싱 (key:val 또는 key=val 형태)
+	args := parseGemmaArgs(argsRaw)
+
+	if len(args) == 0 && strings.TrimSpace(argsRaw) != "" {
+		// 파싱 실패 시 전체를 command 인자로 간주하는 등의 폴백 (필요 시)
+		args["command"] = strings.Trim(strings.TrimSpace(argsRaw), `"'`)
+	}
+
+	normalizeTodoWriteArgs(args)
+
+	argBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil
+	}
+
+	return &ToolCall{
+		Type: "function",
+		Function: FunctionCall{
+			Name:      name,
+			Arguments: string(argBytes),
+		},
+	}
+}
+
+// parseQwenXMLToolCall?? Qwen3.5 27B揶쎛 ?곗뮆???롫뮉 XML-like tool call ????????뼓??뺣뼄.
+//
+// ??낆젾 ??됰뻻:
+//
+//	<function=server_command>
+//	<parameter=server>
+//	test
+//	</parameter>
+//	<parameter=command>
+//	cat /etc/os-release
+//	</parameter>
+//	</function>
+//
+// parseShorthandToolCall은 모델이 출력하는 비표준 단축 형식을 처리한다.
+//
+// 지원 형식:
+//   - {"tool_name"}            — 인자 없는 호출 (유효하지 않은 JSON)
+//   - {"tool_name": {...args}} — 단일 키 오브젝트로 인자 전달
+func parseShorthandToolCall(content string) *ToolCall {
+	content = strings.TrimSpace(content)
+
+	// 형식 1: {"tool_name"} — 유효하지 않은 JSON, 정규식으로 처리
+	if m := reShorthandNoArgs.FindStringSubmatch(content); m != nil {
+		return &ToolCall{
+			Type: "function",
+			Function: FunctionCall{
+				Name:      m[1],
+				Arguments: "{}",
+			},
+		}
+	}
+
+	// 형식 2: {"tool_name": {...}} — 단일 키 JSON 오브젝트
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &raw); err == nil && len(raw) == 1 {
+		for name, argsRaw := range raw {
+			// tool_name 형식(snake_case 식별자)인지 확인
+			if !reShorthandNoArgs.MatchString(`{"` + name + `"}`) {
+				continue
+			}
+			argStr := string(argsRaw)
+			if argStr == "" || argStr == "null" {
+				argStr = "{}"
+			}
+			return &ToolCall{
+				Type: "function",
+				Function: FunctionCall{
+					Name:      name,
+					Arguments: argStr,
+				},
+			}
+		}
+	}
+
+	return nil
+}
+
+func normalizeGemmaToolName(name string) string {
+	name = strings.TrimSpace(name)
+	if idx := strings.LastIndex(name, ":"); idx >= 0 {
+		name = strings.TrimSpace(name[idx+1:])
+	}
+	switch strings.ToLower(strings.ReplaceAll(name, "-", "_")) {
+	case "todo_write", "todowrite":
+		return "TodoWrite"
+	case "todo_read", "todoread":
+		return "TodoRead"
+	default:
+		return name
+	}
+}
+
+func normalizeGemmaArgMarkers(argsRaw string) string {
+	argsRaw = strings.ReplaceAll(argsRaw, `<|"|>`, `"`)
+	argsRaw = strings.ReplaceAll(argsRaw, `<|`, ``)
+	argsRaw = strings.ReplaceAll(argsRaw, `|>`, ``)
+	argsRaw = strings.ReplaceAll(argsRaw, "<escape>", "")
+	return argsRaw
+}
+
+func parseGemmaArgs(argsRaw string) map[string]any {
+	args := make(map[string]any)
+	for _, part := range splitGemmaTopLevel(argsRaw, ',') {
+		key, val, ok := splitGemmaKeyValue(part)
+		if !ok {
+			continue
+		}
+		args[key] = parseGemmaValue(val)
+	}
+	return args
+}
+
+func splitGemmaKeyValue(part string) (string, string, bool) {
+	part = strings.TrimSpace(part)
+	if part == "" {
+		return "", "", false
+	}
+	quote := rune(0)
+	escaped := false
+	depth := 0
+	for i, r := range part {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quote != 0 {
+			if r == '\\' {
+				escaped = true
+			} else if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case '[', '{', '(':
+			depth++
+		case ']', '}', ')':
+			if depth > 0 {
+				depth--
+			}
+		case ':', '=':
+			if depth == 0 {
+				key := strings.Trim(strings.TrimSpace(part[:i]), "`\"'")
+				val := strings.TrimSpace(part[i+1:])
+				return key, val, key != ""
+			}
+		}
+	}
+	return "", "", false
+}
+
+func parseGemmaValue(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]") {
+		inner := strings.TrimSpace(raw[1 : len(raw)-1])
+		if inner == "" {
+			return []any{}
+		}
+		parts := splitGemmaTopLevel(inner, ',')
+		values := make([]any, 0, len(parts))
+		for _, part := range parts {
+			if strings.TrimSpace(part) == "" {
+				continue
+			}
+			values = append(values, parseGemmaValue(part))
+		}
+		return values
+	}
+	if v, ok := stripGemmaQuotes(raw); ok {
+		return v
+	}
+
+	lower := strings.ToLower(raw)
+	if lower == "true" {
+		return true
+	}
+	if lower == "false" {
+		return false
+	}
+	if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(raw, 64); err == nil {
+		return f
+	}
+	return strings.Trim(raw, `"'`)
+}
+
+func stripGemmaQuotes(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 2 {
+		return raw, false
+	}
+	first := raw[0]
+	last := raw[len(raw)-1]
+	if (first != '\'' && first != '"') || first != last {
+		return raw, false
+	}
+	v := raw[1 : len(raw)-1]
+	v = strings.ReplaceAll(v, `\\`, `\`)
+	v = strings.ReplaceAll(v, `\"`, `"`)
+	v = strings.ReplaceAll(v, `\'`, `'`)
+	v = strings.ReplaceAll(v, `\n`, "\n")
+	v = strings.ReplaceAll(v, `\t`, "\t")
+	return v, true
+}
+
+func splitGemmaTopLevel(s string, sep rune) []string {
+	var parts []string
+	start := 0
+	quote := rune(0)
+	escaped := false
+	depth := 0
+	for i, r := range s {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quote != 0 {
+			if r == '\\' {
+				escaped = true
+			} else if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case '[', '{', '(':
+			depth++
+		case ']', '}', ')':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if r == sep && depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + len(string(r))
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
+}
+
+func normalizeTodoWriteArgs(args map[string]any) {
+	if _, ok := args["markdown_list"]; ok {
+		return
+	}
+	// various common keys LLMs use for todo lists
+	for _, key := range []string{"todos", "todo_list", "todo-list", "tasks", "subtasks", "steps"} {
+		if raw, ok := args[key]; ok {
+			if markdown := todoToMarkdown(raw); markdown != "" {
+				args["markdown_list"] = markdown
+				delete(args, key)
+				return
+			}
+		}
+	}
+}
+
+func todoToMarkdown(raw any) string {
+	var items []string
+	switch v := raw.(type) {
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				content := ""
+				if c, ok := m["content"].(string); ok {
+					content = c
+				} else if d, ok := m["description"].(string); ok {
+					content = d
+				} else if t, ok := m["title"].(string); ok {
+					content = t
+				} else if t, ok := m["task"].(string); ok {
+					content = t
+				}
+
+				status := ""
+				if s, ok := m["status"].(string); ok {
+					status = s
+				}
+
+				id := ""
+				if i, ok := m["id"].(string); ok {
+					id = i
+				} else if i, ok := m["number"].(string); ok {
+					id = i
+				} else if i, ok := m["idx"].(string); ok {
+					id = i
+				}
+
+				prefix := "- [ ] "
+				lowStatus := strings.ToLower(status)
+				if lowStatus == "completed" || lowStatus == "done" || lowStatus == "x" || lowStatus == "finished" {
+					prefix = "- [x] "
+				} else if lowStatus == "in_progress" || lowStatus == "working" || lowStatus == ">" || lowStatus == "started" {
+					prefix = "- [>] "
+				}
+
+				line := prefix
+				if id != "" {
+					line += id + ". "
+				}
+				line += content
+				items = append(items, line)
+			} else {
+				items = append(items, fmt.Sprint(item))
+			}
+		}
+	case []string:
+		items = append(items, v...)
+	case string:
+		if strings.Contains(v, "\n") {
+			items = strings.Split(v, "\n")
+		} else {
+			items = []string{v}
+		}
+	default:
+		return ""
+	}
+
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(strings.Trim(item, `"'`))
+		if item == "" {
+			continue
+		}
+		if strings.HasPrefix(item, "- [") || strings.HasPrefix(item, "* [") {
+			lines = append(lines, item)
+		} else {
+			lines = append(lines, "- [ ] "+item)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func parseQwenXMLToolCall(content string) *ToolCall {
+	const funcPrefix = "<function="
+	const paramPrefix = "<parameter="
+	const paramClose = "</parameter>"
+
+	// <function=NAME> ???뼓
+	funcStart := strings.Index(content, funcPrefix)
+	if funcStart < 0 {
+		return nil
+	}
+	rest := content[funcStart+len(funcPrefix):]
+	funcTagEnd := strings.Index(rest, ">")
+	if funcTagEnd < 0 {
+		return nil
+	}
+	funcName := strings.TrimSpace(rest[:funcTagEnd])
+	if funcName == "" {
+		return nil
+	}
+	rest = rest[funcTagEnd+1:]
+
+	// <parameter=KEY>VALUE</parameter> 獄쏆꼶?????뼓
+	args := make(map[string]any)
+	for {
+		paramStart := strings.Index(rest, paramPrefix)
+		if paramStart < 0 {
+			break
+		}
+		rest = rest[paramStart+len(paramPrefix):]
+		paramTagEnd := strings.Index(rest, ">")
+		if paramTagEnd < 0 {
+			break
+		}
+		paramName := strings.TrimSpace(rest[:paramTagEnd])
+		rest = rest[paramTagEnd+1:]
+
+		valueEnd := strings.Index(rest, paramClose)
+		if valueEnd < 0 {
+			break
+		}
+		args[paramName] = strings.TrimSpace(rest[:valueEnd])
+		rest = rest[valueEnd+len(paramClose):]
+	}
+
+	normalizeTodoWriteArgs(args)
+
+	argBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil
+	}
+	return &ToolCall{
+		Type: "function",
+		Function: FunctionCall{
+			Name:      funcName,
+			Arguments: string(argBytes),
+		},
+	}
+}
+
+// accumulateToolCall?? ??쎈뱜?귐됱빪 delta???紐껊쑔??삵?甕곌쑵????袁⑹읅??뺣뼄.
+func accumulateToolCall(buf map[int]*ToolCall, tc streamToolCall) {
+	existing, ok := buf[tc.Index]
+	if !ok {
+		existing = &ToolCall{Type: "function"}
+		buf[tc.Index] = existing
+	}
+	if tc.ID != "" {
+		existing.ID = tc.ID
+	}
+	if tc.Function.Name != "" {
+		existing.Function.Name = tc.Function.Name
+	}
+	if tc.Function.Arguments != "" {
+		existing.Function.Arguments += tc.Function.Arguments
+	}
+}
+
+// assembleToolCalls??甕곌쑵???tool_calls???紐껊쑔????뽰몵嚥??類ｌ졊???????곷뮞嚥?獄쏆꼹???뺣뼄.
+func assembleToolCalls(buf map[int]*ToolCall) []ToolCall {
+	if len(buf) == 0 {
+		return nil
+	}
+	result := make([]ToolCall, len(buf))
+	for idx, tc := range buf {
+		if idx < len(result) {
+			result[idx] = *tc
+		}
+	}
+	return result
+}
+
+// repairLLMJSON는 LLM이 생성한 JSON에서 흔히 발생하는 백슬래시 인코딩 오류를 보정한다.
+//
+// 보정 케이스:
+//  1. Windows 경로 trailing backslash: "C:\", → "C:\\",
+//  2. 유효하지 않은 이스케이프: \U, \p 등 → \\U, \\p
+func repairLLMJSON(s string) string {
+	// 1단계: 문자열 종료 직전의 \": "C:\", → "C:\\",
+	s = reLLMTrailingBS.ReplaceAllStringFunc(s, func(m string) string {
+		// m = `\"` + terminator (e.g., `\",`)
+		// → `\\"` + terminator  (escaped backslash + closing quote)
+		return `\\"` + m[2:]
+	})
+	// 2단계: 나머지 유효하지 않은 이스케이프 시퀀스.
+	// \U, \p, \( 등 JSON 표준에 없는 → \\U, \\p, \\(
+	s = reLLMInvalidEsc.ReplaceAllString(s, `\\$1`)
+	// 3단계: key-value 사이의 콜론 누락 보정.
+	// 한 번의 치환으로 모두 보정되지 않을 수 있어 반복 적용한다.
+	for i := 0; i < 4; i++ {
+		repaired := reLLMMissingColonAfterKey.ReplaceAllString(s, `$1:$2`)
+		if repaired == s {
+			break
+		}
+		s = repaired
+	}
+	return s
+}

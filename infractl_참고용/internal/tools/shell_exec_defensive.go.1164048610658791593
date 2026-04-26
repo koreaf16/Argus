@@ -1,0 +1,131 @@
+package tools
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/yourorg/infractl/internal/executor"
+)
+
+var (
+	unzipCommandRe = regexp.MustCompile(`(?i)(?:^|[;&|]\s*)unzip\b`)
+	unzipDestDirRe = regexp.MustCompile(`(?i)(?:^|[;&|]\s*)unzip\b[^;&|]*\s-d\s+\S+`)
+	homeUserPathRe = regexp.MustCompile(`(?i)/home/([a-z_][a-z0-9_.-]*)\b`)
+)
+
+// DefensiveTactic describes command adjustments made before execution.
+type DefensiveTactic struct {
+	OriginalCommand string
+	ModifiedCommand string
+	IsBackground    bool
+	LogPath         string
+	Warnings        []string
+}
+
+func ApplyDefensiveTactics(cmd string, isBackground bool) *DefensiveTactic {
+	tactic := &DefensiveTactic{
+		OriginalCommand: cmd,
+		ModifiedCommand: cmd,
+		IsBackground:    isBackground,
+	}
+	tactic.applyAntiFlood()
+	if isBackground {
+		tactic.applyBackgroundWrapper()
+	}
+	return tactic
+}
+
+func (t *DefensiveTactic) applyAntiFlood() {
+	cmd := t.ModifiedCommand
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return
+	}
+
+	baseCmd := filepath.Base(parts[0])
+	switch baseCmd {
+	case "unzip":
+		if !strings.Contains(cmd, " -q") {
+			t.ModifiedCommand = strings.Replace(cmd, "unzip", "unzip -q", 1)
+			t.Warnings = append(t.Warnings, "Added '-q' to unzip to prevent session flooding.")
+		}
+	case "tar":
+		if strings.Contains(cmd, "-v") || strings.Contains(cmd, "v") {
+			t.ModifiedCommand = strings.Replace(cmd, "v", "", 1)
+			t.Warnings = append(t.Warnings, "Removed 'v' flag from tar to prevent session flooding.")
+		}
+	case "cp", "mv":
+		if strings.Contains(cmd, " -v") {
+			t.ModifiedCommand = strings.ReplaceAll(cmd, " -v", "")
+			t.Warnings = append(t.Warnings, "Removed '-v' flag from copy/move command.")
+		}
+	}
+}
+
+func (t *DefensiveTactic) applyBackgroundWrapper() {
+	logFile := fmt.Sprintf("/tmp/infractl_job_%d.log", time.Now().Unix())
+	t.LogPath = logFile
+	t.ModifiedCommand = fmt.Sprintf("nohup bash -c %q > %s 2>&1 & echo $!", t.ModifiedCommand, logFile)
+	t.Warnings = append(t.Warnings, fmt.Sprintf("Command wrapped with nohup. Logs: %s", logFile))
+}
+
+// PerformPreflightChecks validates only concrete disk-modifying targets.
+func PerformPreflightChecks(ctx context.Context, exec executor.Executor, cmd string, user string) error {
+	if user != "" && user != "root" {
+		checkCmd := fmt.Sprintf("id %s", user)
+		res, err := exec.Execute(ctx, checkCmd)
+		if err != nil || res.ExitCode != 0 {
+			return fmt.Errorf("pre-flight check failed: target user %q does not exist or is inaccessible", user)
+		}
+	}
+
+	if unzipCommandRe.MatchString(cmd) && !unzipDestDirRe.MatchString(cmd) {
+		return fmt.Errorf("pre-flight check failed: unzip must specify an explicit destination directory with -d (e.g. -d /u01/app/oracle/stage)")
+	}
+
+	scan := ScanCommand(cmd)
+	if scan.IsDiskModifying {
+		if homeUser := inferHomeUserFromCommand(cmd); homeUser != "" {
+		effectiveUser := strings.TrimSpace(user)
+		if effectiveUser == "" {
+			whoami, err := exec.Execute(ctx, "whoami")
+			if err == nil && whoami.ExitCode == 0 {
+				effectiveUser = strings.TrimSpace(whoami.Stdout)
+			}
+		}
+		if effectiveUser == "" {
+			return fmt.Errorf("pre-flight check failed: command references /home/%s but the current account could not be determined; specify become_user: %s", homeUser, homeUser)
+		}
+		if !strings.EqualFold(effectiveUser, homeUser) {
+			return fmt.Errorf("pre-flight check failed: command references /home/%s but effective user is %q; run with become_user: %s", homeUser, effectiveUser, homeUser)
+		}
+	}
+	}
+
+	if !scan.IsDiskModifying || len(scan.TargetPaths) == 0 {
+		return nil
+	}
+
+	for _, targetPath := range scan.TargetPaths {
+		if targetPath == "" {
+			continue
+		}
+		if warning, critical := CheckCriticalPath(targetPath); critical {
+			return fmt.Errorf("pre-flight check failed: %s", warning)
+		}
+	}
+
+	return nil
+}
+
+func inferHomeUserFromCommand(cmd string) string {
+	matches := homeUserPathRe.FindStringSubmatch(cmd)
+	if len(matches) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}

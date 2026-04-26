@@ -1,0 +1,28 @@
+﻿=== [7] Tool Group (tool_group) ===
+
+--- example 1: search-read-list ---
+
+│ | 2 search, 3 read, 1 list...              
+│ › "bubbletea markdown flicker" in render.go
+
+--- example 2: active-scan ---
+
+│ / active-scan                  
+│ grep  /renderThinkingRow/      
+│ fileread internal/tui/render.go
+
+--- example 3: collapsed-summary ---
+
+│ ✓ 8 operations done (ctrl+o to expand)
+
+--- example 4: expanded-tree ---
+
+│ expanded-tree                     
+│   ├─ web_search "argus cli design"
+│   ├─ fileread cmd/ui_demo/main.go 
+│   └─ grep "renderCategoryExample" 
+
+--- example 5: finished ---
+
+│ ✓ finished                       
+│ summary: 3 search, 6 read, 1 list

@@ -1,0 +1,26 @@
+﻿=== [8] Shell Card (shell) ===
+
+--- example 1: running-output ---
+
+│ ⠋ bash npm run build
+│    $ npm run build  
+│    ✓ bundled in 2.3s
+
+--- example 2: focused-pty ---
+
+│ ⠙ powershell interactive               
+│    [TAB to defocus] [Ctrl+D background]
+
+--- example 3: background-job ---
+
+│ ⠸ bash background task                
+│    task_id: job-29f7  target: prod-k8s
+
+--- example 4: error-exit ---
+
+│ ✕ exit code 1                                
+│ stderr: permission denied while opening cache
+
+--- example 5: compact-done ---
+
+│ ✓ done in 184ms

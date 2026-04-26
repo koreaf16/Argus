@@ -1,0 +1,10 @@
+./base_text_input.go
+./footer.go
+./footer_left.go
+./footer_suggestions.go
+./help_menu.go
+./input_box.go
+./mode_indicator.go
+./prompt_input.go
+./status_line.go
+./text_input.go

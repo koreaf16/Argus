@@ -1,0 +1,41 @@
+{
+  "saved_at": "2026-04-22T14:04:40.9940367Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 만나서 반가워요. 무엇을 도와드릴까요? :)"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "ㅇㅇ"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "네, 말씀하세요! 궁금한 점이 있거나 도움이 필요하시면 언제든 편하게 말씀해 주세요. :)"
+        }
+      ]
+    }
+  ]
+}

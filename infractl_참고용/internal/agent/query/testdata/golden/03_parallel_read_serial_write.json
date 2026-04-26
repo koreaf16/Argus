@@ -1,0 +1,29 @@
+{
+  "name": "parallel_read_serial_write",
+  "description": "read-only 3개 병렬 + mutation 1개 직렬",
+  "input_messages": [],
+  "tool_behaviors": {
+    "r1": {"output": "r1 out", "is_error": false},
+    "r2": {"output": "r2 out", "is_error": false},
+    "r3": {"output": "r3 out", "is_error": false},
+    "w1": {"output": "w1 done", "is_error": false}
+  },
+  "llm_turns": [
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "tc-1", "type": "function", "function": {"name": "r1", "arguments": "{}"}},
+        {"id": "tc-2", "type": "function", "function": {"name": "r2", "arguments": "{}"}},
+        {"id": "tc-3", "type": "function", "function": {"name": "r3", "arguments": "{}"}},
+        {"id": "tc-4", "type": "function", "function": {"name": "w1", "arguments": "{}"}}
+      ]
+    },
+    {
+      "content": "완료.",
+      "tool_calls": []
+    }
+  ],
+  "tool_readonly": ["r1", "r2", "r3"],
+  "expected_terminal_reason": "completed",
+  "expected_result_count": 4
+}

@@ -1,0 +1,150 @@
+﻿// Package tools
+// File: shell_exec_render.go
+// Description: renders shell_exec results and identifies file-transfer command patterns.
+// Responsibility: keep shell output readable and prevent archive failure floods from overwhelming the agent.
+
+package tools
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/executor"
+)
+
+// renderExecResult formats an execution result for tool output.
+func renderExecResult(exec executor.Executor, result executor.ExecResult) string {
+	lines := []string{
+		fmt.Sprintf("Execution Context: %s", executor.ExecutionContextLabel(exec)),
+		fmt.Sprintf("[Exit Code: %d]", result.ExitCode),
+	}
+	stdout := strings.TrimSpace(result.Stdout)
+	stderr := strings.TrimSpace(result.Stderr)
+	if stdout != "" {
+		lines = append(lines, summarizeNoisyCommandOutput(stdout))
+	}
+	if stderr != "" {
+		lines = append(lines, "[stderr]", summarizeNoisyCommandOutput(stderr))
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func summarizeNoisyCommandOutput(output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return ""
+	}
+	normalized := strings.ReplaceAll(strings.ReplaceAll(output, "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(normalized, "\n")
+	stats := archiveFailureStats(lines)
+	if stats.total < 10 {
+		return output
+	}
+
+	meaningful := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			meaningful = append(meaningful, trimmed)
+		}
+	}
+
+	summary := []string{"[Output compressed: repeated archive/permission failure patterns detected]"}
+	summary = append(summary, stats.summaryLines()...)
+	summary = append(summary, "--- first lines ---")
+	summary = append(summary, takeFirst(meaningful, 12)...)
+	if len(meaningful) > 24 {
+		summary = append(summary, "--- last lines ---")
+		summary = append(summary, takeLast(meaningful, 12)...)
+	}
+	return strings.Join(summary, "\n")
+}
+
+type archiveFailureSummary struct {
+	total                int
+	checkdir            int
+	permissionDenied    int
+	unableToProcess     int
+	firstCheckdir        string
+	firstUnableToProcess string
+}
+
+func archiveFailureStats(lines []string) archiveFailureSummary {
+	var s archiveFailureSummary
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		switch {
+		case strings.HasPrefix(lower, "checkdir error:"):
+			s.checkdir++
+			s.total++
+			if s.firstCheckdir == "" {
+				s.firstCheckdir = trimmed
+			}
+		case lower == "permission denied":
+			s.permissionDenied++
+			s.total++
+		case strings.Contains(lower, "unable to process"):
+			s.unableToProcess++
+			s.total++
+			if s.firstUnableToProcess == "" {
+				s.firstUnableToProcess = trimmed
+			}
+		}
+	}
+	return s
+}
+
+func (s archiveFailureSummary) summaryLines() []string {
+	var lines []string
+	if s.checkdir > 0 {
+		lines = append(lines, fmt.Sprintf("%s (repeated %d times)", s.firstCheckdir, s.checkdir))
+	}
+	if s.permissionDenied > 0 {
+		lines = append(lines, fmt.Sprintf("Permission denied (repeated %d times)", s.permissionDenied))
+	}
+	if s.unableToProcess > 0 {
+		example := s.firstUnableToProcess
+		if example == "" {
+			example = "unable to process ..."
+		}
+		lines = append(lines, fmt.Sprintf("%s (same pattern repeated %d times)", example, s.unableToProcess))
+	}
+	return lines
+}
+
+func takeFirst(lines []string, n int) []string {
+	if len(lines) <= n {
+		return append([]string(nil), lines...)
+	}
+	return append([]string(nil), lines[:n]...)
+}
+
+func takeLast(lines []string, n int) []string {
+	if len(lines) <= n {
+		return append([]string(nil), lines...)
+	}
+	return append([]string(nil), lines[len(lines)-n:]...)
+}
+
+// isLocalSCPCommand reports whether cmd invokes scp directly.
+func isLocalSCPCommand(cmd string) bool {
+	trimmed := strings.TrimSpace(cmd)
+	return trimmed == "scp" ||
+		strings.HasPrefix(trimmed, "scp ") ||
+		strings.HasPrefix(trimmed, "scp\t")
+}
+
+// isFileTransferCommand reports whether cmd invokes a file-transfer or filesystem mutation binary.
+func isFileTransferCommand(cmd string) bool {
+	lower := strings.ToLower(cmd)
+	for _, token := range []string{"scp ", "scp\t", "scp\r", "scp\n", "scp{", "unzip ", "cp ", "mv ", "rm "} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	if strings.Contains(lower, "scp.exe") {
+		return true
+	}
+	return false
+}

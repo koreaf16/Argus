@@ -1,0 +1,382 @@
+// Package ssh
+// File: persistent_shell.go
+// Description: Long-lived SSH bash session with delimiter-based command execution
+// Responsibility: Maintain a persistent bash process and execute commands within it,
+//                 preserving working directory, environment, and user context across calls.
+
+package ssh
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	gossh "golang.org/x/crypto/ssh"
+
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/workspace"
+)
+
+const shellIdleTimeout = 3 * time.Second
+
+// ElevationEventSink receives elevation lifecycle notifications from PersistentShell.
+// Implemented by privilege.Tracker (wired at injection time by the caller).
+type ElevationEventSink interface {
+	OnSessionCreated(host, sessionID, loginUser string)
+	OnElevationDone(host, sessionID, methodStr, fromUser, toUser string)
+	OnSessionClosed(host, sessionID string)
+}
+
+// PersistentShell holds a long-lived SSH session running a bash process.
+// Commands are executed via the delimiter protocol (persistent_shell_marker.go)
+// which captures exit code, current user (whoami), and working directory (pwd)
+// after every command. Concurrent access is serialized by mu.
+type PersistentShell struct {
+	session   *gossh.Session
+	stdinPipe io.WriteCloser
+	lineCh    <-chan string // ANSI-stripped lines from stdout reader goroutine
+
+	mu          sync.Mutex
+	aliveFlag   atomic.Bool
+	currentUser string
+	currentDir  string
+	createdAt   time.Time
+	lastUsed    time.Time
+	sink        ElevationEventSink
+	sessionID   string // set by SessionManager after creation
+	host        string // set by SessionManager at creation; used for sink calls
+}
+
+// newPersistentShell opens a new SSH session, allocates a PTY, and starts bash -l.
+// A PTY is required for su/sudo to receive their password prompts via stdout.
+func newPersistentShell(ctx context.Context, client *Client) (*PersistentShell, error) {
+	session, err := client.newSession(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("persistent shell new session: %w", err)
+	}
+
+	modes := gossh.TerminalModes{
+		gossh.ECHO:          0,
+		gossh.TTY_OP_ISPEED: 14400,
+		gossh.TTY_OP_OSPEED: 14400,
+	}
+	if err := session.RequestPty("xterm", 80, 200, modes); err != nil {
+		session.Close()
+		return nil, fmt.Errorf("persistent shell request pty: %w", err)
+	}
+
+	stdinPipe, err := session.StdinPipe()
+	if err != nil {
+		session.Close()
+		return nil, fmt.Errorf("persistent shell stdin pipe: %w", err)
+	}
+
+	stdoutPipe, err := session.StdoutPipe()
+	if err != nil {
+		_ = stdinPipe.Close()
+		session.Close()
+		return nil, fmt.Errorf("persistent shell stdout pipe: %w", err)
+	}
+
+	sh := &PersistentShell{
+		session:   session,
+		stdinPipe: stdinPipe,
+		createdAt: time.Now(),
+		lastUsed:  time.Now(),
+	}
+	sh.aliveFlag.Store(true)
+
+	lineCh := make(chan string, shellLineChanBuf)
+	sh.lineCh = lineCh
+	go sh.readLoop(stdoutPipe, lineCh)
+
+	if err := session.Start("bash -l"); err != nil {
+		_ = sh.Close()
+		return nil, fmt.Errorf("persistent shell start bash: %w", err)
+	}
+	if err := sh.enterWorkspace(ctx, client.cfg.WorkspaceDir); err != nil {
+		_ = sh.Close()
+		return nil, err
+	}
+	return sh, nil
+}
+
+// readLoop is the background goroutine that reads stdout, strips ANSI, and
+// sends lines to lineCh. It sets aliveFlag=false and closes lineCh on EOF.
+func (s *PersistentShell) readLoop(r io.Reader, lineCh chan<- string) {
+	rawCh := executor.StartPipeReader(r)
+	for line := range executor.StartLineAssembler(rawCh) {
+		lineCh <- executor.StripANSI(line) // blocks if full — prevents marker loss
+	}
+	s.aliveFlag.Store(false)
+	close(lineCh)
+}
+
+// IsAlive reports whether the bash process is still running.
+func (s *PersistentShell) IsAlive() bool { return s.aliveFlag.Load() }
+
+// CurrentUser returns the last known effective user in this session.
+func (s *PersistentShell) CurrentUser() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.currentUser
+}
+
+// CurrentDir returns the last known working directory in this session.
+func (s *PersistentShell) CurrentDir() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.currentDir
+}
+
+func (s *PersistentShell) enterWorkspace(ctx context.Context, dir string) error {
+	ws := workspace.POSIXShellPath(dir)
+	result, err := s.RunCommand(ctx, fmt.Sprintf("mkdir -p %s && cd %s", ws, ws), 10*time.Second, nil)
+	if err != nil {
+		return fmt.Errorf("persistent shell enter workspace: %w", err)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("persistent shell enter workspace: exit %d", result.ExitCode)
+	}
+	return nil
+}
+
+// RunCommand executes cmd using the delimiter protocol and returns its output,
+// exit code, current user, and working directory.
+// onIdle is called (possibly multiple times) when output stalls; returning ("", true) aborts.
+func (s *PersistentShell) RunCommand(
+	ctx context.Context,
+	cmd string,
+	timeout time.Duration,
+	onIdle func(recentLines []string) (input string, abort bool),
+) (executor.ShellRunResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.aliveFlag.Load() {
+		return executor.ShellRunResult{}, fmt.Errorf("persistent shell: session is dead")
+	}
+	result, err := s.runCommandLocked(ctx, cmd, timeout, onIdle)
+	if err == nil {
+		s.currentUser = result.CurrentUser
+		s.currentDir = result.CurrentDir
+		s.lastUsed = time.Now()
+	}
+	return result, err
+}
+
+// Elevate sends elevationCmd (e.g., "sudo -i", "su - oracle") to stdin WITHOUT
+// delimiter wrapping so the spawned shell persists. It handles password prompts
+// via onIdle, then verifies the new context with a probe command.
+func (s *PersistentShell) Elevate(
+	ctx context.Context,
+	elevationCmd string,
+	timeout time.Duration,
+	onIdle func(recentLines []string) (input string, abort bool),
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.aliveFlag.Load() {
+		return fmt.Errorf("persistent shell: session is dead")
+	}
+	if _, err := fmt.Fprintln(s.stdinPipe, elevationCmd); err != nil {
+		return fmt.Errorf("persistent shell: send elevation cmd: %w", err)
+	}
+	if err := s.waitIdleLocked(ctx, timeout, onIdle); err != nil {
+		return err
+	}
+	// Probe to capture new user/dir after elevation
+	probe, err := s.runCommandLocked(ctx, "true", 10*time.Second, nil)
+	if err != nil {
+		return fmt.Errorf("persistent shell: elevation verify: %w", err)
+	}
+	previousUser := s.currentUser
+	s.currentUser = probe.CurrentUser
+	s.currentDir = probe.CurrentDir
+	s.lastUsed = time.Now()
+	slog.Info("persistent shell: elevation complete", "user", s.currentUser, "dir", s.currentDir)
+	if s.sink != nil {
+		s.sink.OnElevationDone(s.targetHost(), s.sessionID, "elevation", previousUser, s.currentUser)
+	}
+	return nil
+}
+
+// targetHost returns the host label used for sink notifications.
+func (s *PersistentShell) targetHost() string { return s.host }
+
+// SetSink wires an ElevationEventSink and sets the host/sessionID labels used
+// in all subsequent sink calls. Called once by SessionManager after creation.
+func (s *PersistentShell) SetSink(sink ElevationEventSink, host, sessionID string) {
+	s.sink = sink
+	s.host = host
+	s.sessionID = sessionID
+}
+
+// Close sends exit to bash and closes the SSH session.
+func (s *PersistentShell) Close() error {
+	if !s.aliveFlag.Swap(false) {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, _ = fmt.Fprintln(s.stdinPipe, "exit")
+	_ = s.stdinPipe.Close()
+	return s.session.Close()
+}
+
+// runCommandLocked wraps cmd with delimiter markers, sends to stdin, and reads
+// until END/RC markers or timeout. Caller must hold s.mu.
+func (s *PersistentShell) runCommandLocked(
+	ctx context.Context,
+	cmd string,
+	timeout time.Duration,
+	onIdle func([]string) (string, bool),
+) (executor.ShellRunResult, error) {
+	token, err := generateToken()
+	if err != nil {
+		return executor.ShellRunResult{}, fmt.Errorf("persistent shell: %w", err)
+	}
+	if _, err := fmt.Fprint(s.stdinPipe, wrapCommand(token, cmd)); err != nil {
+		s.aliveFlag.Store(false)
+		return executor.ShellRunResult{}, fmt.Errorf("persistent shell: write command: %w", err)
+	}
+	return s.readUntilMarkers(ctx, token, timeout, onIdle)
+}
+
+// readUntilMarkers reads lines from lineCh seeking the BEGIN→output→END→RC marker sequence.
+// Lines before BEGIN are discarded (may be stale prompt or startup output).
+func (s *PersistentShell) readUntilMarkers(
+	ctx context.Context,
+	token string,
+	timeout time.Duration,
+	onIdle func([]string) (string, bool),
+) (executor.ShellRunResult, error) {
+	bm := beginMarker(token)
+	em := endMarker(token)
+
+	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	watcher := executor.NewIdleWatcher(shellIdleTimeout)
+	watcher.Start(deadlineCtx)
+	defer watcher.Stop()
+
+	// nil channel disables the idle case in select when no handler is provided
+	idleCh := watcher.Triggered()
+	if onIdle == nil {
+		idleCh = nil
+	}
+
+	var (
+		capturing   bool
+		outputLines []string
+		recentLines []string
+		start       = time.Now()
+	)
+
+	for {
+		select {
+		case <-deadlineCtx.Done():
+			return executor.ShellRunResult{}, fmt.Errorf("persistent shell: command timeout after %s", timeout)
+
+		case <-idleCh:
+			input, abort := onIdle(recentLines)
+			if abort {
+				return executor.ShellRunResult{}, fmt.Errorf("persistent shell: aborted by idle handler")
+			}
+			if _, err := fmt.Fprintln(s.stdinPipe, input); err != nil {
+				return executor.ShellRunResult{}, fmt.Errorf("persistent shell: inject idle input: %w", err)
+			}
+
+		case line, ok := <-s.lineCh:
+			if !ok {
+				s.aliveFlag.Store(false)
+				return executor.ShellRunResult{}, fmt.Errorf("persistent shell: session closed")
+			}
+			watcher.Ping()
+			recentLines = appendRecent(recentLines, line, maxRecentLines)
+
+			if !capturing {
+				if line == bm {
+					capturing = true
+				}
+				continue
+			}
+			if line == em {
+				continue // END marker: RC marker follows
+			}
+			if exitCode, user, dir, ok := parseRCLine(line, token); ok {
+				stdout := executor.TruncateOutput(joinLines(outputLines), executor.MaxOutputBytes)
+				return executor.ShellRunResult{
+					Stdout:      stdout,
+					ExitCode:    exitCode,
+					CurrentUser: user,
+					CurrentDir:  dir,
+					Duration:    time.Since(start),
+				}, nil
+			}
+			outputLines = append(outputLines, line)
+		}
+	}
+}
+
+// waitIdleLocked reads output until the shell becomes idle (waiting for input).
+// If a password prompt is detected, onIdle is called once to inject the password.
+// Caller must hold s.mu.
+func (s *PersistentShell) waitIdleLocked(
+	ctx context.Context,
+	timeout time.Duration,
+	onIdle func([]string) (string, bool),
+) error {
+	watcher := executor.NewIdleWatcher(shellIdleTimeout)
+	watcher.Start(ctx)
+	defer watcher.Stop()
+
+	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var recentLines []string
+	passwordInjected := false
+
+	for {
+		select {
+		case <-deadlineCtx.Done():
+			return fmt.Errorf("persistent shell: elevation timeout")
+
+		case line, ok := <-s.lineCh:
+			if !ok {
+				s.aliveFlag.Store(false)
+				return fmt.Errorf("persistent shell: session closed during elevation")
+			}
+			recentLines = appendRecent(recentLines, line, maxRecentLines)
+			watcher.Ping()
+
+		case <-watcher.Triggered():
+			if !passwordInjected && isPasswordPrompt(recentLines) && onIdle != nil {
+				input, abort := onIdle(recentLines)
+				if abort {
+					return fmt.Errorf("persistent shell: elevation aborted by handler")
+				}
+				if _, err := fmt.Fprintln(s.stdinPipe, input); err != nil {
+					return fmt.Errorf("persistent shell: inject elevation password: %w", err)
+				}
+				passwordInjected = true
+				recentLines = nil
+				watcher.Ping() // reset so we wait for next idle (new shell ready)
+				continue
+			}
+			// Idle with no pending password prompt → new shell is waiting for commands
+			return nil
+		}
+	}
+}
+
+func joinLines(lines []string) string {
+	return strings.Join(lines, "\n")
+}

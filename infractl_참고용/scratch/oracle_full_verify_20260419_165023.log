@@ -1,0 +1,163 @@
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+call:infractl:shell_exec{target: 'oracle', command: 'lsnrctl status'}[assistant_tool_calls] count=1
+  - id=inline_1 name=shell_exec args={"command":"lsnrctl status","target":"oracle"}
+
+[tool_use_start] id=inline_1 name=shell_exec input={"command":"lsnrctl status","target":"oracle"}
+
+[tool_result] id=inline_1 name=shell_exec status=ok
+Execution Context: oracle (bash over ssh)
+[Exit Code: 0]
+LSNRCTL for Linux: Version 23.26.1.0.0 - Production on 19-APR-2026 16:50:27
+
+Copyright (c) 1991, 2026, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.120)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 23.26.1.0.0 - Production
+Start Date                19-APR-2026 16:50:03
+Uptime                    0 days 0 hr. 0 min. 24 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /home/oracle/app/oracle/product/23.0.0/network/admin/listener.ora
+Listener Log File         /home/oracle/app/oracle/diag/tnslsnr/ai26/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.0.120)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+Services Summary...
+Service "4a1b2456a04ff266e0637800a8c04be1" has 1 instance(s).
+  Instance "AI26", status READY, has 1 handler(s) for this service...
+Service "AI26" has 1 instance(s).
+  Instance "AI26", status READY, has 1 handler(s) for this service...
+Service "AI26XDB" has 1 instance(s).
+  Instance "AI26", status READY, has 1 handler(s) for this service...
+Service "ai_db" has 1 instance(s).
+  Instance "AI26", status READY, has 1 handler(s) for this service...
+The command completed successfully
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+[assistant_tool_calls] count=1
+  - id=inline_2 name=shell_exec args={"command": "lsnrctl stop", "target": "oracle"}
+
+[tool_use_start] id=inline_2 name=shell_exec input={"command": "lsnrctl stop", "target": "oracle"}
+
+[tool_result] id=inline_2 name=shell_exec status=ok
+Execution Context: oracle (bash over ssh)
+[Exit Code: 0]
+LSNRCTL for Linux: Version 23.26.1.0.0 - Production on 19-APR-2026 16:50:28
+
+Copyright (c) 1991, 2026, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.120)(PORT=1521)))
+The command completed successfully
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+[assistant_tool_calls] count=1
+  - id=inline_3 name=shell_exec args={"command": "lsnrctl start", "target": "oracle"}
+
+[tool_use_start] id=inline_3 name=shell_exec input={"command": "lsnrctl start", "target": "oracle"}
+
+[tool_result] id=inline_3 name=shell_exec status=ok
+Execution Context: oracle (bash over ssh)
+[Exit Code: 0]
+LSNRCTL for Linux: Version 23.26.1.0.0 - Production on 19-APR-2026 16:50:29
+
+Copyright (c) 1991, 2026, Oracle.  All rights reserved.
+
+Starting /home/oracle/app/oracle/product/23.0.0/bin/tnslsnr: please wait...
+
+TNSLSNR for Linux: Version 23.26.1.0.0 - Production
+System parameter file is /home/oracle/app/oracle/product/23.0.0/network/admin/listener.ora
+Log messages written to /home/oracle/app/oracle/diag/tnslsnr/ai26/listener/alert/log.xml
+Listening on: (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.0.120)(PORT=1521)))
+Listening on: (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.120)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 23.26.1.0.0 - Production
+Start Date                19-APR-2026 16:50:29
+Uptime                    0 days 0 hr. 0 min. 0 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /home/oracle/app/oracle/product/23.0.0/network/admin/listener.ora
+Listener Log File         /home/oracle/app/oracle/diag/tnslsnr/ai26/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.0.120)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+The listener supports no services
+The command completed successfully
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+[assistant_tool_calls] count=1
+  - id=inline_4 name=shell_exec args={"command": "lsnrctl status", "target": "oracle"}
+
+[tool_use_start] id=inline_4 name=shell_exec input={"command": "lsnrctl status", "target": "oracle"}
+
+[tool_result] id=inline_4 name=shell_exec status=ok
+Execution Context: oracle (bash over ssh)
+[Exit Code: 0]
+LSNRCTL for Linux: Version 23.26.1.0.0 - Production on 19-APR-2026 16:50:29
+
+Copyright (c) 1991, 2026, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.120)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 23.26.1.0.0 - Production
+Start Date                19-APR-2026 16:50:29
+Uptime                    0 days 0 hr. 0 min. 0 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /home/oracle/app/oracle/product/23.0.0/network/admin/listener.ora
+Listener Log File         /home/oracle/app/oracle/diag/tnslsnr/ai26/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.0.120)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+The listener supports no services
+The command completed successfully
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+[assistant_tool_calls] count=1
+  - id=inline_5 name=oracle_ai26_ai_db.query args={"sql": "SELECT name, cdb FROM v$database; SELECT name, open_mode FROM v$pdbs;"}
+
+[tool_use_start] id=inline_5 name=oracle_ai26_ai_db.query input={"sql": "SELECT name, cdb FROM v$database; SELECT name, open_mode FROM v$pdbs;"}
+
+[tool_result] id=inline_5 name=oracle_ai26_ai_db.query status=ok
+SELECT name, cdb FROM v$database; SELECT name, open_mode FROM v$pdbs
+                                  *
+ERROR at line 1:
+ORA-03405: End of query reached; no additional text should follow.
+Help: https://docs.oracle.com/error-help/db/ora-03405/
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+[assistant_tool_calls] count=1
+  - id=inline_6 name=oracle_ai26_ai_db.query args={"sql": "SELECT name, cdb FROM v$database"}
+
+[tool_use_start] id=inline_6 name=oracle_ai26_ai_db.query input={"sql": "SELECT name, cdb FROM v$database"}
+
+[tool_result] id=inline_6 name=oracle_ai26_ai_db.query status=ok
+NAME	  CDB
+AI26	  YES
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+[assistant_tool_calls] count=1
+  - id=inline_7 name=oracle_ai26_ai_db.query args={"sql": "SELECT name, open_mode FROM v$pdbs"}
+
+[tool_use_start] id=inline_7 name=oracle_ai26_ai_db.query input={"sql": "SELECT name, open_mode FROM v$pdbs"}
+
+[tool_result] id=inline_7 name=oracle_ai26_ai_db.query status=ok
+NAME																 OPEN_MODE
+PDB$SEED															 READ ONLY
+AI_DB																 READ WRITE
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+
+[terminal] reason=completed err=<nil>

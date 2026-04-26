@@ -1,0 +1,7 @@
+./modal.go
+./model.go
+./render.go
+./search.go
+./transcript.go
+./tui.go
+./search_test.go

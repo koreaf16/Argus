@@ -1,0 +1,13 @@
+{
+  "active": "local",
+  "servers": [
+    {
+      "alias": "a100-server",
+      "kind": "ssh",
+      "host": "10.0.0.8",
+      "port": 22,
+      "user": "ubuntu",
+      "auth": {}
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+./help.go
+./init.go
+./init_menu.go
+./init_prompt.go
+./main.go
+./run_print.go
+./version.go

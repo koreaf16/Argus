@@ -1,0 +1,41 @@
+{
+  "saved_at": "2026-04-22T15:13:11.5439839Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 만나서 반가워요. 무엇을 도와드릴까요? :)"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "음"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "무슨 고민이나 생각 중인 것이 있으신가요? 아니면 그냥 심심해서 말을 거셨나요? \n\n어떤 것이든 좋으니 편하게 말씀해 주세요. 제가 들어드릴게요! 😊"
+        }
+      ]
+    }
+  ]
+}

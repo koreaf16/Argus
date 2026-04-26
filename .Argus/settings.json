@@ -1,0 +1,11 @@
+{
+  "activeModel": "",
+  "permissions": {
+    "defaultMode": "ask",
+    "allow": [],
+    "deny": []
+  },
+  "ui": {
+    "theme": "default"
+  }
+}

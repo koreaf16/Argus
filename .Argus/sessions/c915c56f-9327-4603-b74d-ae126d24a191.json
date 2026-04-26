@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T01:01:32.8015491Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "지금 몇시야?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "jd2FsUrhtZe1XFFZrjDGpNpQtL0Kbiib",
+          "name": "bash",
+          "input": {
+            "command": "date",
+            "description": "현재 시간 확인"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "permission denied for bash",
+          "name": "bash",
+          "tool_use_id": "jd2FsUrhtZe1XFFZrjDGpNpQtL0Kbiib",
+          "is_error": true
+        }
+      ]
+    }
+  ]
+}

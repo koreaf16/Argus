@@ -1,0 +1,37 @@
+{
+  "name": "multiturn",
+  "description": "도구 2회 multi-turn: 각 turn 에 도구 1개씩",
+  "input_messages": [],
+  "tool_behaviors": {
+    "read1": {"output": "file1 content", "is_error": false},
+    "read2": {"output": "file2 content", "is_error": false}
+  },
+  "llm_turns": [
+    {
+      "content": "",
+      "tool_calls": [{"id": "tc-1", "type": "function", "function": {"name": "read1", "arguments": "{}"}}]
+    },
+    {
+      "content": "",
+      "tool_calls": [{"id": "tc-2", "type": "function", "function": {"name": "read2", "arguments": "{}"}}]
+    },
+    {
+      "content": "두 파일 모두 읽었습니다.",
+      "tool_calls": []
+    }
+  ],
+  "expected_event_types": [
+    "EventStreamStart",
+    "EventAssistantResponse",
+    "EventToolUseStart",
+    "EventToolResult",
+    "EventStreamStart",
+    "EventAssistantResponse",
+    "EventToolUseStart",
+    "EventToolResult",
+    "EventStreamStart",
+    "EventAssistantResponse",
+    "EventTerminal"
+  ],
+  "expected_terminal_reason": "completed"
+}

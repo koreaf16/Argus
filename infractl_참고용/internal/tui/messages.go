@@ -1,0 +1,204 @@
+// Package tui
+// File: messages.go
+// Description: bubbletea TUI에서 사용하는 커스텀 메시지 타입 정의
+// Responsibility: 에이전트 이벤트와 TUI 간의 비동기 통신 타입 제공
+
+package tui
+
+import (
+	"fmt"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/yourorg/infractl/internal/store"
+	"github.com/yourorg/infractl/internal/subagent"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+// TokenMsg는 LLM 스트리밍 응답 토큰 하나를 나타낸다.
+type TokenMsg string
+
+// ThinkingTokenMsg는 LLM 내부 추론(thinking) 토큰을 나타낸다.
+type ThinkingTokenMsg string
+
+// ThinkingStartMsg는 LLM이 응답 생성을 시작했음을 나타낸다.
+// Tier와 Model로 shimmer에 사용 중인 LLM 정보를 표시한다.
+type ThinkingStartMsg struct {
+	Tier  string // "reasoning", "general", "fast"
+	Model string // 예: "qwen-35b"
+}
+
+// ToolStartMsg는 도구 실행이 시작되었음을 나타낸다.
+type ToolStartMsg struct {
+	ToolID string
+	Name   string
+	Target string
+	Args   map[string]interface{}
+}
+
+// ToolEndMsg는 도구 실행이 완료되었음을 나타낸다.
+type ToolEndMsg struct {
+	ToolID       string
+	Name         string
+	Result       string
+	Duration     time.Duration
+	Success      bool
+	MetadataJSON string
+}
+
+// ResponseDoneMsg는 LLM의 최종 텍스트 응답이 완성되었음을 나타낸다.
+type ResponseDoneMsg string
+
+// ErrorMsg는 에이전트 루프에서 에러가 발생했음을 나타낸다.
+type ErrorMsg struct{ Err error }
+
+// AgentDoneMsg는 에이전트 루프가 종료되었음을 나타낸다.
+// ReqID는 이 완료가 어느 요청 세대에 속하는지 식별한다.
+// 현재 활성 reqID와 다르면 stale 메시지로 간주하여 무시한다.
+type AgentDoneMsg struct {
+	ReqID int
+}
+
+// ShellOutputMsg는 shell_exec 실행 중 수신된 stdout 라인을 나타낸다.
+type ShellOutputMsg struct {
+	ToolID string
+	Line   string
+}
+
+// SystemMsg는 시스템 메시지(슬래시 명령 결과 등)를 나타낸다.
+type SystemMsg string
+
+// UsageUpdateMsg는 LLM 호출 후 토큰/비용 정보를 전달한다.
+type UsageUpdateMsg struct {
+	InputTokens  int
+	OutputTokens int
+	CostUSD      float64
+	DurationMs   int64
+}
+
+// ShimmerTickMsg는 shimmer 애니메이션을 구동하는 틱이다.
+type ShimmerTickMsg struct{}
+
+// JobCompleteMsg는 백그라운드 작업이 완료되었음을 나타낸다.
+type JobCompleteMsg struct {
+	JobID       int
+	Description string
+	Success     bool
+}
+
+// StallNoticeMsg indicates a non-terminal background stall hint.
+type StallNoticeMsg struct {
+	JobID int
+	Tail  []string
+}
+
+// AgentProgressMsg는 에이전트 진행 트리 표시를 업데이트한다.
+type AgentProgressMsg struct {
+	ToolName    string
+	Status      string // "running", "done", "error"
+	Description string
+	ToolUses    int
+	Tokens      int
+}
+
+// ProgramRefMsg는 tea.Program 참조를 AppModel에 주입하기 위한 메시지다.
+// Println()을 통해 채팅 출력을 스크롤백으로 전달하는 데 사용한다.
+type ProgramRefMsg struct {
+	Program *tea.Program
+}
+
+// SelectRequestMsg는 TUI에 인터랙티브 선택 UI 표시를 요청한다.
+// SelectOption / SelectResult 타입은 select_ui.go에 정의되어 있다.
+type SelectRequestMsg struct {
+	Question string
+	Header   string
+	Options  []SelectOption
+	ReplyCh  chan SelectResult
+}
+
+// SelectResponseMsg는 사용자의 선택을 에이전트 goroutine으로 전달한다.
+type SelectResponseMsg struct {
+	Result  SelectResult
+	ReplyCh chan SelectResult
+}
+
+// FormRequestMsg는 TUI에 다중 필드 폼 입력 UI 표시를 요청한다.
+type FormRequestMsg struct {
+	Title   string
+	Header  string
+	Fields  []tools.FormFieldDef
+	ReplyCh chan FormResult
+}
+
+// FormResponseMsg는 사용자의 폼 입력 결과를 에이전트 goroutine으로 전달한다.
+type FormResponseMsg struct {
+	Result  FormResult
+	ReplyCh chan FormResult
+}
+
+// ActiveServerMsg는 활성 서버가 변경되었을 때 TUI AppModel에 전달된다.
+// Server가 nil이면 활성 서버 해제를 의미한다.
+type ActiveServerMsg struct {
+	Server *store.Server
+}
+
+// SubagentEventMsg는 서브에이전트 실행 중 발생한 진행 이벤트를 전달한다.
+type SubagentEventMsg struct {
+	Event subagent.Event
+}
+
+type TaskProposedMsg struct {
+	Title   string
+	Kind    string
+	Server  string
+	Account string
+}
+
+type TaskDeclaredMsg struct {
+	TaskID string
+	Title  string
+	Kind   string
+}
+
+type TaskStepAdvancedMsg struct {
+	TaskID      string
+	StepIndex   int
+	Total       int
+	Description string
+}
+
+type TaskEndedMsg struct {
+	TaskID  string
+	Status  string
+	Summary string
+}
+
+type ElevationChangedMsg struct {
+	Host        string
+	SessionID   string
+	CurrentUser string
+}
+
+type GuardViolationMsg struct {
+	ToolName string
+	Reason   string
+	Blocked  bool
+}
+
+type RAGContextMsg struct {
+	Count int
+}
+
+// NewSubmitCmd는 SubmitMsg를 tea.Cmd로 래핑한다.
+func NewSubmitCmd(displayInput, expandedInput string) tea.Cmd {
+	return func() tea.Msg {
+		return SubmitMsg{DisplayInput: displayInput, ExpandedInput: expandedInput}
+	}
+}
+
+// NewSystemCmd는 SystemMsg를 tea.Cmd로 래핑한다.
+func NewSystemCmd(format string, args ...interface{}) tea.Cmd {
+	return func() tea.Msg {
+		return SystemMsg(fmt.Sprintf(format, args...))
+	}
+}

@@ -1,0 +1,4 @@
+/server connect sandbox-server
+Welcome1!@#$
+bash 도구 server="sandbox-server" 으로 Oracle zip 파일 위치 확인 및 libclntshcore.so.19.1 복구: (1) find /home/oracle /tmp /u01 -name "LINUX.X64_19*.zip" -o -name "*db_home*.zip" 2>/dev/null | head -5. (2) find /home /tmp /root -maxdepth 3 -name "*.zip" -size +100M 2>/dev/null | head -5. (3) ls -la /u01/app/oracle/product/19.0.0/dbhome_1/lib/libclntsh* 2>&1.
+bash 도구 server="sandbox-server" 으로 Oracle zip에서 libclntshcore.so.19.1 추출: (1) ZIPFILE=$(find /home/oracle /tmp /root -name "LINUX.X64_19*.zip" -o -name "*db_home*.zip" 2>/dev/null | head -1); echo "zip=$ZIPFILE"; [ -n "$ZIPFILE" ] && unzip -p "$ZIPFILE" "lib/libclntshcore.so.19.1" > /tmp/libclntshcore.so.19.1 2>&1 && ls -la /tmp/libclntshcore.so.19.1 || echo no_zip_found. (2) find /home/oracle -name "libclntshcore.so.19.1" 2>/dev/null | head -3.

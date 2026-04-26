@@ -1,0 +1,334 @@
+// Package agent
+// File: idle_handler.go
+// Description: Idle detection wrapper for executors and idle-detecting session management.
+// Responsibility: Wrap executors with idle detection and manage idle-detect sessions.
+
+package agent
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+
+	"github.com/yourorg/infractl/internal/executor"
+)
+
+const maxLastLines = 5
+
+// maxIdleRetries는 새 출력 없이 연속으로 idle이 트리거될 수 있는 최대 횟수.
+// 이 횟수를 초과하면 세션을 강제 종료해 무한루프를 방지한다.
+const maxIdleRetries = 4
+
+// IdleDetectExecutor wraps an executor and triggers idle handling when stdout stalls.
+type IdleDetectExecutor struct {
+	original    executor.Executor
+	idleHandler IdleInputHandler
+	toolName    string
+	target      string
+}
+
+func wrapWithIdleDetect(exec executor.Executor, handler IdleInputHandler, toolName, target string) executor.Executor {
+	// Wrapped executor must support streaming (StreamExecutor or InteractiveExecutor)
+	_, isStream := exec.(executor.StreamExecutor)
+	_, isInteractive := exec.(executor.InteractiveExecutor)
+	if !isStream && !isInteractive {
+		return exec
+	}
+	return &IdleDetectExecutor{
+		original:    exec,
+		idleHandler: handler,
+		toolName:    toolName,
+		target:      target,
+	}
+}
+
+func (e *IdleDetectExecutor) Execute(ctx context.Context, command string) (executor.ExecResult, error) {
+	// For simple Execute, just pass through.
+	// No idle detection for non-streaming commands.
+	return e.original.Execute(ctx, command)
+}
+
+func (e *IdleDetectExecutor) Target() string {
+	return e.original.Target()
+}
+
+func (e *IdleDetectExecutor) Host() string {
+	return e.original.Host()
+}
+
+func (e *IdleDetectExecutor) Platform() executor.Platform {
+	return executor.PlatformFromExecutor(e.original)
+}
+
+func (e *IdleDetectExecutor) ShellName() string {
+	return executor.ShellNameForExecutor(e.original)
+}
+
+// Upload implements executor.FileTransferExecutor by delegating to the original.
+// IdleDetectExecutor wraps the original but must not swallow the FileTransferExecutor
+// interface — file_transfer tool does a type assertion to check SFTP support.
+func (e *IdleDetectExecutor) Upload(ctx context.Context, localPath, remotePath string, onProgress func(transferred, total int64)) error {
+	ft, ok := e.original.(executor.FileTransferExecutor)
+	if !ok {
+		return fmt.Errorf("target %s does not support file transfer (SFTP)", e.original.Target())
+	}
+	return ft.Upload(ctx, localPath, remotePath, onProgress)
+}
+
+// Download implements executor.FileTransferExecutor by delegating to the original.
+func (e *IdleDetectExecutor) Download(ctx context.Context, remotePath, localPath string, onProgress func(transferred, total int64)) error {
+	ft, ok := e.original.(executor.FileTransferExecutor)
+	if !ok {
+		return fmt.Errorf("target %s does not support file transfer (SFTP)", e.original.Target())
+	}
+	return ft.Download(ctx, remotePath, localPath, onProgress)
+}
+
+// ExecuteInteractive starts an interactive session with idle detection.
+func (e *IdleDetectExecutor) ExecuteInteractive(ctx context.Context, spec executor.InteractiveSpec, onChunk func(string)) (executor.ExecSession, error) {
+	ie, ok := e.original.(executor.InteractiveExecutor)
+	if !ok {
+		return nil, fmt.Errorf("interactive execution is not supported on %s", executor.ExecutionContextLabel(e.original))
+	}
+
+	// idleSession을 먼저 만들어서 콜백 closure가 캡처하게 한다.
+	// inner ExecSession은 ExecuteInteractive 이후에 주입한다.
+	ids := newIdleDetectSession(ctx, nil, e.idleHandler, e.toolName, e.target, spec.Command, true)
+
+	inner, err := ie.ExecuteInteractive(ctx, spec, func(chunk string) {
+		ids.appendLine(chunk)
+		if onChunk != nil {
+			onChunk(chunk)
+		}
+	})
+	if err != nil {
+		ids.cancel()
+		return nil, err
+	}
+	ids.setInner(inner)
+	return ids, nil
+}
+
+// ExecuteStream starts a streaming session with idle detection.
+func (e *IdleDetectExecutor) ExecuteStream(ctx context.Context, command string, onLine func(string)) (executor.ExecSession, error) {
+	se, ok := e.original.(executor.StreamExecutor)
+	if !ok {
+		return nil, fmt.Errorf("stream execution is not supported on %s", executor.ExecutionContextLabel(e.original))
+	}
+
+	// PTY 스트리밍을 우선 사용한다 (가능하면).
+	// PTY가 있으면 sudo/su/passwd 등의 프롬프트가 /dev/tty 대신 stdout으로 나와
+	// idle handler가 감지하고 패스워드를 자동 주입할 수 있다.
+	if ptyExec, ok := e.original.(executor.PTYStreamExecutor); ok {
+		ids := newIdleDetectSession(ctx, nil, e.idleHandler, e.toolName, e.target, command, false)
+		inner, err := ptyExec.ExecuteStreamPTY(ctx, command, func(line string) {
+			ids.appendLine(line)
+			if onLine != nil {
+				onLine(line)
+			}
+		})
+		if err != nil {
+			ids.cancel()
+			return nil, err
+		}
+		ids.setInner(inner)
+		return ids, nil
+	}
+
+	ids := newIdleDetectSession(ctx, nil, e.idleHandler, e.toolName, e.target, command, false)
+	inner, err := se.ExecuteStream(ctx, command, func(line string) {
+		ids.appendLine(line)
+		if onLine != nil {
+			onLine(line)
+		}
+	})
+	if err != nil {
+		ids.cancel()
+		return nil, err
+	}
+	ids.setInner(inner)
+	return ids, nil
+}
+
+// idleDetectSession wraps an ExecSession to add idle detection.
+// inner may be nil initially and set later via setInner, allowing the
+// onLine/onChunk callbacks to be wired to this session before the
+// underlying ExecSession is created.
+type idleDetectSession struct {
+	inner     executor.ExecSession
+	handler   IdleInputHandler
+	toolName  string
+	target    string
+	command   string
+	isChunked bool // True if onChunk is used, false if onLine
+	ctx       context.Context
+	cancel    context.CancelFunc
+	watcher   *executor.IdleWatcher
+	lastLines []string
+	idleCount int // 새 출력 없이 연속 트리거된 idle 횟수; 새 출력이 오면 0으로 리셋
+	mu        sync.Mutex
+}
+
+func newIdleDetectSession(ctx context.Context, inner executor.ExecSession, handler IdleInputHandler, toolName, target, command string, isChunked bool) *idleDetectSession {
+	ctx, cancel := context.WithCancel(ctx)
+	watcher := executor.NewIdleWatcher(0) // 0 = default 10s
+	watcher.Start(ctx)
+
+	s := &idleDetectSession{
+		inner:     inner,
+		handler:   handler,
+		toolName:  toolName,
+		target:    target,
+		command:   command,
+		isChunked: isChunked,
+		ctx:       ctx,
+		cancel:    cancel,
+		watcher:   watcher,
+	}
+
+	go s.monitorIdle()
+	return s
+}
+
+// setInner assigns the real ExecSession after creation. Thread-safe.
+func (s *idleDetectSession) setInner(session executor.ExecSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inner = session
+}
+
+// InjectStdin forwards to the inner session.
+func (s *idleDetectSession) InjectStdin(line string) error {
+	s.mu.Lock()
+	inner := s.inner
+	s.mu.Unlock()
+	if inner == nil {
+		return fmt.Errorf("inject stdin: session not ready")
+	}
+	return inner.InjectStdin(line)
+}
+
+// SendEOF forwards to the inner session.
+func (s *idleDetectSession) SendEOF() error {
+	s.mu.Lock()
+	inner := s.inner
+	s.mu.Unlock()
+	if inner == nil {
+		return fmt.Errorf("send EOF: session not ready")
+	}
+	return inner.SendEOF()
+}
+
+// Wait blocks until the inner session finishes.
+func (s *idleDetectSession) Wait() (executor.ExecResult, error) {
+	s.mu.Lock()
+	inner := s.inner
+	s.mu.Unlock()
+	if inner == nil {
+		return executor.ExecResult{}, fmt.Errorf("wait: session not ready")
+	}
+	return inner.Wait()
+}
+
+func (s *idleDetectSession) monitorIdle() {
+	defer s.watcher.Stop()
+	defer s.cancel() // Cancel session context when idle monitor exits
+
+	for {
+		select {
+		case <-s.watcher.Triggered():
+			slog.Debug("idle triggered", "tool", s.toolName, "target", s.target, "command", s.command)
+			s.handleIdle()
+		case <-s.ctx.Done():
+			slog.Debug("idle monitor context done", "tool", s.toolName, "target", s.target)
+			return
+		}
+	}
+}
+
+func (s *idleDetectSession) handleIdle() {
+	s.mu.Lock()
+	lines := make([]string, len(s.lastLines))
+	copy(lines, s.lastLines)
+	s.mu.Unlock()
+
+	req := IdleInputRequest{
+		ToolName:  s.toolName,
+		Target:    s.target,
+		Command:   s.command,
+		LastLines: lines,
+	}
+
+	resp, err := s.handler.RequestIdleInput(s.ctx, req)
+	if err != nil {
+		slog.Warn("idle input handler error, aborting session", "err", err)
+		s.cancel() // Abort the session
+		return
+	}
+	if resp.Abort {
+		s.cancel() // Abort the session
+		return
+	}
+	if !resp.CloseStdin && strings.TrimSpace(resp.Input) == "" && !shouldInjectEmptyResponse(lines) {
+		if !s.reserveIdleActionRetry() {
+			slog.Warn("idle max no-op retries reached, aborting session",
+				"tool", s.toolName, "target", s.target, "command", s.command, "retries", maxIdleRetries)
+			s.cancel()
+			return
+		}
+		slog.Debug("idle no-op response; waiting for clearer prompt", "tool", s.toolName, "target", s.target, "command", s.command, "retry", s.idleCount)
+		return
+	}
+	if !s.reserveIdleActionRetry() {
+		slog.Warn("idle max retries reached, aborting session",
+			"tool", s.toolName, "target", s.target, "command", s.command, "retries", maxIdleRetries)
+		s.cancel()
+		return
+	}
+	if resp.CloseStdin {
+		if eofErr := s.SendEOF(); eofErr != nil {
+			slog.Warn("idle stdin EOF failed", "err", eofErr)
+			s.cancel()
+		}
+		return
+	}
+	if injectErr := s.InjectStdin(resp.Input); injectErr != nil {
+		slog.Warn("idle stdin inject failed", "err", injectErr)
+		s.cancel()
+	}
+}
+
+func (s *idleDetectSession) reserveIdleActionRetry() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.idleCount++
+	return s.idleCount <= maxIdleRetries
+}
+
+func shouldInjectEmptyResponse(lines []string) bool {
+	for _, line := range lines {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		switch {
+		case strings.Contains(lower, "press enter"):
+			return true
+		case strings.Contains(lower, "-- more --"):
+			return true
+		case strings.Contains(lower, "--more--"):
+			return true
+		}
+	}
+	return false
+}
+
+func (s *idleDetectSession) appendLine(line string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastLines = append(s.lastLines, line)
+	if len(s.lastLines) > maxLastLines {
+		s.lastLines = s.lastLines[len(s.lastLines)-maxLastLines:]
+	}
+	s.idleCount = 0  // 새 출력이 도착하면 연속 idle 카운터를 리셋한다.
+	s.watcher.Ping() // Ping the watcher on every line received
+}

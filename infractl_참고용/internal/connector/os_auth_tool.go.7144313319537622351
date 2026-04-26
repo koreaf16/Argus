@@ -1,0 +1,134 @@
+// Package connector
+// File: os_auth_tool.go
+// Description: connector_probe_os_auth tool
+// Responsibility: validate target/discovery alignment and probe OS auth first
+
+package connector
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/store"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+// OSAuthProbeTool probes OS auth and activates connector without password when possible.
+type OSAuthProbeTool struct {
+	Manager        *Manager
+	ServerStore    store.ServerStore
+	DiscoveryStore store.DiscoveryStore
+	Disambiguate   DisambiguateHandler // optional UI adapter
+}
+
+var _ tools.Tool = (*OSAuthProbeTool)(nil)
+
+func (t *OSAuthProbeTool) Name() string { return "connector_probe_os_auth" }
+
+func (t *OSAuthProbeTool) Description() string {
+	return "OS 인증(패스워드 없는 접속)을 먼저 시도합니다. " +
+		"Oracle '/ as sysdba', MySQL unix socket, PostgreSQL peer 순서로 점검합니다. " +
+		"실패하면 connector_activate로 계정 정보를 받아 접속하세요."
+}
+
+func (t *OSAuthProbeTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"server": map[string]interface{}{
+				"type":        "string",
+				"description": "대상 서버 alias 이름",
+			},
+			"service_type": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"oracle", "mysql", "postgresql"},
+				"description": "서비스 타입",
+			},
+			"service_name": map[string]interface{}{
+				"type":        "string",
+				"description": "서비스 이름 (discover_services 결과와 일치해야 함)",
+			},
+			"save_mode": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"permanent", "session", "none"},
+				"description": "저장 방식 (기본: session)",
+			},
+			"port": map[string]interface{}{
+				"type":        "integer",
+				"description": "?쒕퉬???ы듃. ?앸왂 ??discovery ?ы듃瑜??ъ슜",
+			},
+			"sub_instance": map[string]interface{}{
+				"type":        "string",
+				"description": "?쒕툕 ?몄뒪?댁뒪 ?대쫫. Oracle PDB紐??? HRPDB)瑜??섎룞 OS ?몄쬆 而ㅻ꽖?곕줈 ?쒖꽦?????ъ슜.",
+			},
+			"target": map[string]interface{}{
+				"type":        "string",
+				"description": "실행 target. server와 동일해야 함",
+			},
+		},
+		"required": []string{"server", "service_type", "service_name"},
+	}
+}
+
+func (t *OSAuthProbeTool) IsReadOnly() bool { return false }
+func (t *OSAuthProbeTool) IsEnabled() bool  { return true }
+
+// Execute probes OS auth and activates connector on success.
+func (t *OSAuthProbeTool) Execute(ctx context.Context, args map[string]interface{}, exec executor.Executor) (tools.ToolOutcome, error) {
+	server, _ := args["server"].(string)
+	serviceType, _ := args["service_type"].(string)
+	serviceName, _ := args["service_name"].(string)
+	saveModeStr, _ := args["save_mode"].(string)
+	subInstance, _ := args["sub_instance"].(string)
+
+	server = strings.TrimSpace(server)
+	serviceType = strings.ToLower(strings.TrimSpace(serviceType))
+	serviceName = strings.TrimSpace(serviceName)
+	subInstance = strings.TrimSpace(subInstance)
+
+	fail := func(msg string) (tools.ToolOutcome, error) {
+		return tools.ToolOutcome{Content: msg, Success: false, ErrorMessage: msg}, nil
+	}
+
+	if server == "" || serviceType == "" || serviceName == "" {
+		return fail("server, service_type, service_name는 필수입니다")
+	}
+
+	if t.ServerStore != nil {
+		resolved, _, _ := checkNameConflict(ctx, t.ServerStore, t.Disambiguate, server, serviceType, exec.Target())
+		server = resolved
+	}
+
+	if err := validateDiscoveryTarget(exec.Target(), server); err != nil {
+		return fail(err.Error())
+	}
+
+	entry, err := validateRecentDiscovery(ctx, t.DiscoveryStore, server, serviceType, serviceName)
+	if err != nil {
+		return fail(err.Error())
+	}
+
+	if strings.TrimSpace(saveModeStr) == "" {
+		saveModeStr = string(SavePermanent)
+	}
+
+	info := buildServiceInfoFromDiscovery(server, serviceType, serviceName, parseOptionalInt(args["port"]), entry)
+	info.SubInstance = subInstance
+
+	toolCount, err := t.Manager.ProbeAndActivate(ctx, info, exec, SaveMode(saveModeStr))
+	if err != nil {
+		return fail(fmt.Sprintf(
+			"✗ OS 인증 불가 (%s/%s): %s\n"+
+				"→ connector_activate 도구로 계정(username, password)을 입력해 접속하세요.",
+			info.ServiceType, info.Name, err,
+		))
+	}
+
+	msg := fmt.Sprintf(
+		"✓ OS 인증 성공 → %s %s 커넥터 활성화됨 (%d개 도구 등록)\n저장 방식: %s",
+		info.ServiceType, info.Name, toolCount, saveModeStr,
+	)
+	return tools.ToolOutcome{Content: msg, Success: true}, nil
+}

@@ -1,0 +1,178 @@
+// Package oracle
+// File: schema_guard.go
+// Description: Oracle 쿼리 실행 전/후 테이블·컬럼 존재 검증 및 자동 스키마 조회
+// Responsibility: 쿼리 실패 시 실제 테이블 존재 여부와 컬럼 목록을 자동으로 조회하여 오류 응답을 보강
+
+package oracle
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	conn "github.com/yourorg/infractl/internal/connector"
+	"github.com/yourorg/infractl/internal/executor"
+)
+
+// validateAndEnrich는 쿼리 결과에 오류가 있으면 테이블/컬럼 스키마를 자동 조회하여
+// 원본 오류 메시지에 실제 스키마 정보를 추가한 문자열을 반환한다.
+// 오류가 없으면 원본 output을 그대로 반환한다.
+func validateAndEnrich(ctx context.Context, sid, connStr, sql, output string, exec executor.Executor) string {
+	if !conn.HasQueryError(output, 0) {
+		return output
+	}
+
+	tables := conn.ExtractTableNames(sql)
+	if len(tables) == 0 {
+		return output
+	}
+
+	var schemaInfo strings.Builder
+	schemaInfo.WriteString("\n\n[자동 스키마 조회 결과]\n")
+
+	for _, table := range tables {
+		info := fetchOracleTableSchema(ctx, sid, connStr, table, exec)
+		schemaInfo.WriteString(info)
+	}
+
+	return output + schemaInfo.String()
+}
+
+// fetchOracleTableSchema는 테이블/뷰의 존재 여부와 컬럼 목록을 조회한다.
+// V$ 뷰는 v$fixed_table/v$fixed_columns 경로, 일반 테이블은 all_tab_columns를 사용한다.
+func fetchOracleTableSchema(ctx context.Context, sid, connStr, tableName string, exec executor.Executor) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "── %s:\n", tableName)
+
+	// V$ 뷰 여부 판별
+	if strings.HasPrefix(tableName, "V$") || strings.HasPrefix(tableName, "GV$") {
+		return sb.String() + fetchDynamicViewColumns(ctx, sid, connStr, tableName, exec)
+	}
+
+	// 일반 테이블/뷰: 존재 여부 확인
+	existSQL := fmt.Sprintf(
+		"SELECT object_type FROM all_objects WHERE object_name='%s' AND object_type IN ('TABLE','VIEW','SYNONYM') AND ROWNUM=1;",
+		tableName,
+	)
+	res, err := exec.Execute(ctx, buildSQLPlusCmd(sid, connStr, existSQL, ""))
+	if err != nil || strings.TrimSpace(res.Stdout) == "" {
+		sb.WriteString("  → 테이블/뷰를 찾을 수 없습니다.\n")
+		sb.WriteString("  힌트: SELECT object_name FROM all_objects WHERE object_name LIKE '%" + tableName[:min(len(tableName), 6)] + "%' AND object_type IN ('TABLE','VIEW');\n")
+		return sb.String()
+	}
+
+	// 컬럼 목록 조회
+	colSQL := fmt.Sprintf(
+		"SELECT column_name, data_type, nullable FROM all_tab_columns WHERE table_name='%s' ORDER BY column_id;",
+		tableName,
+	)
+	colRes, err := exec.Execute(ctx, buildSQLPlusCmd(sid, connStr, colSQL, ""))
+	if err != nil || strings.TrimSpace(colRes.Stdout) == "" {
+		sb.WriteString("  → 컬럼 정보를 가져올 수 없습니다.\n")
+		return sb.String()
+	}
+
+	cleaned := strings.TrimSpace(colRes.Stdout)
+	if cleaned == "" {
+		sb.WriteString("  → 컬럼 없음 (권한 부족일 수 있음)\n")
+		return sb.String()
+	}
+	sb.WriteString("  사용 가능한 컬럼:\n")
+	for _, line := range strings.Split(cleaned, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			sb.WriteString("    " + line + "\n")
+		}
+	}
+	return sb.String()
+}
+
+// fetchDynamicViewColumns는 V$/GV$ 동적 성능 뷰의 컬럼을 v$fixed_columns에서 조회한다.
+// v$fixed_columns에 없으면 all_tab_columns(V_$ 형식)로 재시도한다.
+// searchTableInCDB checks other PDBs when the current PDB lookup fails and
+// returns guidance for a PDB-scoped connector tool.
+func searchTableInCDB(ctx context.Context, sid, connStr, pdb, tableName string, exec executor.Executor) string {
+	checkCDBSQL := "SELECT cdb FROM v$database;"
+	cdbRes, err := exec.Execute(ctx, buildSQLPlusCmd(sid, connStr, checkCDBSQL, pdb))
+	if err != nil || !strings.Contains(cdbRes.Stdout, "YES") {
+		return ""
+	}
+
+	searchSQL := fmt.Sprintf(`
+SELECT p.name || ' (Owner: ' || t.owner || ')'
+FROM cdb_tables t
+JOIN v$pdbs p ON t.con_id = p.con_id
+WHERE t.table_name = '%s'
+ORDER BY p.name;`, tableName)
+
+	res, err := exec.Execute(ctx, buildSQLPlusCmd(sid, connStr, searchSQL, pdb))
+	if err != nil || strings.TrimSpace(res.Stdout) == "" || strings.Contains(res.Stdout, "ORA-") {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("  [!] found in other PDBs:\n")
+	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			sb.WriteString("    " + line + "\n")
+		}
+	}
+	sb.WriteString("  Recommended action: use a PDB-scoped connector query tool (for example `oracle_<sid>_<pdb>.query`) or activate one with `connector_activate` and `sub_instance=<PDB_NAME>`.\n")
+	return sb.String()
+}
+
+func fetchDynamicViewColumns(ctx context.Context, sid, connStr, viewName string, exec executor.Executor) string {
+	var sb strings.Builder
+
+	// v$fixed_columns 시도
+	fixedSQL := fmt.Sprintf(
+		"SELECT column_name, type FROM v$fixed_columns WHERE kqfvinam='%s' ORDER BY 1;",
+		viewName,
+	)
+	res, err := exec.Execute(ctx, buildSQLPlusCmd(sid, connStr, fixedSQL, ""))
+	if err == nil && strings.TrimSpace(res.Stdout) != "" && !strings.Contains(res.Stdout, "ORA-") {
+		sb.WriteString("  사용 가능한 컬럼 (v$fixed_columns):\n")
+		for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				sb.WriteString("    " + line + "\n")
+			}
+		}
+		return sb.String()
+	}
+
+	// all_tab_columns 폴백: V$ → V_$ 변환
+	altName := viewName
+	if strings.HasPrefix(altName, "V$") {
+		altName = "V_$" + altName[2:]
+	} else if strings.HasPrefix(altName, "GV$") {
+		altName = "GV_$" + altName[3:]
+	}
+	colSQL := fmt.Sprintf(
+		"SELECT column_name, data_type FROM all_tab_columns WHERE owner='SYS' AND table_name='%s' ORDER BY column_id;",
+		altName,
+	)
+	colRes, err := exec.Execute(ctx, buildSQLPlusCmd(sid, connStr, colSQL, ""))
+	if err == nil && strings.TrimSpace(colRes.Stdout) != "" && !strings.Contains(colRes.Stdout, "ORA-") {
+		sb.WriteString(fmt.Sprintf("  사용 가능한 컬럼 (all_tab_columns / %s):\n", altName))
+		for _, line := range strings.Split(strings.TrimSpace(colRes.Stdout), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				sb.WriteString("    " + line + "\n")
+			}
+		}
+		return sb.String()
+	}
+
+	sb.WriteString(fmt.Sprintf("  → %s 뷰가 이 환경에 존재하지 않습니다 (non-CDB 또는 권한 없음).\n", viewName))
+	sb.WriteString("  힌트: SELECT name FROM v$fixed_table WHERE name LIKE '%" + viewName[:min(len(viewName), 6)] + "%';\n")
+	return sb.String()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

@@ -1,0 +1,47 @@
+{
+  "saved_at": "2026-04-22T05:03:37.2778396Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Use the bash tool and run: echo tui-test"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "chatcmpl-tool-8a8b22cccd5c5b15",
+          "name": "bash",
+          "input": {
+            "command": "echo tui-test"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "{\"Stdout\":\"\",\"Stderr\":\"      0 [main] bash (12908) C:\\\\Program Files\\\\Git\\\\bin\\\\..\\\\usr\\\\bin\\\\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5\\n\",\"Code\":3221225794,\"Interrupted\":false,\"BackgroundTaskID\":\"\",\"OutputFilePath\":\"\",\"OutputFileSize\":0,\"OutputTaskID\":\"\",\"PreSpawnError\":\"\",\"AssistantAutoBackgrounded\":false,\"BackgroundedByUser\":false}",
+          "name": "bash",
+          "tool_use_id": "chatcmpl-tool-8a8b22cccd5c5b15"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "thought\nThe command `echo tui-test` was executed, but it encountered a system error: `fatal error - couldn't create signal pipe, Win32 error 5`. This error typically indicates a permission issue or a conflict with the environment (in this case, the Git Bash installation on Windows).\n\nIf you have another way to run commands or if you'd like me to try a different approach, please let me know."
+        }
+      ]
+    }
+  ]
+}

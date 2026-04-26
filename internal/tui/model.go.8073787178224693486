@@ -1,0 +1,1011 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/koreaf16/argus/internal/constants"
+	"github.com/koreaf16/argus/internal/presentation"
+	"github.com/koreaf16/argus/internal/query"
+	"github.com/koreaf16/argus/internal/repl/commands"
+	"github.com/koreaf16/argus/internal/services/workspace"
+	tool "github.com/koreaf16/argus/internal/tools"
+	"github.com/koreaf16/argus/internal/tui/toolui"
+	"github.com/koreaf16/argus/internal/types"
+	"github.com/koreaf16/argus/internal/utils/permissions"
+	"github.com/mattn/go-runewidth"
+)
+
+type submitStartedMsg struct{}
+type submitFinishedMsg struct{}
+type quitRequestedMsg struct{}
+
+type queryEventMsg struct {
+	Event query.UIEvent
+}
+
+type presentationEventMsg struct {
+	Event presentation.Event
+}
+
+type footerStateMsg struct {
+	Footer presentation.FooterState
+}
+
+type startupInspectDoneMsg struct {
+	text string
+	cwd  string
+}
+
+type approvalScope string
+
+const (
+	approvalScopeOnce      approvalScope = "once"
+	approvalScopeSession   approvalScope = "session"
+	approvalScopePermanent approvalScope = "permanent"
+)
+
+type decisionResult struct {
+	Allow bool
+	Scope approvalScope
+	Err   error
+}
+
+type passwordResult struct {
+	Value string
+	Err   error
+}
+
+type askUserResult struct {
+	Response tool.AskUserResponse
+}
+
+type askUserBatchResult struct {
+	Response tool.AskUserBatchResponse
+}
+
+type serverFormResult struct {
+	Result commands.ServerFormResult
+	Err    error
+}
+
+type serverFormRequestMsg struct {
+	EditAlias string // non-empty when editing an existing server
+	Response  chan serverFormResult
+}
+
+type approvalRequestMsg struct {
+	ToolName string
+	Input    string
+	Response chan decisionResult
+}
+
+type confirmRequestMsg struct {
+	Prompt    string
+	DefaultNo bool
+	Response  chan decisionResult
+}
+
+type passwordRequestMsg struct {
+	Prompt   string
+	Response chan passwordResult
+}
+
+type askUserRequestMsg struct {
+	ToolName string
+	Question tool.AskUserQuestion
+	Response chan askUserResult
+}
+
+type askUserBatchRequestMsg struct {
+	ToolName  string
+	Questions []tool.AskUserQuestion
+	Response  chan askUserBatchResult
+}
+
+type transcriptEntry struct {
+	Kind       string
+	Title      string
+	Body       string
+	StreamBody string // streaming tool output (bash/powershell 실행 중 stdout 누적)
+	ToolName   string
+	TaskID     string
+
+	// tool_group 전용
+	Collapsed   bool
+	SearchCount int
+	ReadCount   int
+	ListCount   int
+	LastHint    string
+	SubEntries  []transcriptEntry
+	IsActive    bool
+
+	Interactive toolui.InteractiveModel
+}
+
+type uiModel struct {
+	app   *app
+	cfg   Config
+	theme uiTheme
+
+	width  int
+	height int
+
+	input    textarea.Model
+	viewport viewport.Model
+	footer   presentation.FooterState
+
+	entries []transcriptEntry
+
+	assistantOpen         bool
+	assistantStreamIdx    int
+	assistantLastDelta    time.Time
+	assistantFlushedLines int
+	thinkingOpen          bool
+	thinkingStreamIdx     int
+	thinkingLastDelta     time.Time
+	thinkingFlushedLines  int
+	toolUseOpen           bool
+	toolUseStreamIdx      int
+	busy                 bool
+	busyStartedAt        time.Time
+	tokenInputSnap       int
+	tokenOutputSnap      int
+
+	modalQueue []modalState
+	modal      modalState
+
+	slashMatches []slashSuggestion
+	slashCursor  int
+
+	inputHistory []string
+	historyIdx   int
+	historyCycle bool
+
+	maxEntries int
+
+	lastPrintedIdx int
+
+	animFrame   int
+	spinnerVerb string
+
+	// 동적 상호작용 도구
+	activeTool        toolui.InteractiveModel
+	toolFocused       bool
+	toolEntryByTaskID map[string]int
+}
+
+func newUIModel(a *app, cfg Config) uiModel {
+	in := textarea.New()
+	in.Placeholder = "Type your message or @path/to/file"
+	in.Prompt = ""
+	in.ShowLineNumbers = false
+	in.CharLimit = 0
+	in.SetHeight(1)
+	in.Focus()
+
+	// Disable internal cursor rendering to avoid conflict with hardware cursor
+	focused, blurred := textarea.DefaultStyles()
+	focused.Base = lipgloss.NewStyle()
+	focused.CursorLine = lipgloss.NewStyle()
+	focused.CursorLineNumber = lipgloss.NewStyle()
+	focused.EndOfBuffer = lipgloss.NewStyle()
+	focused.LineNumber = lipgloss.NewStyle()
+	focused.Prompt = lipgloss.NewStyle()
+	focused.Text = lipgloss.NewStyle()
+	focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
+	blurred = focused
+	in.FocusedStyle = focused
+	in.BlurredStyle = blurred
+
+	vp := viewport.New(0, 0)
+
+	m := uiModel{
+		app:                a,
+		cfg:                cfg,
+		theme:              resolveUITheme(cfg.Theme, cfg.AIDebug),
+		input:              in,
+		viewport:           vp,
+		entries:            make([]transcriptEntry, 0, 256),
+		assistantStreamIdx: -1,
+		thinkingStreamIdx:  -1,
+		toolUseStreamIdx:   -1,
+		footer:             presentation.BuildFooterState(cfg.State, cfg.WorkDir),
+		historyIdx:         -1,
+		maxEntries:         4000,
+		toolEntryByTaskID:  make(map[string]int),
+	}
+	for _, evt := range presentation.ReplayEvents(cfg.Engine.Messages()) {
+		m.applyPresentationEvent(evt)
+	}
+	m.lastPrintedIdx = len(m.entries)
+	m.refreshViewport(true)
+	return m
+}
+
+type animationTickMsg struct{}
+
+func doTick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return animationTickMsg{}
+	})
+}
+
+func (m uiModel) Init() tea.Cmd {
+	var cmds []tea.Cmd
+	cmds = append(cmds, tea.ShowCursor)
+	cmds = append(cmds, textarea.Blink)
+	// 초기 틱은 유지 (로고 애니메이션 등이 있을 수 있음)
+	cmds = append(cmds, doTick())
+	// Explicitly disable mouse tracking escape sequences just in case
+	cmds = append(cmds, tea.Printf("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l"))
+	cmds = append(cmds, tea.Println(renderLogoBlock(m.cfg)))
+
+	// 디자인 시스템 v2.1: 기동 시 현재 워크스페이스(로컬 포함) 정보를 엔진에 알림
+	if m.cfg.Workspace != nil {
+		status := m.cfg.Workspace.Status()
+		var activeAlias string
+		for _, s := range status {
+			if s.Active {
+				activeAlias = s.Alias
+				break
+			}
+		}
+		if activeAlias == "" {
+			activeAlias = workspace.LocalAlias
+		}
+
+		// 직접 호출 대신 Cmd로 반환하여 프레임워크가 안전하게 처리하도록 함
+		msg := presentationEventMsg{Event: presentation.Event{
+			Kind: presentation.EventSystem,
+			Text: fmt.Sprintf("System initialized. Active workspace: %s", activeAlias),
+		}}
+		cmds = append(cmds, func() tea.Msg { return msg })
+
+		// 시작 시 로컬 시스템 정보 수집 (비동기)
+		ws := m.cfg.Workspace
+		cmds = append(cmds, func() tea.Msg {
+			snap, err := ws.RunInspect(context.Background(), workspace.LocalAlias)
+			if err != nil {
+				return startupInspectDoneMsg{text: "local inspect: " + err.Error()}
+			}
+			return startupInspectDoneMsg{
+				text: strings.TrimSpace(workspace.FormatInspectSummary(snap)),
+				cwd:  snap.CWD,
+			}
+		})
+	}
+
+	for _, e := range m.entries {
+		cmds = append(cmds, tea.Println(m.renderTranscriptEntryAt(-1, e)))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Filter out all mouse messages at the beginning
+	if _, ok := msg.(tea.MouseMsg); ok {
+		return m, nil
+	}
+
+	switch v := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = v.Width
+		m.height = v.Height
+		m.resize()
+		return m, tea.ClearScreen
+	case quitRequestedMsg:
+		return m, tea.Quit
+	case submitStartedMsg:
+		m.busy = true
+		m.busyStartedAt = time.Now()
+		verbs := constants.GetSpinnerVerbs()
+		m.spinnerVerb = verbs[time.Now().UnixNano()%int64(len(verbs))]
+		m.app.cfg.Engine.ResetBudget()
+		m.tokenInputSnap = 0
+		m.tokenOutputSnap = 0
+		return m, doTick() // 메시지 시작 시 틱 재개
+	case submitFinishedMsg:
+		m.busy = false
+		m.busyStartedAt = time.Time{}
+		return m, nil
+	case queryEventMsg:
+		if evt, ok := presentation.FromUIEvent(v.Event); ok {
+			prevIdx := m.assistantStreamIdx
+			m.applyPresentationEvent(evt)
+			return m, tea.Batch(m.handleEventFinalization(evt), m.scrollbackCmd(evt, prevIdx))
+		}
+		return m, nil
+	case presentationEventMsg:
+		prevIdx := m.assistantStreamIdx
+		m.applyPresentationEvent(v.Event)
+		return m, tea.Batch(m.handleEventFinalization(v.Event), m.scrollbackCmd(v.Event, prevIdx))
+	case footerStateMsg:
+		m.footer = v.Footer
+		return m, nil
+	case startupInspectDoneMsg:
+		evt := presentation.Event{Kind: presentation.EventSystem, Text: v.text}
+		m.applyPresentationEvent(evt)
+		footerCmd := func() tea.Msg { return m.app.buildFooterMsg() }
+		return m, tea.Batch(m.handleEventFinalization(evt), footerCmd)
+	case animationTickMsg:
+		// 유휴 상태(busy가 아니고 실행 중인 도구가 없음)면 틱 중단
+		if !m.busy && m.activeTool == nil {
+			return m, nil
+		}
+
+		m.animFrame++
+		if m.busy {
+			m.tokenInputSnap, m.tokenOutputSnap = m.app.cfg.Engine.TokenSnapshot()
+		}
+
+		var toolCmd tea.Cmd
+		if m.activeTool != nil {
+			// BashInteractiveModel 등이 스피너 업데이트를 받을 수 있도록 spinner.TickMsg를 전달
+			m.activeTool, toolCmd = m.activeTool.Update(spinner.TickMsg{
+				Time: time.Now(),
+				ID:   0, // ID는 BashInteractiveModel 내부에서 무시될 것임
+			})
+		}
+		return m, tea.Batch(doTick(), toolCmd)
+	case approvalRequestMsg:
+		m.enqueueModal(modalState{
+			Kind:      modalApproval,
+			Title:     "Tool Permission",
+			Prompt:    "Allow this tool execution?",
+			ToolName:  v.ToolName,
+			InputJSON: v.Input,
+			DecisionC: v.Response,
+		})
+		return m, nil
+	case confirmRequestMsg:
+		cursor := 0
+		if v.DefaultNo {
+			cursor = 1
+		}
+		m.enqueueModal(modalState{
+			Kind:      modalConfirm,
+			Title:     "Confirm",
+			Prompt:    v.Prompt,
+			DefaultNo: v.DefaultNo,
+			AskCursor: cursor,
+			DecisionC: v.Response,
+		})
+		return m, nil
+	case passwordRequestMsg:
+		m.enqueueModal(modalState{
+			Kind:      modalPassword,
+			Title:     "Password Required",
+			Prompt:    v.Prompt,
+			PasswordC: v.Response,
+		})
+		return m, nil
+	case askUserRequestMsg:
+		m.enqueueModal(modalState{
+			Kind:     modalAskUser,
+			Title:    "Question",
+			ToolName: v.ToolName,
+			Question: &v.Question,
+			AskUserC: v.Response,
+		})
+		return m, nil
+	case askUserBatchRequestMsg:
+		m.enqueueModal(modalState{
+			Kind:          modalAskUserBatch,
+			Title:         "Questions",
+			ToolName:      v.ToolName,
+			Questions:     append([]tool.AskUserQuestion(nil), v.Questions...),
+			AskUserBatchC: v.Response,
+		})
+		return m, nil
+	case serverFormRequestMsg:
+		sf := &serverFormState{PortStr: "22"}
+		title := "Add Server"
+		if v.EditAlias != "" {
+			title = "Edit Server"
+			if m.app.cfg.Workspace != nil {
+				if entry, ok := m.app.cfg.Workspace.Registry().Get(v.EditAlias); ok {
+					sf = serverFormStateFromEntry(entry)
+				}
+			}
+		}
+		m.enqueueModal(modalState{
+			Kind:        modalServerForm,
+			Title:       title,
+			ServerForm:  sf,
+			ServerFormC: v.Response,
+		})
+		return m, nil
+	case serverListRequestMsg:
+		var entries []workspace.StatusEntry
+		if m.app.cfg.Workspace != nil {
+			entries = m.app.cfg.Workspace.Status()
+		}
+		m.enqueueModal(modalState{
+			Kind:  modalServerList,
+			Title: "Servers",
+			ServerList: &serverListState{
+				Entries: entries,
+				Cursor:  0,
+			},
+			ServerListC: v.Response,
+		})
+		return m, nil
+	case serverListRefreshMsg:
+		if m.modal.Kind == modalServerList {
+			m.modal.ServerList.ErrorMsg = v.ErrorMsg
+			m.refreshServerListEntries()
+		}
+		return m, nil
+	case tea.KeyMsg:
+		if m.modal.Kind != modalNone {
+			m.handleModalKey(v)
+			return m, nil
+		}
+
+		// 도구에 포커스가 있는 경우 도구로 이벤트 전달
+		if m.toolFocused && m.activeTool != nil {
+			switch v.String() {
+			case "tab":
+				m.toolFocused = false
+				m.activeTool.SetFocus(false)
+				m.input.Focus()
+				return m, nil
+			case "ctrl+o":
+				m.activeTool.SetExpanded(!m.activeTool.IsExpanded())
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.activeTool, cmd = m.activeTool.Update(msg)
+				return m, cmd
+			}
+		}
+
+		switch v.String() {
+		case "esc":
+			if m.busy {
+				m.app.cancelCurrentSubmit()
+			}
+			return m, nil
+		case "ctrl+d":
+			if m.busy && m.activeTool != nil {
+				var cmd tea.Cmd
+				m.activeTool, cmd = m.activeTool.Update(v)
+				return m, cmd
+			}
+		case "ctrl+o":
+			if m.activeTool != nil {
+				m.activeTool.SetExpanded(!m.activeTool.IsExpanded())
+			} else {
+				m.toggleLastToolGroup()
+			}
+			return m, nil
+		case "ctrl+c":
+			return m, tea.Quit
+		case "ctrl+r":
+			m.cycleInputHistoryBackward()
+			m.refreshSlashSuggestions()
+			m.resize()
+			return m, nil
+		case "tab":
+			if m.applySlashSuggestion() {
+				m.resize()
+				return m, nil
+			}
+			// 슬래시 추천이 없으면 도구로 포커스 전환 시도
+			if m.activeTool != nil {
+				m.toolFocused = true
+				m.activeTool.SetFocus(true)
+				m.input.Blur()
+				return m, nil
+			}
+		case "ctrl+n":
+			if m.moveSlashSuggestion(1) {
+				return m, nil
+			}
+		case "ctrl+p":
+			if m.moveSlashSuggestion(-1) {
+				return m, nil
+			}
+		case "up":
+			if m.input.Value() == "" {
+				m.cycleInputHistoryBackward()
+				m.resize()
+				return m, nil
+			}
+		case "down":
+			if m.input.Value() == "" {
+				m.cycleInputHistoryForward()
+				m.resize()
+				return m, nil
+			}
+		case "enter":
+			text := strings.TrimSpace(m.input.Value())
+			if text == "" {
+				return m, nil
+			}
+			if m.busy {
+				m.applyPresentationEvent(presentation.Event{
+					Kind: presentation.EventNotice,
+					Text: "Previous request is still running.",
+				})
+				// Notice는 handleEventFinalization에서 출력됨
+				return m, m.handleEventFinalization(presentation.Event{
+					Kind: presentation.EventNotice,
+					Text: "Previous request is still running.",
+				})
+			}
+			m.pushInputHistory(text)
+			m.resetHistoryCycle()
+			m.input.SetValue("")
+			m.input.SetCursor(0)
+			m.refreshSlashSuggestions()
+			m.resize()
+			m.app.submit(text)
+			return m, nil
+		case "ctrl+j":
+			m.input.InsertRune('\n')
+			m.resize()
+			return m, nil
+		case "shift+tab":
+			m.cyclePermissionMode()
+			return m, nil
+		case "ctrl+v":
+			content, err := clipboard.ReadAll()
+			if err == nil {
+				m.input.InsertString(content)
+				m.resize()
+				return m, nil
+			}
+		}
+
+		var vpCmd, inCmd tea.Cmd
+		// m.viewport, vpCmd = m.viewport.Update(msg) // Viewport 업데이트 중단
+		oldVal := m.input.Value()
+		m.input, inCmd = m.input.Update(msg)
+		newVal := m.input.Value()
+
+		if len(v.Runes) > 0 || v.String() == "backspace" || v.String() == "delete" {
+			m.resetHistoryCycle()
+		}
+
+		m.refreshSlashSuggestions()
+
+		// 줄 바꿈이 발생했거나 입력 내용이 유의미하게 변했을 때만 resize 호출
+		if strings.Count(oldVal, "\n") != strings.Count(newVal, "\n") {
+			m.resize()
+		}
+
+		return m, tea.Batch(vpCmd, inCmd)
+	}
+	return m, nil
+}
+
+func (m *uiModel) handleEventFinalization(evt presentation.Event) tea.Cmd {
+	switch evt.Kind {
+	case presentation.EventThinkingDone:
+		// Thinking은 출력을 원치 않을 수도 있지만 일단 출력함
+		if len(m.entries) > 0 {
+			for i := len(m.entries) - 1; i >= 0; i-- {
+				if m.entries[i].Kind == "thinking" {
+					return tea.Println("\n" + m.renderTranscriptEntryAt(-1, m.entries[i]))
+				}
+			}
+		}
+	case presentation.EventToolUse:
+		if len(m.entries) == 0 {
+			return nil
+		}
+		last := m.entries[len(m.entries)-1]
+		if last.Kind == "tool_group" {
+			// 진행 중인 그룹 — View()가 보여주므로 스크롤백 출력 안 함
+			return nil
+		}
+		// shell tool: streaming 중이므로 EventToolResult 시 출력
+		if m.toolUseOpen && m.toolUseStreamIdx >= 0 {
+			return nil
+		}
+		// 비-collapsible 툴: 직전에 그룹이 finalize됐으면 그룹도 같이 출력
+		var cmds []tea.Cmd
+		if len(m.entries) >= 2 {
+			prev := m.entries[len(m.entries)-2]
+			if prev.Kind == "tool_group" && !prev.IsActive {
+				cmds = append(cmds, tea.Println("\n"+m.renderTranscriptEntryAt(-1, prev)))
+			}
+		}
+		cmds = append(cmds, tea.Println("\n"+m.renderTranscriptEntryAt(-1, last)))
+		return tea.Batch(cmds...)
+	case presentation.EventToolResult:
+		if len(m.entries) == 0 {
+			return nil
+		}
+		last := m.entries[len(m.entries)-1]
+		if last.Kind == "tool_group" {
+			// 그룹에 결과가 추가됨 — 스크롤백 출력 안 함
+			return nil
+		}
+		// streaming tool이었으면 tool_use(StreamBody 포함)와 result를 함께 출력
+		if idx := m.toolUseStreamIdx; idx >= 0 && idx < len(m.entries)-1 {
+			m.toolUseStreamIdx = -1
+			m.lastPrintedIdx = len(m.entries)
+			return tea.Sequence(
+				tea.Println("\n"+m.renderTranscriptEntryAt(-1, m.entries[idx])),
+				tea.Println("\n"+m.renderTranscriptEntryAt(-1, last)),
+			)
+		}
+		return tea.Println("\n" + m.renderTranscriptEntryAt(-1, last))
+	case presentation.EventAssistantDone:
+		// assistant 출력 전에 혹시 finalized된 그룹이 있으면 먼저 출력
+		if len(m.entries) == 0 {
+			return nil
+		}
+		var cmds []tea.Cmd
+		for i := len(m.entries) - 1; i >= 0; i-- {
+			if m.entries[i].Kind == "assistant" {
+				if i > 0 && m.entries[i-1].Kind == "tool_group" && !m.entries[i-1].IsActive {
+					cmds = append(cmds, tea.Println("\n"+m.renderTranscriptEntryAt(-1, m.entries[i-1])))
+				}
+				cmds = append(cmds, tea.Println("\n"+m.renderTranscriptEntryAt(i, m.entries[i])))
+				return tea.Batch(cmds...)
+			}
+		}
+		return nil
+	case presentation.EventUser, presentation.EventSystem, presentation.EventError,
+		presentation.EventNotice,
+		presentation.EventApprovalDecision, presentation.EventPlanResult, presentation.EventPasswordRequest,
+		presentation.EventAskUserRequest:
+		if len(m.entries) > 0 {
+			return tea.Println("\n" + m.renderTranscriptEntryAt(-1, m.entries[len(m.entries)-1]))
+		}
+	case presentation.EventViewCleared:
+		return tea.ClearScreen
+	}
+	return nil
+}
+
+func (m *uiModel) scrollbackCmd(evt presentation.Event, prevStreamIdx int) tea.Cmd {
+	switch evt.Kind {
+	case presentation.EventAssistantDelta:
+		m.refreshViewport(true)
+		return m.flushStreamingLines(m.assistantStreamIdx, &m.assistantFlushedLines)
+	case presentation.EventThinkingDelta:
+		m.refreshViewport(true)
+		return m.flushStreamingLines(m.thinkingStreamIdx, &m.thinkingFlushedLines)
+	case presentation.EventThinkingDone, presentation.EventState, presentation.EventViewCleared:
+		m.refreshViewport(true)
+		return nil
+	case presentation.EventAssistantDone:
+		return m.finalizeAssistantStream(prevStreamIdx)
+	default:
+		var cmds []tea.Cmd
+		if finalized := m.finalizeAssistantStream(prevStreamIdx); finalized != nil {
+			cmds = append(cmds, finalized)
+		}
+
+		if m.lastPrintedIdx < len(m.entries) {
+			entry := m.entries[len(m.entries)-1]
+			cmds = append(cmds, tea.Println("\n"+m.renderTranscriptEntryAt(-1, entry)))
+			m.lastPrintedIdx = len(m.entries)
+		}
+
+		m.refreshViewport(true)
+
+		switch len(cmds) {
+		case 0:
+			return nil
+		case 1:
+			return cmds[0]
+		default:
+			return tea.Sequence(cmds...)
+		}
+	}
+}
+
+func (m *uiModel) finalizeAssistantStream(streamIdx int) tea.Cmd {
+	if streamIdx < 0 || streamIdx >= len(m.entries) {
+		return nil
+	}
+	e := m.entries[streamIdx]
+	if e.Kind != "assistant" {
+		return nil
+	}
+	if m.lastPrintedIdx > streamIdx {
+		return nil
+	}
+	m.lastPrintedIdx = streamIdx + 1
+	m.refreshViewport(true)
+
+	// 이미 Flush된 라인들을 제외한 남은 텍스트(마지막 줄 등)만 출력
+	body := e.Body
+	lines := strings.Split(body, "\n")
+	var toPrint []string
+	for i := m.assistantFlushedLines; i < len(lines); i++ {
+		toPrint = append(toPrint, m.renderTranscriptLine("assistant", lines[i], i))
+	}
+	m.assistantFlushedLines = 0 // 초기화
+
+	if len(toPrint) == 0 {
+		return nil
+	}
+	// 만약 아예 첫 출력이면 위에 개행 추가
+	res := strings.Join(toPrint, "\n")
+	if m.assistantFlushedLines == 0 && streamIdx == 0 {
+		res = "\n" + res
+	}
+	return tea.Println(res)
+}
+
+func (m *uiModel) cyclePermissionMode() {
+	if m.cfg.State == nil {
+		return
+	}
+	permCtx := permissions.NewDefaultPermissionContext()
+	permCtx.Mode = m.cfg.State.GetPermissionMode()
+	next, _ := permissions.CyclePermissionMode(permCtx)
+	m.cfg.State.SetPermissionMode(next)
+	if next == types.PermissionModePlan {
+		m.cfg.State.SetMode("plan")
+	} else if m.cfg.State.GetMode() == "plan" {
+		m.cfg.State.SetMode("normal")
+	}
+	m.footer = presentation.BuildFooterState(m.cfg.State, m.cfg.WorkDir)
+}
+
+func (m *uiModel) resize() {
+	if m.width <= 0 {
+		return
+	}
+
+	// 1. 프롬프트 입력창 너비 설정
+	inputWidth := m.width - 5
+	if inputWidth < 12 {
+		inputWidth = 12
+	}
+	m.input.SetWidth(inputWidth)
+
+	// 입력창 높이 (내용에 따라 가변, 최대 8줄)
+	maxInputH := 8
+	lineCount := strings.Count(m.input.Value(), "\n") + 1
+	m.input.SetHeight(max(1, min(maxInputH, lineCount)))
+	m.input.MaxHeight = maxInputH
+
+	// 2. 뷰포트 크기 설정
+	// View()에서 JoinVertical로 조립하므로 뷰포트의 명시적 높이 조절이 필요할 수 있음
+	m.viewport.Width = m.width
+}
+
+func (m uiModel) View() string {
+	if m.width == 0 || m.height == 0 {
+		return "loading..."
+	}
+
+	// 1. 고정 영역 높이 계산
+	footerH := lipgloss.Height(m.renderFooter())
+	inputH := lipgloss.Height(m.renderInput())
+	modeH := lipgloss.Height(m.renderModeRow())
+	thinkingH := lipgloss.Height(m.renderThinkingRow())
+	modalH := 0
+	emptyLine := "" // JoinVertical에 의해 개행으로 변환됨
+	if m.modal.Kind != modalNone {
+		modalH = lipgloss.Height(m.renderModal()) + 1 // +1 for the separator
+	}
+
+	// 고정 요소들의 총 높이 (여백 포함)
+	fixedH := footerH + inputH + modeH + thinkingH + modalH + 4 // 2 for spacing, 1 for bottom, 1 for extra margin
+
+	// 2. 스트리밍 메시지 영역 높이 제한
+	maxStreamH := m.height - fixedH
+	if maxStreamH < 0 {
+		maxStreamH = 0
+	}
+
+	var streamParts []string
+	if m.thinkingOpen && m.thinkingStreamIdx >= 0 {
+		streamParts = append(streamParts, m.renderTranscriptEntryAt(m.thinkingStreamIdx, m.entries[m.thinkingStreamIdx]))
+	}
+	if m.toolUseOpen && m.toolUseStreamIdx >= 0 && m.toolUseStreamIdx < len(m.entries) {
+		streamParts = append(streamParts, m.renderTranscriptEntryAt(m.toolUseStreamIdx, m.entries[m.toolUseStreamIdx]))
+	}
+	if m.assistantOpen && m.assistantStreamIdx >= 0 {
+		streamParts = append(streamParts, m.renderTranscriptEntryAt(m.assistantStreamIdx, m.entries[m.assistantStreamIdx]))
+	}
+
+	streamView := lipgloss.JoinVertical(lipgloss.Left, streamParts...)
+	if h := lipgloss.Height(streamView); h > maxStreamH && maxStreamH > 0 {
+		lines := strings.Split(streamView, "\n")
+		if len(lines) > maxStreamH {
+			streamView = strings.Join(lines[len(lines)-maxStreamH:], "\n")
+		}
+	}
+
+	// 3. 전체 레이아웃 조립
+	var parts []string
+	if streamView != "" {
+		parts = append(parts, streamView)
+	}
+
+	parts = append(parts, emptyLine)
+
+	if m.modal.Kind != modalNone {
+		parts = append(parts, m.renderModal(), emptyLine)
+	}
+
+	parts = append(parts, m.renderThinkingRow())
+	parts = append(parts, m.renderModeRow())
+	parts = append(parts, m.renderInput(), m.renderFooter())
+	parts = append(parts, emptyLine)
+
+	if m.app.parker != nil {
+		m.updateCursorTarget()
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...) + "\x1b[J"
+}
+
+func (m uiModel) updateCursorTarget() {
+	if m.app.parker == nil {
+		return
+	}
+
+	footerH := lipgloss.Height(m.renderFooter())
+
+	// --- 1. 패스워드 모달 특수 처리 ---
+	if m.modal.Kind == modalPassword {
+		inputH := lipgloss.Height(m.renderInput())
+		modeH := lipgloss.Height(m.renderModeRow())
+		thinkingH := lipgloss.Height(m.renderThinkingRow())
+		// 패스워드 마스크는 하단에서 3줄 위(Enter submit 가이드 위)에 위치함
+		linesUp := footerH + inputH + modeH + thinkingH + 3
+		visualCol := 4 + len(m.modal.Password) // "  " + password + "█"
+		m.app.parker.SetTarget(linesUp, visualCol+1, true)
+		return
+	}
+
+	// 다른 모달이 있으면 커서 숨김
+	if m.modal.Kind != modalNone {
+		m.app.parker.SetTarget(0, 0, false)
+		return
+	}
+
+	// --- 2. 일반 프롬프트 커서 계산 ---
+	// absoluteBottom (1) + footer (footerH) + input_bottom_border (1)
+	linesUp := 1 + footerH + 1
+
+	// Current line within the textarea content (0-indexed)
+	textareaRow := m.input.Line()
+
+	// Total content lines in input box (excluding top/bottom borders)
+	contentLinesCount := m.input.Height()
+	if contentLinesCount < 1 {
+		contentLinesCount = 1
+	}
+
+	// Add lines that are below the current cursor line in the input box
+	if textareaRow < contentLinesCount {
+		linesUp += (contentLinesCount - 1 - textareaRow)
+	}
+
+	// Calculate column (horizontal distance from left)
+	// 줄 시작 공백 제거 및 프롬프트("> ") 너비 2 반영
+	prefixWidth := 2
+	lineVal := m.input.Value()
+	lines := strings.Split(lineVal, "\n")
+	visualCol := prefixWidth
+
+	if textareaRow < len(lines) {
+		rowText := lines[textareaRow]
+		colIdx := m.input.LineInfo().CharOffset
+		runes := []rune(rowText)
+		if colIdx > len(runes) {
+			colIdx = len(runes)
+		}
+		visualCol += runewidth.StringWidth(string(runes[:colIdx]))
+	}
+
+	m.app.parker.SetTarget(linesUp, visualCol+1, true)
+}
+
+func (m *uiModel) flushStreamingLines(entryIdx int, flushedCount *int) tea.Cmd {
+	if entryIdx < 0 || entryIdx >= len(m.entries) {
+		return nil
+	}
+	e := m.entries[entryIdx]
+	body := e.Body
+	if e.Kind == "assistant" {
+		body = stableStreamingMarkdownSource(body)
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) <= 1 {
+		return nil
+	}
+
+	// 마지막 줄은 아직 스트리밍 중일 수 있으므로 제외하고, 그 전 줄들만 Flush
+	completeLines := lines[:len(lines)-1]
+	newLinesCount := len(completeLines) - *flushedCount
+
+	if newLinesCount <= 0 {
+		return nil
+	}
+
+	var toPrint []string
+	for i := *flushedCount; i < len(completeLines); i++ {
+		line := completeLines[i]
+		// 마크다운 렌더링 (단일 라인)
+		rendered := m.renderTranscriptLine(e.Kind, line, i)
+		toPrint = append(toPrint, rendered)
+	}
+
+	*flushedCount = len(completeLines)
+	return tea.Println(strings.Join(toPrint, "\n"))
+}
+
+func (m *uiModel) renderTranscriptLine(kind, line string, lineIdx int) string {
+	prefix := "  "
+	if kind == "assistant" && lineIdx == 0 {
+		if m.theme.DisableANSI {
+			prefix = "✦ "
+		} else {
+			prefix = lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.AssistantMarkerColor)).Render("✦ ")
+		}
+	}
+
+	color := m.theme.BodyColor
+	if kind == "thinking" {
+		color = m.theme.ThinkingTitleColor
+	}
+	style := m.theme.style(color)
+	return prefix + style.Render(line)
+}
+
+// serverFormStateFromEntry creates a serverFormState pre-filled with existing server data.
+func serverFormStateFromEntry(e workspace.ServerEntry) *serverFormState {
+	portStr := "22"
+	if e.Port > 0 {
+		portStr = strconv.Itoa(e.Port)
+	}
+	sf := &serverFormState{
+		EditAlias:  e.Alias,
+		Alias:      e.Alias,
+		Host:       e.Host,
+		PortStr:    portStr,
+		User:       e.User,
+		DefaultCWD: e.DefaultCWD,
+	}
+	switch {
+	case e.Auth.UseAgent:
+		sf.AuthMode = serverFormAuthAgent
+	case e.Auth.IdentityFile != "":
+		sf.AuthMode = serverFormAuthKey
+		sf.IdentityFile = e.Auth.IdentityFile
+	case e.Auth.AllowPassword:
+		sf.AuthMode = serverFormAuthPassword
+	}
+	return sf
+}
+
+func (m *uiModel) refreshViewport(scrollToBottom bool) {
+	var parts []string
+
+	// 로고 블록 (가장 위에 상시 노출하고 싶다면 추가)
+	parts = append(parts, renderLogoBlock(m.cfg))
+
+	for i, e := range m.entries {
+		parts = append(parts, m.renderTranscriptEntryAt(i, e))
+	}
+
+	content := strings.Join(parts, "\n\n")
+	m.viewport.SetContent(content)
+
+	if scrollToBottom {
+		m.viewport.GotoBottom()
+	}
+}

@@ -1,0 +1,199 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/yourorg/infractl/internal/agent/compact"
+	"github.com/yourorg/infractl/internal/agent/planmode"
+	"github.com/yourorg/infractl/internal/agent/query"
+	"github.com/yourorg/infractl/internal/llm"
+	"github.com/yourorg/infractl/internal/notify"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+func (a *Agent) runWithEngine(
+	ctx context.Context,
+	systemMsg llm.Message,
+	activeClient llm.Client,
+	activeTier llm.Tier,
+	activeModelName string,
+	apiTools []llm.ToolDef,
+	enableTodoEnforcer bool,
+) error {
+	startTime := time.Now()
+	baseRunner := query.ToolRunner(func(ctx context.Context, tc llm.ToolCall) (string, bool, string) {
+		msg, ok, meta := a.executeSingleTool(ctx, tc)
+		return msg.Content, !ok, meta
+	})
+
+	ti := query.NewToolInvoker(a.hookRunner, baseRunner)
+	ti.SetRegistry(a.registry)
+	ti.SetIsElevatedMode(a.IsElevatedMode)
+	ti.SetIsYoloMode(a.IsYOROMode)
+	ti.SetApprovalRequester(func(ctx context.Context, message string) (bool, error) {
+		if a.questionHandler == nil {
+			return false, nil
+		}
+		resp, err := a.questionHandler.RequestQuestion(ctx, tools.QuestionRequest{
+			Header:   "Permission Retry",
+			Question: message,
+			Options: []tools.QuestionOption{
+				{Label: "Retry with sudo", Description: "Retry once with become_method=sudo."},
+				{Label: "Skip retry", Description: "Keep the current failure and continue."},
+			},
+		})
+		if err != nil {
+			return false, err
+		}
+		return resp.SelectedIndex == 0, nil
+	})
+	ti.SetBlockedCallback(func(tc llm.ToolCall, reason string) {
+		args := query.ParseArgsForCallback(tc.Function.Arguments)
+		a.handler.OnToolStart(tc.ID, tc.Function.Name, "", args)
+		a.handler.OnToolEnd(tc.ID, tc.Function.Name, reason, 0, false, "")
+	})
+	if a.planState != nil {
+		filter := planmode.NewReadOnlyFilter(a.registry)
+		ti.SetPlanGate(a.planState, filter)
+	}
+	if a.todoEnforcer != nil && enableTodoEnforcer {
+		ti.SetTodoEnforcer(a.todoEnforcer)
+	}
+	runTool := ti.AsToolRunner()
+
+	params := query.Params{
+		Messages:      a.history,
+		SystemMsg:     systemMsg,
+		Tier:          activeTier,
+		Client:        activeClient,
+		ModelName:     activeModelName,
+		Tools:         apiTools,
+		MaxTurns:      a.maxToolLoop,
+		RunTool:       runTool,
+		Registry:      a.registry,
+		ContextWindow: a.maxContextTokens,
+		SystemTokens:  a.lastSystemPromptLen / compact.AvgCharsPerToken,
+		DequeueAutoTool: func() (llm.ToolCall, bool) {
+			if a.installPath == nil {
+				return llm.ToolCall{}, false
+			}
+			action, ok := a.installPath.Dequeue()
+			if !ok {
+				return llm.ToolCall{}, false
+			}
+			return action.ToolCall, true
+		},
+	}
+
+	events := a.queryEngine.Run(ctx, params)
+	return a.consumeEngineEvents(ctx, events, startTime)
+}
+
+func (a *Agent) consumeEngineEvents(ctx context.Context, events <-chan query.QueryEvent, startTime time.Time) error {
+	var lastResponseText string
+
+	for ev := range events {
+		a.querySink.HandleQueryEvent(ev)
+
+		switch e := ev.(type) {
+		case query.EventStreamStart:
+			lastResponseText = ""
+
+		case query.EventAssistantResponse:
+			lastResponseText = e.Text
+			if e.Text == "" && len(e.ToolCalls) == 0 {
+				// Empty response: engine injects synthetic placeholder into s.messages and retries.
+				// Do NOT add to a.history — {role:"assistant"} with no content/tool_calls is invalid.
+				break
+			}
+			assistantMsg := llm.Message{
+				Role:      llm.RoleAssistant,
+				Content:   e.Text,
+				ToolCalls: e.ToolCalls,
+			}
+			a.history = append(a.history, assistantMsg)
+			a.saveSessionMessage(ctx, assistantMsg)
+
+		case query.EventToolResult:
+			if !e.SiblingSkipped {
+				llm.LogToolResult(e.Name, e.Output)
+			}
+			// escalate_to_reasoning: assistant 메시지를 history에서 제거하고 sentinel 반환
+			if e.ToolCall.Function.Name == escalationToolName && !e.IsError {
+				a.history = popLastAssistantMessage(a.history)
+				return errEscalateToReasoning
+			}
+			if !e.SiblingSkipped && !e.IsError {
+				switch e.ToolCall.Function.Name {
+				case "propose_action":
+					a.activatePendingFromToolResults(
+						[]llm.ToolCall{e.ToolCall},
+						[]llm.Message{{Role: llm.RoleTool, ToolCallID: e.ID, Content: e.Output}},
+					)
+				case "propose_task":
+					a.activateProposalFromToolResults([]llm.ToolCall{e.ToolCall})
+				}
+			}
+			toolMsg := llm.Message{
+				Role:       llm.RoleTool,
+				ToolCallID: e.ID,
+				Content:    e.Output,
+			}
+			a.history = append(a.history, toolMsg)
+			a.saveSessionMessage(ctx, toolMsg)
+
+		case query.EventError:
+			a.handler.OnError(e.Err)
+
+		case query.EventTerminal:
+			return a.handleTerminal(ctx, e, lastResponseText, startTime)
+
+		case query.EventAssistantChunk, query.EventToolUseStart:
+		}
+	}
+
+	return fmt.Errorf("query engine: event channel closed before Terminal event")
+}
+
+func (a *Agent) handleTerminal(ctx context.Context, e query.EventTerminal, lastText string, startTime time.Time) error {
+	duration := time.Since(startTime)
+	switch e.Reason {
+	case query.TerminalCompleted:
+		if duration > 10*time.Second {
+			_ = notify.Notify(context.Background(), "InfraCtl 작업 완료", "요청하신 인프라 작업이 완료되었습니다.")
+		}
+		a.handler.OnResponse(lastText)
+		a.trimHistory()
+		return nil
+
+	case query.TerminalInterrupted:
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("agent loop interrupted: %w", err)
+		}
+		return fmt.Errorf("agent loop interrupted")
+
+	case query.TerminalModelError:
+		if e.Err != nil {
+			a.handler.OnError(e.Err)
+			return fmt.Errorf("model error: %w", e.Err)
+		}
+		return fmt.Errorf("model error (no detail)")
+
+	case query.TerminalMaxTurns:
+		slog.Warn("query engine max turns reached, no final response generated",
+			"max_turns", a.maxToolLoop)
+		return fmt.Errorf("max turns (%d) reached without terminal response", a.maxToolLoop)
+
+	case query.TerminalAbortedTools:
+		return fmt.Errorf("tool execution aborted by context cancellation")
+
+	default:
+		if e.Err != nil {
+			return fmt.Errorf("terminal(%s): %w", e.Reason, e.Err)
+		}
+		return fmt.Errorf("terminal(%s)", e.Reason)
+	}
+}

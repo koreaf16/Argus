@@ -1,0 +1,464 @@
+// Package agent
+// File: loop.go
+// Description: ?먯씠?꾪듃 硫붿씤 猷⑦봽 ???ъ슜???낅젰遺??LLM ?몄텧, ?꾧뎄 ?ㅽ뻾, ?묐떟 ?ㅽ듃由щ컢源뚯? ?꾩껜 ?ㅽ뻾 ?먮쫫 ?ㅼ??ㅽ듃?덉씠??
+// Responsibility: 遺꾨쪟?믩룄援??좏깮?믪빻?띿뒪??鍮뚮뱶?묹LM ?몄텧?믩룄援??ㅽ뻾?믫엳?ㅽ넗由?愿由ъ쓽 ?⑥씪 吏꾩엯??
+package agent
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/yourorg/infractl/internal/agent/compact"
+	todoagent "github.com/yourorg/infractl/internal/agent/todo"
+	"github.com/yourorg/infractl/internal/connector"
+	"github.com/yourorg/infractl/internal/llm"
+	"github.com/yourorg/infractl/internal/rag"
+	"github.com/yourorg/infractl/internal/store"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+const (
+	defaultMaxHistory             = 50
+	defaultMaxToolLoop            = 50
+	defaultMaxContextTokens       = 128_000
+	maxConsecutiveCompactFailures = 3
+)
+
+
+// Run?? ?????????怨몄７???熬곣뫖利?猷몃뢾??????????꾣뤃罐????猷매?댚???우몷嶺??????덊떀??嶺뚮㉡???
+func (a *Agent) Run(ctx context.Context, userInput string) error {
+	if a.promptCache == nil {
+		a.promptCache = newPromptCache()
+	}
+	if a.promptInputs == nil {
+		a.promptInputs = newPromptInputCache()
+	}
+	a.lastUserPrompt = userInput
+	a.auditAttachPrompt(ctx, userInput)
+	var servers []store.Server
+	if a.store != nil {
+		servers = a.promptInputs.GetServers(ctx, func(ctx context.Context) ([]store.Server, error) {
+			list, err := a.store.List(ctx)
+			if err != nil {
+				slog.Warn("list servers for context", "err", err)
+			}
+			return list, err
+		})
+	}
+
+	userInput = strings.TrimSpace(userInput)
+	const maxUserInputLen = 30000
+	if len(userInput) > maxUserInputLen {
+		slog.Warn("user input too long, truncating", "original_len", len(userInput))
+		userInput = userInput[:maxUserInputLen] + "\n\n[... user input truncated due to extreme length ...]"
+	}
+
+	userMsg := llm.Message{
+		Role:    llm.RoleUser,
+		Content: userInput,
+	}
+	a.history = append(a.history, userMsg)
+	a.historyTurnCounter++
+
+	if pp := a.pendingProposal; pp != nil && pp.IsStale(a.historyTurnCounter, time.Now()) {
+		a.pendingProposal = nil
+		slog.Info("pending proposal expired", "turn", a.historyTurnCounter)
+	}
+	if pending := a.pendingAction.Current(); pending != nil && a.pendingAction.IsStale(a.historyTurnCounter) {
+		a.pendingAction.Clear("stale_expired")
+	}
+
+	forceFollowUpContinuation := false
+	if decision, attempted := a.resolveFollowUpDecision(ctx, userInput); attempted {
+		switch decision.Kind {
+		case "confirm":
+			switch decision.Target {
+			case "pending_action":
+				if pending := a.pendingAction.Consume(); pending != nil {
+					return a.executePendingAction(ctx, pending, servers)
+				}
+				a.handler.OnResponse("No pending command is available to execute. Please restate the command you want to run.")
+				return nil
+			case "pending_proposal":
+				if proposal := a.pendingProposal; proposal != nil {
+					a.pendingProposal = nil
+					return a.executePendingProposal(ctx, proposal, servers)
+				}
+				a.handler.OnResponse("No pending proposal is available to confirm. Please provide the next instruction.")
+				return nil
+			case "previous_confirmation":
+				forceFollowUpContinuation = true
+				if len(a.history) > 0 && a.history[len(a.history)-1].Role == llm.RoleUser {
+					a.history[len(a.history)-1].Content += "\n[FOLLOW-UP DECISION] The user approved continuing the previous action. Continue execution flow instead of workspace-only confirmation."
+				}
+			default:
+				a.handler.OnResponse("The confirmation target is unclear. Please specify whether you want to approve the previous proposal.")
+				return nil
+			}
+		case "reject":
+			handled := false
+			if decision.Target == "pending_action" || (decision.Target == "none" && a.pendingAction.Current() != nil) {
+				a.pendingAction.Clear("llm_rejected")
+				handled = true
+			}
+			if decision.Target == "pending_proposal" || (decision.Target == "none" && a.pendingProposal != nil) {
+				a.pendingProposal = nil
+				handled = true
+			}
+			if decision.Target == "previous_confirmation" {
+				handled = true
+			}
+			if handled {
+				a.handler.OnResponse("Canceled the previous proposal. Send the next instruction when ready.")
+				return nil
+			}
+		case "revise":
+			if decision.Target == "pending_action" || decision.Target == "none" {
+				a.pendingAction.Clear("llm_revise")
+			}
+			if decision.Target == "pending_proposal" || decision.Target == "none" {
+				a.pendingProposal = nil
+			}
+			if len(a.history) > 0 && a.history[len(a.history)-1].Role == llm.RoleUser {
+				a.history[len(a.history)-1].Content += "\n[FOLLOW-UP DECISION] The user requested changes to the prior proposal. Revise the prior plan/command first."
+			}
+		case "unclear":
+			a.handler.OnResponse("吏곸쟾 ?쒖븞??????섎룄媛 遺덈챸?뺥빀?덈떎. ?뱀씤/痍⑥냼/?섏젙 以??섎굹濡??ㅼ떆 ?뚮젮二쇱꽭??")
+			return nil
+		case "new_request":
+			if a.pendingAction.Current() != nil {
+				a.pendingAction.Clear("superseded_by_new_request")
+			}
+			if a.pendingProposal != nil {
+				a.pendingProposal = nil
+			}
+		}
+	}
+
+	// 0?④퀎: 鍮꾨룞湲?遺꾨쪟 蹂댁“ ?곗씠???꾨━?⑥튂
+	activeServerName := ""
+	if a.activeServer != nil {
+		activeServerName = a.activeServer.Name
+	}
+	knowledgeCh := prefetchKnowledgeAsync(ctx, a.ragManager, userInput, activeServerName)
+	taskMemoryCh := prefetchTaskMemoryAsync(ctx, a.knowledgeStore, a.execLogStore, userInput, activeServerName)
+
+	var savedUserMsg *store.SessionMessage
+	if a.sessionStore != nil && a.currentSessionID > 0 {
+		sm := sessionMessageFromLLM(userMsg, a.currentSessionID)
+		if id, err := a.sessionStore.SaveMessage(ctx, sm); err != nil {
+			slog.Warn("save user message", "err", err)
+		} else {
+			sm.ID = id
+			savedUserMsg = &sm
+		}
+	}
+
+	var connStates []connector.ConnectorState
+	if a.connectorMgr != nil {
+		states := a.connectorMgr.States()
+		if a.activeServer == nil {
+			connStates = states
+		} else {
+			for _, st := range states {
+				if strings.EqualFold(st.ServerName, a.activeServer.Name) {
+					connStates = append(connStates, st)
+				}
+			}
+		}
+	}
+
+	infractlMD := a.promptInputs.GetInfractlMD(loadInfractlMDData)
+
+	var learnedSystems []store.LearnedSystem
+	if a.adaptiveLearner != nil {
+		all := a.promptInputs.GetLearnedSystems(ctx, a.adaptiveLearner.ListSystems)
+		for _, sys := range all {
+			if a.activeServer == nil || strings.EqualFold(sys.ServerName, a.activeServer.Name) {
+				learnedSystems = append(learnedSystems, sys)
+			}
+		}
+	}
+	var ragSources []store.RAGSource
+	var knowledgeStats *rag.KnowledgeStats
+	if a.ragManager != nil {
+		allSources := a.promptInputs.GetRAGSources(ctx, func(ctx context.Context) ([]store.RAGSource, error) {
+			list, err := a.ragManager.ListSources(ctx)
+			if err != nil {
+				slog.Warn("list rag sources", "err", err)
+			}
+			return list, err
+		})
+		for _, src := range allSources {
+			if a.activeServer == nil || src.ServerName == "" || strings.EqualFold(src.ServerName, a.activeServer.Name) {
+				ragSources = append(ragSources, src)
+			}
+		}
+		knowledgeStats = a.promptInputs.GetKnowledgeStats(ctx, func(ctx context.Context) (*rag.KnowledgeStats, error) {
+			stats, err := a.ragManager.Stats(ctx)
+			if err != nil {
+				slog.Warn("rag knowledge stats", "err", err)
+			}
+			return stats, err
+		})
+	}
+
+	// 1??壤굿???? Qwen(General LLM)??????⑤벡由??????썹땟???????꾤뙴?? ?癲ル슢???ъ쒜? ?????덊떀 ?꿔꺂??袁ㅻ븶?????嚥▲굧?????嶺뚮㉡???
+	// 기본 tier는 general. Plan 모드에서는 reasoning으로 강제.
+	activationTier := "general"
+	_ = forceFollowUpContinuation // follow-up 경로는 이미 위에서 history note로 처리됨
+
+	// server_switch_only: LLM??紐낆떆???쒕쾭 ?묒냽 ?붿껌?쇰줈 ?먮떒??寃쎌슦 利됱떆 泥섎━.
+	// ?깅줉???쒕쾭媛 ?녾퀬 ?쒖꽦 ?쒕쾭???놁쑝硫?LLM???꾩엫???덈궡 硫붿떆吏瑜?諛쏅뒗??
+
+	// web_intent: classification ?④퀎?먯꽌 ?대? fast?뭛eneral ?밴꺽 ?꾨즺. ?ш린??以묐났 泥댄겕 遺덊븘??
+
+	// Plan 모드는 reasoning tier로 강제한다.
+	if a.IsPlanMode() {
+		activationTier = "reasoning"
+	}
+
+	// 2??壤굿???? ?嚥▲굧??????嚥▲굧?????????산뭐??????꾤뙴??? ?????????됰슦?????嶺뚮㉡???
+	allowedTools := ResolveToolsForTier(activationTier, true, a.registry, a.connectorMgr)
+	sections := ResolveSectionsForTier(
+		activationTier,
+		true,
+		a.activeServer != nil,
+		len(servers) > 0,
+		len(connStates) > 0,
+		len(learnedSystems) > 0,
+		infractlMD != "",
+	)
+
+	var systemPrompt string
+	var enabledTools []tools.Tool
+	var toolDefs []llm.ToolDef
+
+	// 3??壤굿???? Qwen??????ｋ??????????????꿔꺂??袁ㅻ븶???筌뤾쑬???????덊떀??嶺뚮㉡???
+	activeClient, activeTier, activeModelName := a.resolveClientForTier(activationTier)
+
+	llm.LogSystemEvent("Execution Info", fmt.Sprintf("Final Tier: %s\nModel Name: %s", activeTier, activeModelName))
+
+	// Pre-flight: reasoning-tier ?묒뾽 ???명뀛 ?쒕툕?먯씠?꾪듃濡??섍꼍 ?섏쭛
+	// YORO 紐⑤뱶?먯꽌???섍꼍 ?뚯븙? ?섑뻾?쒕떎. ?? ?ъ슜???뱀씤 ?붿껌 吏移⑥? ?앸왂?쒕떎.
+	isPendingActive := a.pendingAction.Current() != nil
+	isShortFollowUp := len([]rune(userInput)) <= 10
+	var intelContext string
+	if activationTier == "reasoning" && a.subagentRunner != nil {
+		// classify 제거 후 task_type은 결정 불가 → intel subagent는 Step 4에서 재설계.
+		skip, skipReason := shouldSkipIntel(true, "", isPendingActive, isShortFollowUp)
+		if skip {
+			slog.Info("intel subagent skipped",
+				"reason", skipReason,
+				"tier", activationTier,
+			)
+		} else {
+			server := ""
+			if a.activeServer != nil {
+				server = a.activeServer.Name
+			}
+			intelReport, err := runIntelSubagent(ctx, a.subagentRunner, TaskType(""), userInput, server)
+			if err != nil {
+				slog.Warn("pre-flight intel subagent failed, proceeding without intel", "err", err)
+			} else if intelReport != "" {
+				intelContext = formatIntelPromptSection(intelReport, TaskType(""), a.yoroMode)
+			}
+		}
+	}
+
+	// classification??????썹땟?????嶺뚮?????????썼キ?κ괌????볥옖???嚥▲굧?????ル벥嫄?????μ쪚??汝??吏??뚯뮏????Β??????볥궚???嶺뚮㉡???
+	// ????썹땟?㏓퉲?嚥싳쉶瑗ц짆堉샕?????얜뀥???? ?????깅뉼????ル봾諭?LLM??rag_search ????꾤뙴???깅뮋??꿔꺂??????嚥▲굧????????????嶺뚮㉡???
+	var prefetchedKnowledge string
+	var prefetchedTaskMemory string
+	select {
+	case k := <-knowledgeCh:
+		prefetchedKnowledge = k
+	default:
+	}
+	select {
+	case m := <-taskMemoryCh:
+		prefetchedTaskMemory = m
+	default:
+	}
+
+	const maxPrefetchLen = 10000
+	if len(prefetchedKnowledge) > maxPrefetchLen {
+		prefetchedKnowledge = prefetchedKnowledge[:maxPrefetchLen] + "\n[... knowledge truncated ...]"
+	}
+	if len(prefetchedTaskMemory) > maxPrefetchLen {
+		prefetchedTaskMemory = prefetchedTaskMemory[:maxPrefetchLen] + "\n[... task memory truncated ...]"
+	}
+
+	now := time.Now()
+	if true {
+		enabledTools = a.registry.GetEnabledFiltered(allowedTools)
+		toolDefs = a.registry.ToToolDefsFiltered(allowedTools)
+		layoutKey := contextualPromptCacheKey(
+			sections,
+			enabledTools,
+			infractlMD,
+			servers,
+			a.activeServer,
+			connStates,
+			learnedSystems,
+			ragSources,
+			knowledgeStats,
+			activeModelName,
+			now,
+		)
+		candidates := collectDisambiguationCandidates(userInput, servers, connStates)
+		candidatesSection := renderCandidatesSection(candidates)
+
+		layout, ok := a.promptCache.GetContextual(layoutKey)
+		if !ok {
+			layout = BuildContextualLayoutAt(
+				sections,
+				enabledTools,
+				infractlMD,
+				servers,
+				a.activeServer,
+				connStates,
+				learnedSystems,
+				ragSources,
+				knowledgeStats,
+				activeModelName,
+				now,
+				candidatesSection,
+			)
+			a.promptCache.PutContextual(layoutKey, layout)
+			slog.Debug("prompt cache miss", "type", "contextual", "key", layoutKey)
+		} else {
+			slog.Debug("prompt cache hit", "type", "contextual", "key", layoutKey)
+		}
+		systemPrompt = layout.Render(prefetchedTaskMemory, prefetchedKnowledge)
+		if a.taskMgr != nil {
+			if snap := a.taskMgr.Snapshot(); snap.ID != "" {
+				systemPrompt += "\n\n" + snap.RenderMarkdown()
+			}
+		}
+		a.recordPromptProfile(promptProfile{
+			Mode:                 "contextual",
+			Model:                activeModelName,
+			NeedsTools:           true,
+			PromptCacheHit:       ok,
+			TotalBytes:           len(systemPrompt),
+			PrefixBytes:          len(layout.prefix),
+			TaskMemoryBytes:      len(prefetchedTaskMemory),
+			BeforeKnowledgeBytes: len(layout.beforeKnowledge),
+			KnowledgeBytes:       len(prefetchedKnowledge),
+			AfterKnowledgeBytes:  len(layout.afterKnowledge),
+			ToolCount:            len(enabledTools),
+			SectionCount:         countEnabledSections(sections),
+			ServerCount:          len(servers),
+			ConnectorCount:       len(connStates),
+			LearnedSystemCount:   len(learnedSystems),
+			RAGSourceCount:       len(ragSources),
+		})
+	} else {
+		minimalKey := minimalPromptCacheKey(infractlMD, now)
+		if cached, ok := a.promptCache.GetMinimal(minimalKey); ok {
+			systemPrompt = cached
+			slog.Debug("prompt cache hit", "type", "minimal", "key", minimalKey)
+			a.recordPromptProfile(promptProfile{
+				Mode:           "minimal",
+				Model:          activeModelName,
+				NeedsTools:     false,
+				PromptCacheHit: true,
+				TotalBytes:     len(systemPrompt),
+				PrefixBytes:    len(systemPrompt),
+			})
+		} else {
+			systemPrompt = buildMinimalChatAt(infractlMD, now)
+			a.promptCache.PutMinimal(minimalKey, systemPrompt)
+			slog.Debug("prompt cache miss", "type", "minimal", "key", minimalKey)
+			a.recordPromptProfile(promptProfile{
+				Mode:           "minimal",
+				Model:          activeModelName,
+				NeedsTools:     false,
+				PromptCacheHit: false,
+				TotalBytes:     len(systemPrompt),
+				PrefixBytes:    len(systemPrompt),
+			})
+		}
+	}
+
+
+	// Plan mode: inject plan-only instruction.
+	if a.IsPlanMode() {
+		planText := planModeInstruction()
+		systemPrompt += planText
+		a.lastPromptProfile.PlanBytes = len(planText)
+		a.lastPromptProfile.TotalBytes = len(systemPrompt)
+	}
+
+	// TodoWrite enforcer: ?ㅻ떒怨??좏샇??媛먯? ??system prompt ???ъ쟾 吏移?二쇱엯?섍퀬
+	// enforcer ?쒖꽦???щ?瑜?寃곗젙?쒕떎 (?⑥닚 ?⑥씪 紐낅졊? 媛뺤젣?섏? ?딆쓬).
+	todoSignal := todoagent.DetectMultiStep(userInput)
+	systemPrompt = todoagent.InjectIfNeeded(userInput, systemPrompt)
+
+	// Pre-flight intel 寃곌낵 二쇱엯: ?섍꼍 ?뺣낫 + 怨꾪쉷 ?섎┰ 吏移?
+	if intelContext != "" {
+		const maxIntelContextLen = 12000
+		if len(intelContext) > maxIntelContextLen {
+			intelContext = intelContext[:maxIntelContextLen] + "\n[... intel context truncated ...]"
+		}
+		systemPrompt += intelContext
+		a.lastPromptProfile.TotalBytes = len(systemPrompt)
+	}
+
+	// ??嶺?筌??????썹땟?????꾣뤃罐?????궰?嶺???る옖????????嶺뚮슣??굢?????ｋ?????ㅻ쿋驪?????嶺뚮??↑짆??嶺뚮㉡???
+	a.lastSystemPromptLen = len(systemPrompt)
+	if a.compactStack != nil {
+		cs := &compact.State{
+			Messages:      a.history,
+			ContextWindow: a.maxContextTokens,
+			SystemTokens:  a.lastSystemPromptLen / compact.AvgCharsPerToken,
+		}
+		preLen := len(a.history)
+		a.compactStack.Apply(ctx, cs)
+		a.history = cs.Messages
+		if len(a.history) < preLen {
+			a.injectPostCompactContext(ctx)
+		}
+	}
+
+	if savedUserMsg != nil && a.ragManager != nil {
+		if err := a.ragManager.IndexSessionMessage(ctx, *savedUserMsg); err != nil {
+			slog.Warn("index user message", "id", savedUserMsg.ID, "err", err)
+		}
+	}
+
+	systemMsg := llm.Message{Role: llm.RoleSystem, Content: systemPrompt}
+
+	// Qwen ?꿔꺂??袁ㅻ븶?????嚥▲굧????API???꿔꺂??琉몃쨨???tools ????썹땟???????????????썹땟?????꾣뤃罐?????뚯???維◈????Β?????癲ル슢?????????ル뒇嶺??嶺뚮㉡???
+	// ?????vLLM ????影?우º???쎛 ?????됱뎽??잙갭큔筌띯뫔??嚥??????????? ?????떔???????춦??400 ????????????嚥▲굧?????熬곣뫖?삥납?????袁⑦꺙 ????꾣뤃恝彛?????
+	apiTools := toolDefs
+	if strings.Contains(strings.ToLower(activeModelName), "qwen") {
+		apiTools = nil
+	}
+
+	// reasoning tier에서는 escalate_to_reasoning 도구를 제외한다 (무한루프 방지).
+	if activeTier == llm.TierReasoning {
+		apiTools = filterToolDef(apiTools, escalationToolName)
+		allowedTools = filterAllowedTools(allowedTools, escalationToolName)
+	}
+
+	runErr := a.runWithEngine(ctx, systemMsg, activeClient, activeTier, activeModelName, apiTools, todoSignal)
+	if !isEscalationRequest(runErr) {
+		return runErr
+	}
+
+	// escalate_to_reasoning 신호: reasoning tier로 재실행
+	slog.Info("tier_escalated", "from", "general", "to", "reasoning")
+	llm.LogSystemEvent("Tier Escalation", "general → reasoning (escalate_to_reasoning requested)")
+
+	reasoningClient, reasoningTier, reasoningModel := a.resolveClientForTier("reasoning")
+	reasoningTools := filterToolDef(toolDefs, escalationToolName)
+	if strings.Contains(strings.ToLower(reasoningModel), "qwen") {
+		reasoningTools = nil
+	}
+	return a.runWithEngine(ctx, systemMsg, reasoningClient, reasoningTier, reasoningModel, reasoningTools, todoSignal)
+}

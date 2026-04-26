@@ -1,0 +1,3 @@
+/server connect sandbox-server
+Welcome1!@#$
+bash 도구 server="sandbox-server" 으로 다음 명령 실행: echo 'Welcome1!@#$' | sudo -S dnf install -y /tmp/preinstall.rpm 2>&1

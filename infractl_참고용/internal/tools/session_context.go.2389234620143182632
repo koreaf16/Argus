@@ -1,0 +1,262 @@
+// Package tools
+// File: session_context.go
+// Description: [TODO: Add description]
+// Responsibility: [TODO: Add responsibility]
+
+package tools
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"runtime"
+	"sort"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/serverenv"
+	"github.com/yourorg/infractl/internal/store"
+)
+
+// ConnectorStateView는 session_context 출력에 사용하는 커넥터 상태 DTO이다.
+// internal/connector 패키지 의존 없이 wiring 레이어에서 변환하여 주입한다.
+type ConnectorStateView struct {
+	ServerName  string
+	Type        string
+	ServiceName string
+	SubInstance string
+	Status      string
+	ToolCount   int
+}
+
+// SessionContextTool exposes the current local/remote execution context.
+type SessionContextTool struct {
+	Store              store.ServerStore
+	Manager            *executor.Manager
+	ActiveServer       func() *store.Server
+	ConnectorsProvider func() []ConnectorStateView // 활성 커넥터 상태 주입
+}
+
+func (t *SessionContextTool) Name() string { return "session_context" }
+
+func (t *SessionContextTool) Description() string {
+	return "Show the current execution context for this infractl session.\n" +
+		"Use this before claiming a request is local-only, remote-only, or inaccessible.\n" +
+		"It reports the current local directory, local state directory, active server, acquired OS sessions, and default execution rule."
+}
+
+func (t *SessionContextTool) IsReadOnly() bool  { return true }
+func (t *SessionContextTool) IsEnabled() bool   { return true }
+func (t *SessionContextTool) IsLocalOnly() bool { return true }
+
+func (t *SessionContextTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type":       "object",
+		"properties": map[string]interface{}{},
+	}
+}
+
+func (t *SessionContextTool) Execute(ctx context.Context, _ map[string]interface{}, _ executor.Executor) (ToolOutcome, error) {
+	hostname, err := os.Hostname()
+	if err != nil || strings.TrimSpace(hostname) == "" {
+		hostname = "(unknown)"
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil || strings.TrimSpace(cwd) == "" {
+		cwd = "(unknown)"
+	}
+	localRoot, err := serverenv.LocalRoot()
+	if err != nil || strings.TrimSpace(localRoot) == "" {
+		localRoot = cwd
+	}
+	stateDir, err := serverenv.StateDir()
+	if err != nil || strings.TrimSpace(stateDir) == "" {
+		stateDir = "(unknown)"
+	}
+
+	active := t.snapshotActiveServer()
+	mode := "local-server"
+	defaultRule := "omit target => current local server"
+	activeLine := "(local server)"
+	if active != nil {
+		mode = "active-server"
+		defaultRule = fmt.Sprintf("omit target => active server %q", active.Name)
+		activeLine = formatServerLine(*active)
+	}
+
+	registered := "(none)"
+	if t.Store != nil {
+		servers, listErr := t.Store.List(ctx)
+		if listErr == nil && len(servers) > 0 {
+			lines := make([]string, 0, len(servers))
+			for _, srv := range servers {
+				lines = append(lines, "- "+formatServerLine(srv))
+			}
+			registered = strings.Join(lines, "\n")
+		}
+	}
+
+	return ToolOutcome{Content: fmt.Sprintf(
+		"Mode: %s\nCurrent Directory: %s\nState Dir: %s\nLocal Target: localhost\nLocal OS: %s/%s\nLocal Shell: %s\nHostname: %s\nWorking Directory: %s\nActive Server: %s\nRegistered Servers:\n%s\nAcquired OS Sessions:\n%s\nActive Connectors:\n%s\nDefault Execution Rule: %s",
+		mode,
+		localRoot,
+		stateDir,
+		runtime.GOOS,
+		runtime.GOARCH,
+		executor.LocalShellName(),
+		hostname,
+		cwd,
+		activeLine,
+		registered,
+		t.formatAcquiredSessions(),
+		t.formatConnectors(),
+		defaultRule,
+	), Success: true}, nil
+}
+
+func (t *SessionContextTool) snapshotActiveServer() *store.Server {
+	if t.ActiveServer == nil {
+		return nil
+	}
+	srv := t.ActiveServer()
+	if srv == nil {
+		return nil
+	}
+	cp := *srv
+	return &cp
+}
+
+func formatServerLine(srv store.Server) string {
+	parts := []string{fmt.Sprintf("%s (%s@%s:%d)", srv.Name, srv.User, srv.Host, srv.Port)}
+	if srv.WorkspaceDir != "" {
+		parts = append(parts, "ServerDir="+srv.WorkspaceDir)
+	}
+	if srv.Ephemeral {
+		flag := "Profile=ephemeral"
+		if srv.CleanupPending {
+			flag += "+cleanup_pending"
+		}
+		parts = append(parts, flag)
+	}
+	if strings.TrimSpace(srv.Purpose) != "" {
+		parts = append(parts, "Purpose="+strings.TrimSpace(srv.Purpose))
+	}
+	if strings.TrimSpace(srv.OwnerServer) != "" || strings.TrimSpace(srv.OwnerUser) != "" {
+		parts = append(parts, fmt.Sprintf("Owner=%s/%s", strings.TrimSpace(srv.OwnerServer), strings.TrimSpace(srv.OwnerUser)))
+	}
+	if srv.OS != "" {
+		parts = append(parts, "OS="+srv.OS)
+	}
+	if srv.EnvProfile != "" {
+		parts = append(parts, "Env="+srv.EnvProfile)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func (t *SessionContextTool) formatAcquiredSessions() string {
+	active := t.snapshotActiveServer()
+
+	if t.Manager == nil {
+		if active != nil {
+			return fmt.Sprintf("- %s session=%s user=%s cwd=(unknown)  (login user, no persistent shell yet)",
+				active.Name, active.User, active.User)
+		}
+		return "(none)"
+	}
+
+	sessionsByServer := t.Manager.ListPersistentSessions()
+
+	// Collect server names from acquired sessions, plus the active server if not already present.
+	serverSet := make(map[string]bool, len(sessionsByServer)+1)
+	for name := range sessionsByServer {
+		serverSet[name] = true
+	}
+	if active != nil {
+		serverSet[active.Name] = true
+	}
+	if len(serverSet) == 0 {
+		return "(none)"
+	}
+
+	serverNames := make([]string, 0, len(serverSet))
+	for name := range serverSet {
+		serverNames = append(serverNames, name)
+	}
+	sort.Strings(serverNames)
+
+	var lines []string
+	for _, serverName := range serverNames {
+		infos := sessionsByServer[serverName]
+		sort.Slice(infos, func(i, j int) bool {
+			if infos[i].SessionID != infos[j].SessionID {
+				return infos[i].SessionID < infos[j].SessionID
+			}
+			return infos[i].CurrentUser < infos[j].CurrentUser
+		})
+
+		// Show login user entry if this is the active server.
+		// It appears first (before elevated sessions) so the LLM can see all three tiers.
+		loginUser := ""
+		if active != nil && active.Name == serverName {
+			loginUser = active.User
+		}
+		loginSessionShown := false
+
+		for _, si := range infos {
+			if !si.Alive {
+				continue
+			}
+			user := strings.TrimSpace(si.CurrentUser)
+			if user == "" {
+				user = "(unknown)"
+			}
+			dir := strings.TrimSpace(si.CurrentDir)
+			if dir == "" {
+				dir = "(unknown)"
+			}
+			label := ""
+			if loginUser != "" && strings.EqualFold(user, loginUser) && si.SessionID == loginUser {
+				label = "  (login)"
+				loginSessionShown = true
+			}
+			lines = append(lines, fmt.Sprintf("- %s session=%s user=%s cwd=%s%s",
+				serverName, si.SessionID, user, dir, label))
+		}
+
+		// If no persistent shell exists yet for the login user, synthesise an entry
+		// so the LLM knows the session is available via session_id:"<loginUser>".
+		if loginUser != "" && !loginSessionShown {
+			lines = append(lines, fmt.Sprintf("- %s session=%s user=%s cwd=(unknown)  (login user, persistent if used)",
+				serverName, loginUser, loginUser))
+		}
+	}
+	if len(lines) == 0 {
+		return "(none)"
+	}
+	return strings.Join(lines, "\n")
+}
+
+// formatConnectors는 ConnectorsProvider 에서 활성 커넥터 목록을 한 줄씩 포맷한다.
+func (t *SessionContextTool) formatConnectors() string {
+	if t.ConnectorsProvider == nil {
+		return "(none)"
+	}
+	states := t.ConnectorsProvider()
+	if len(states) == 0 {
+		return "(none)"
+	}
+	lines := make([]string, 0, len(states))
+	for _, s := range states {
+		icon := "[+]"
+		if s.Status != "connected" {
+			icon = "[!]"
+		}
+		name := s.ServerName + "/" + s.Type + "/" + s.ServiceName
+		if s.SubInstance != "" {
+			name += " sub=" + s.SubInstance
+		}
+		lines = append(lines, fmt.Sprintf("%s %s (%d tools)", icon, name, s.ToolCount))
+	}
+	return strings.Join(lines, "\n")
+}

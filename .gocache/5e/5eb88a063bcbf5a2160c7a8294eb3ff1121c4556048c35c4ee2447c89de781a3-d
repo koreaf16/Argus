@@ -1,0 +1,8 @@
+./command.go
+./hooks.go
+./ids.go
+./logs.go
+./message.go
+./permissions.go
+./plugin.go
+./text_input_types.go

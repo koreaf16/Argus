@@ -1,0 +1,47 @@
+{
+  "saved_at": "2026-04-22T10:27:47.9580434Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "snip 도구를 사용해서 히스토리를 정리해줘."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "chatcmpl-tool-bcee22bf310f0e9c",
+          "name": "snip",
+          "input": {
+            "reason": "사용자의 요청에 따라 대화 히스토리를 정리하여 컨텍스트 창을 확보합니다."
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "히스토리 정리 요청 수락됨: 사용자의 요청에 따라 대화 히스토리를 정리하여 컨텍스트 창을 확보합니다.. 다음 턴부터 컨텍스트 최적화가 적용됩니다.",
+          "name": "snip",
+          "tool_use_id": "chatcmpl-tool-bcee22bf310f0e9c"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "thought\n네, 요청하신 대로 `snip` 도구를 사용하여 대화 히스토리를 정리했습니다. 이제 더 효율적인 대화가 가능합니다. 다른 도움이 필요하시면 말씀해 주세요!"
+        }
+      ]
+    }
+  ]
+}

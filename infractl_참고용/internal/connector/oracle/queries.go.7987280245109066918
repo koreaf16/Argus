@@ -1,0 +1,147 @@
+// Package oracle
+// File: queries.go
+// Description: Oracle 도구에서 사용하는 SQL 쿼리 및 쉘 명령 템플릿
+// Responsibility: sqlplus로 실행할 쿼리와 명령을 문자열 상수로 관리
+
+package oracle
+
+import (
+	"fmt"
+	"strings"
+)
+
+// buildConnStr은 sqlplus 접속 문자열을 생성한다.
+// host가 있으면 Easy Connect(host:port/service) 방식을 사용한다.
+// host가 없으면 ORACLE_SID 환경변수로 bequeath(로컬 IPC) 연결한다.
+// @serviceName은 host가 없을 때 붙이지 않는다 — Easy Connect가 serviceName을
+// 호스트명으로 해석해 SERVICE_NAME 없이 리스너에 접속하면 ORA-12504가 발생한다.
+// osAuth가 true이면 "/ as sysdba" OS 인증 문자열을 반환한다.
+func buildConnStr(user, pass, role, host string, port int, cdb, pdb string, osAuth bool) string {
+	if osAuth {
+		return "/ as sysdba"
+	}
+	serviceName := cdb
+	if pdb != "" {
+		serviceName = pdb
+	}
+	connStr := user + "/" + pass
+	if host != "" {
+		if port > 0 {
+			connStr += fmt.Sprintf("@%s:%d/%s", host, port, serviceName)
+		} else {
+			connStr += fmt.Sprintf("@%s/%s", host, serviceName)
+		}
+	}
+	// host가 없으면 @serviceName 미추가 — ORACLE_SID로 bequeath 연결
+	if role == "sysdba" {
+		connStr += " as sysdba"
+	}
+	return connStr
+}
+
+// buildOSAuthProbeCmd는 Oracle OS 인증 가능 여부를 확인하는 명령을 생성한다.
+// ORACLE_SID 환경변수를 설정한 후 "/ as sysdba"로 접속하여 OS_AUTH_OK를 출력한다.
+func buildOSAuthProbeCmd(sid string) string {
+	return fmt.Sprintf(`ORACLE_SID=%s sqlplus -S '/ as sysdba' <<'SQLEOF'
+SET FEEDBACK OFF
+SET PAGESIZE 0
+SELECT 'OS_AUTH_OK' FROM dual;
+EXIT;
+SQLEOF`, sid)
+}
+
+// buildSQLPlusCmd은 SQL을 실행하는 sqlplus 명령을 생성한다.
+// sid가 있으면 ORACLE_SID 환경변수를 앞에 붙인다 — OS 인증(/ as sysdba) 시
+// ORACLE_SID 없이 실행하면 sqlplus가 heredoc을 로그인 입력으로 읽어 SP2-0306/SP2-0157이 발생한다.
+func buildSQLPlusCmd(sid, connStr, sql string, pdb ...string) string {
+	trimmed := strings.TrimSpace(sql)
+	if !strings.HasSuffix(trimmed, ";") {
+		trimmed += ";"
+	}
+	if len(pdb) > 0 && strings.TrimSpace(pdb[0]) != "" {
+		trimmed = fmt.Sprintf("ALTER SESSION SET CONTAINER = %s;\n%s", quoteOracleIdentifier(pdb[0]), trimmed)
+	}
+	sidPrefix := ""
+	if sid != "" {
+		sidPrefix = "ORACLE_SID=" + sid + " "
+	}
+	return fmt.Sprintf(`%ssqlplus -S '%s' <<'SQLEOF'
+WHENEVER SQLERROR EXIT FAILURE
+SET LINESIZE 200
+SET PAGESIZE 50
+SET FEEDBACK OFF
+%s
+EXIT;
+SQLEOF`, sidPrefix, connStr, trimmed)
+}
+
+func quoteOracleIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(strings.TrimSpace(name), `"`, `""`) + `"`
+}
+
+// tablespaceQuery는 테이블스페이스 사용량 조회 쿼리이다.
+const tablespaceQuery = `
+SELECT
+  d.tablespace_name,
+  ROUND(d.allocated_space/1024/1024,1) AS allocated_mb,
+  ROUND(d.used_space/1024/1024,1) AS used_mb,
+  ROUND((d.allocated_space-d.used_space)/1024/1024,1) AS free_mb,
+  ROUND(d.used_percent,1) AS used_pct
+FROM dba_tablespace_usage_metrics d
+ORDER BY d.used_percent DESC;`
+
+// sessionsQuery는 활성 세션 조회 쿼리이다.
+const sessionsQuery = `
+SELECT
+  s.sid, s.serial#, s.username, s.status, s.machine,
+  s.program, s.sql_id, s.event
+FROM v$session s
+WHERE s.type = 'USER'
+ORDER BY s.status, s.username;`
+
+// locksQuery는 락 정보 조회 쿼리이다.
+const locksQuery = `
+SELECT
+  s.sid, s.serial#, s.username, l.type, l.lmode, l.request,
+  l.block, s.status, s.machine
+FROM v$lock l JOIN v$session s ON l.sid = s.sid
+WHERE l.block = 1 OR l.request > 0
+ORDER BY l.block DESC;`
+
+// topSQLQuery는 부하 SQL 조회 쿼리이다.
+const topSQLQuery = `
+SELECT * FROM (
+  SELECT sql_id, executions,
+         ROUND(elapsed_time/1000000,2) AS elapsed_sec,
+         ROUND(elapsed_time/GREATEST(executions,1)/1000000,4) AS avg_elapsed,
+         SUBSTR(sql_text,1,100) AS sql_text
+  FROM v$sql
+  WHERE executions > 0
+  ORDER BY elapsed_time DESC
+) WHERE ROWNUM <= 20;`
+
+// metadataProbeQuery는 접속 직후 Oracle 버전, CDB 여부, PDB 목록을 한 세션에 조회한다.
+// VER:/CDB:/PDB: 프리픽스로 라인 구분한다.
+// v$database.cdb는 12c 이전(11g 등)에 존재하지 않아 ORA-00904가 발생할 수 있으므로
+// probe.go 파서는 해당 컬럼 누락을 non-CDB로 해석한다.
+const metadataProbeQuery = `SET FEEDBACK OFF
+SET PAGESIZE 0
+SET LINESIZE 300
+SELECT 'VER:'||version FROM v$instance;
+SELECT 'CDB:'||cdb FROM v$database;
+SELECT 'PDB:'||name||':'||open_mode FROM v$pdbs WHERE name <> 'PDB$SEED' ORDER BY name;
+EXIT;`
+
+// pdbsListQuery는 list_pdbs 도구에서 사용하는 PDB 목록 쿼리이다.
+const pdbsListQuery = `
+SELECT con_id, name, open_mode, restricted
+FROM v$pdbs
+ORDER BY con_id;`
+
+// alertLogCmd는 alert 로그 마지막 N줄을 읽는 명령이다.
+func alertLogCmd(oracleHome, sid string, lines int) string {
+	return fmt.Sprintf(
+		`find %s/diag/rdbms -name 'alert_%s.log' 2>/dev/null | head -1 | xargs -I{} tail -n %d {}`,
+		oracleHome, sid, lines,
+	)
+}

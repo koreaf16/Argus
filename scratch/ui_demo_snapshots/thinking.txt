@@ -1,0 +1,21 @@
+﻿=== [5] Thinking (thinking) ===
+
+--- example 1: eye-pulse ---
+
+| eye-pulse: synthesizing layout decisions...
+
+--- example 2: shimmer-tail ---
+
+/ shimmer-tail: matching prompt and user bubble grammar...
+
+--- example 3: scanline ---
+
+⦿ scanline: stabilizing markdown line flush window...
+
+--- example 4: stalled-waiting ---
+
+| waiting for output... (stalled > 3s)
+
+--- example 5: no-motion ---
+
+· reduced motion: static status only

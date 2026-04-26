@@ -1,0 +1,655 @@
+package workspace
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
+)
+
+type ExecuteSubQueryFunc func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+
+type outputChunk struct {
+	text  string
+	isErr bool
+}
+
+type sshTunnel struct {
+	id         string
+	localAddr  string
+	remoteAddr string
+	listener   net.Listener
+	closed     atomic.Bool
+	done       chan struct{}
+	closeOnce  sync.Once
+}
+
+func (t *sshTunnel) close() error {
+	var err error
+	t.closeOnce.Do(func() {
+		t.closed.Store(true)
+		err = t.listener.Close()
+	})
+	return err
+}
+
+type sshSession struct {
+	entry  ServerEntry
+	client *ssh.Client
+
+	closeOnce sync.Once
+	closeErr  error
+
+	stateMu sync.RWMutex
+	cwd     string
+	user    string
+
+	authClosers []io.Closer
+
+	tunnelsMu sync.RWMutex
+	tunnels   map[string]*sshTunnel
+	tunnelSeq atomic.Uint64
+}
+
+func newSSHSession(entry ServerEntry, managerPrompt PasswordRequestFunc) (*sshSession, error) {
+	authMethods, authClosers, err := buildAuthMethods(entry, managerPrompt)
+	if err != nil {
+		return nil, err
+	}
+	if len(authMethods) == 0 {
+		return nil, fmt.Errorf("no SSH auth method is available for %s", entry.Alias)
+	}
+
+	config := &ssh.ClientConfig{
+		User:            entry.User,
+		Auth:            authMethods,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+
+	port := entry.Port
+	if port <= 0 {
+		port = 22
+	}
+	addr := net.JoinHostPort(entry.Host, strconv.Itoa(port))
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		closeAll(authClosers)
+		return nil, fmt.Errorf("ssh dial failed: %w", err)
+	}
+
+	initialCWD := strings.TrimSpace(entry.DefaultCWD)
+	if initialCWD == "" {
+		initialCWD = "~"
+	}
+
+	return &sshSession{
+		entry:       entry,
+		client:      client,
+		cwd:         initialCWD,
+		user:        entry.User,
+		authClosers: authClosers,
+		tunnels:     make(map[string]*sshTunnel),
+	}, nil
+}
+
+func buildAuthMethods(entry ServerEntry, managerPrompt PasswordRequestFunc) ([]ssh.AuthMethod, []io.Closer, error) {
+	methods := make([]ssh.AuthMethod, 0, 4)
+	closers := make([]io.Closer, 0, 1)
+
+	if entry.Auth.UseAgent {
+		if sock := strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK")); sock != "" {
+			conn, err := net.Dial("unix", sock)
+			if err == nil {
+				agentClient := agent.NewClient(conn)
+				signers, signerErr := agentClient.Signers()
+				if signerErr == nil && len(signers) > 0 {
+					methods = append(methods, ssh.PublicKeys(signers...))
+					closers = append(closers, conn)
+				} else {
+					_ = conn.Close()
+				}
+			}
+		}
+	}
+
+	identityFile := strings.TrimSpace(entry.Auth.IdentityFile)
+	if identityFile != "" {
+		signer, err := loadSigner(identityFile, entry.Alias, managerPrompt)
+		if err != nil {
+			closeAll(closers)
+			return nil, nil, err
+		}
+		methods = append(methods, ssh.PublicKeys(signer))
+	}
+
+	if entry.Auth.AllowPassword && managerPrompt != nil {
+		methods = append(methods, ssh.PasswordCallback(func() (string, error) {
+			return managerPrompt(entry.Alias, "ssh", "SSH password:")
+		}))
+		methods = append(methods, ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
+			answers := make([]string, len(questions))
+			for i, q := range questions {
+				pw, err := managerPrompt(entry.Alias, "ssh", q)
+				if err != nil {
+					return nil, err
+				}
+				answers[i] = pw
+			}
+			return answers, nil
+		}))
+	}
+
+	return methods, closers, nil
+}
+
+func loadSigner(identityFile, alias string, managerPrompt PasswordRequestFunc) (ssh.Signer, error) {
+	keyBytes, err := os.ReadFile(identityFile)
+	if err != nil {
+		return nil, fmt.Errorf("read identity file %s for %s: %w", identityFile, alias, err)
+	}
+	signer, err := ssh.ParsePrivateKey(keyBytes)
+	if err == nil {
+		return signer, nil
+	}
+
+	var passphraseErr *ssh.PassphraseMissingError
+	if !errors.As(err, &passphraseErr) {
+		return nil, fmt.Errorf("parse identity file %s for %s: %w", identityFile, alias, err)
+	}
+	if managerPrompt == nil {
+		return nil, fmt.Errorf("identity %s requires passphrase for %s, but no prompt callback is configured", identityFile, alias)
+	}
+
+	passphrase, promptErr := managerPrompt(alias, "ssh", "SSH key passphrase:")
+	if promptErr != nil {
+		return nil, promptErr
+	}
+	signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(passphrase))
+	if err != nil {
+		return nil, fmt.Errorf("parse encrypted identity file %s for %s: %w", identityFile, alias, err)
+	}
+	return signer, nil
+}
+
+func closeAll(closers []io.Closer) {
+	for _, c := range closers {
+		_ = c.Close()
+	}
+}
+
+func (s *sshSession) Exec(ctx context.Context, command string, opts ExecOptions, subQuery ExecuteSubQueryFunc) (ExecResult, error) {
+	execCWD := strings.TrimSpace(opts.WorkingDir)
+	if execCWD == "" {
+		execCWD = s.currentCWD()
+	}
+	if execCWD == "" {
+		execCWD = "~"
+	}
+
+	session, stdin, stdout, stderr, err := s.openExecSession()
+	if err != nil {
+		return ExecResult{}, err
+	}
+	defer func() {
+		_ = stdin.Close()
+		_ = session.Close()
+	}()
+
+	id := strconv.FormatInt(time.Now().UnixNano(), 36)
+	metaToken := "__ARG_M_" + id + "__"
+	wrapped := buildExecCommand(command, execCWD, metaToken)
+
+	if err := session.Start(wrapped); err != nil {
+		return ExecResult{}, fmt.Errorf("failed to start remote command: %w", err)
+	}
+
+	chunks := make(chan outputChunk, 128)
+	var readWG sync.WaitGroup
+	readWG.Add(2)
+	go s.pumpOutput(stdout, false, chunks, &readWG)
+	go s.pumpOutput(stderr, true, chunks, &readWG)
+	go func() {
+		readWG.Wait()
+		close(chunks)
+	}()
+
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- session.Wait()
+	}()
+
+	var stdoutBuf strings.Builder
+	var stderrBuf strings.Builder
+	recentLines := make([]string, 0, 40)
+	maxRetries := 3
+	retryCount := 0
+	waitDone := false
+	chunksDone := false
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for !(waitDone && chunksDone) {
+		select {
+		case <-ctx.Done():
+			_ = session.Close()
+			return ExecResult{}, ctx.Err()
+		case chunk, ok := <-chunks:
+			if !ok {
+				chunksDone = true
+				continue
+			}
+			if chunk.isErr {
+				stderrBuf.WriteString(chunk.text)
+			} else {
+				stdoutBuf.WriteString(chunk.text)
+			}
+
+			split := strings.Split(strings.ReplaceAll(chunk.text, "\r\n", "\n"), "\n")
+			recentLines = append(recentLines, split...)
+			if len(recentLines) > 40 {
+				recentLines = recentLines[len(recentLines)-40:]
+			}
+		case waitErr := <-waitCh:
+			waitDone = true
+			if waitErr != nil {
+				var exitErr *ssh.ExitError
+				if !errors.As(waitErr, &exitErr) || exitErr.ExitStatus() != 0 {
+					return ExecResult{}, fmt.Errorf("remote command failed to complete: %w", waitErr)
+				}
+			}
+		case <-ticker.C:
+			if subQuery == nil || retryCount >= maxRetries || len(recentLines) == 0 {
+				continue
+			}
+			retryCount++
+			snapshot := strings.Join(recentLines, "\n")
+			systemPrompt := "You are a terminal automation assistant. Analyze the terminal output and provide the NECESSARY input string to proceed with the command. ONLY return the input string itself (e.g., 'y', '1', or ''). Do not add any explanation."
+			userPrompt := fmt.Sprintf("Command: %s\nTerminal Output:\n%s\n\nWhat should I type to proceed?", command, snapshot)
+			response, err := subQuery(ctx, systemPrompt, userPrompt)
+			if err != nil {
+				continue
+			}
+			response = strings.TrimSpace(response)
+			if response == "" {
+				continue
+			}
+			_, _ = io.WriteString(stdin, response+"\n")
+		}
+	}
+
+	parsedStdout, code, pwd, user, err := parseExecOutput(stdoutBuf.String(), metaToken)
+	if err != nil {
+		return ExecResult{
+			Stdout: strings.TrimSpace(stdoutBuf.String()),
+			Stderr: strings.TrimSpace(stderrBuf.String()),
+			Code:   1,
+			CWD:    s.currentCWD(),
+			User:   s.currentUser(),
+		}, err
+	}
+
+	s.stateMu.Lock()
+	if pwd != "" {
+		s.cwd = pwd
+	}
+	if user != "" {
+		s.user = user
+	}
+	s.stateMu.Unlock()
+
+	return ExecResult{
+		Stdout: strings.TrimSpace(parsedStdout),
+		Stderr: strings.TrimSpace(stderrBuf.String()),
+		Code:   code,
+		CWD:    pwd,
+		User:   user,
+	}, nil
+}
+
+func (s *sshSession) pumpOutput(r io.Reader, isErr bool, out chan<- outputChunk, wg *sync.WaitGroup) {
+	defer wg.Done()
+	buf := make([]byte, 8192)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			out <- outputChunk{text: string(buf[:n]), isErr: isErr}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func buildExecCommand(command, workingDir, metaToken string) string {
+	var script strings.Builder
+	script.WriteString("set +e\n")
+	if strings.TrimSpace(workingDir) != "" {
+		script.WriteString(fmt.Sprintf("cd %s >/dev/null 2>&1 || true\n", shellQuote(workingDir)))
+	}
+	script.WriteString(command)
+	if !strings.HasSuffix(command, "\n") {
+		script.WriteString("\n")
+	}
+	script.WriteString("__arg_ec=$?\n")
+	script.WriteString(fmt.Sprintf("printf '\\n%s:%%s:%%s:%%s\\n' \"$__arg_ec\" \"$(pwd | base64 | tr -d '\\r\\n')\" \"$(id -un | base64 | tr -d '\\r\\n')\"\n", metaToken))
+	script.WriteString("exit 0\n")
+	return "bash -lc " + shellQuote(script.String())
+}
+
+func parseExecOutput(output, metaToken string) (string, int, string, string, error) {
+	metaPrefix := metaToken + ":"
+	metaIdx := strings.LastIndex(output, metaPrefix)
+	if metaIdx < 0 {
+		return "", 0, "", "", fmt.Errorf("remote execution metadata missing")
+	}
+
+	metaPart := output[metaIdx+len(metaPrefix):]
+	metaLine := metaPart
+	if nl := strings.IndexAny(metaLine, "\r\n"); nl >= 0 {
+		metaLine = metaLine[:nl]
+	}
+
+	parts := strings.SplitN(strings.TrimSpace(metaLine), ":", 3)
+	if len(parts) != 3 {
+		return "", 0, "", "", fmt.Errorf("invalid remote execution metadata")
+	}
+
+	code, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return "", 0, "", "", fmt.Errorf("invalid remote exit code: %w", err)
+	}
+	pwd, err := decodeBase64(parts[1])
+	if err != nil {
+		return "", 0, "", "", fmt.Errorf("decode remote cwd: %w", err)
+	}
+	user, err := decodeBase64(parts[2])
+	if err != nil {
+		return "", 0, "", "", fmt.Errorf("decode remote user: %w", err)
+	}
+
+	cleaned := strings.TrimRight(output[:metaIdx], "\r\n")
+	return cleaned, code, pwd, user, nil
+}
+
+func (s *sshSession) openExecSession() (*ssh.Session, io.WriteCloser, io.Reader, io.Reader, error) {
+	session, err := s.client.NewSession()
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to create SSH session channel: %w", err)
+	}
+
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          0,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+	}
+	if err := session.RequestPty("xterm-256color", 80, 40, modes); err != nil {
+		_ = session.Close()
+		return nil, nil, nil, nil, fmt.Errorf("failed to request PTY: %w", err)
+	}
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		_ = session.Close()
+		return nil, nil, nil, nil, fmt.Errorf("failed to open stdin pipe: %w", err)
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		_ = session.Close()
+		return nil, nil, nil, nil, fmt.Errorf("failed to open stdout pipe: %w", err)
+	}
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		_ = session.Close()
+		return nil, nil, nil, nil, fmt.Errorf("failed to open stderr pipe: %w", err)
+	}
+	return session, stdin, stdout, stderr, nil
+}
+
+func (s *sshSession) readFileSFTP(path string) ([]byte, error) {
+	client, err := sftp.NewClient(s.client)
+	if err != nil {
+		return nil, fmt.Errorf("open sftp client: %w", err)
+	}
+	defer client.Close()
+
+	file, err := client.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
+func (s *sshSession) writeFileSFTP(path string, content []byte, overwrite bool) error {
+	client, err := sftp.NewClient(s.client)
+	if err != nil {
+		return fmt.Errorf("open sftp client: %w", err)
+	}
+	defer client.Close()
+
+	if !overwrite {
+		if _, statErr := client.Stat(path); statErr == nil {
+			return fmt.Errorf("destination already exists: %s", path)
+		}
+	}
+
+	dir := pathpkgDir(path)
+	if dir != "" && dir != "." {
+		if err := client.MkdirAll(dir); err != nil {
+			return fmt.Errorf("create remote directory %s: %w", dir, err)
+		}
+	}
+
+	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if !overwrite {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	}
+	file, err := client.OpenFile(path, flags)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if _, err := file.Write(content); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *sshSession) uploadFileSFTP(localPath, remotePath string, overwrite bool) error {
+	content, err := os.ReadFile(localPath)
+	if err != nil {
+		return err
+	}
+	return s.writeFileSFTP(remotePath, content, overwrite)
+}
+
+func (s *sshSession) downloadFileSFTP(remotePath, localPath string, overwrite bool) error {
+	content, err := s.readFileSFTP(remotePath)
+	if err != nil {
+		return err
+	}
+	if !overwrite {
+		if _, err := os.Stat(localPath); err == nil {
+			return fmt.Errorf("destination already exists: %s", localPath)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(localPath, content, 0o644)
+}
+
+func pathpkgDir(p string) string {
+	cleaned := strings.TrimSpace(p)
+	if cleaned == "" {
+		return ""
+	}
+	return path.Dir(cleaned)
+}
+
+func (s *sshSession) openTunnel(localAddr, remoteAddr string) (TunnelInfo, error) {
+	if strings.TrimSpace(localAddr) == "" {
+		localAddr = "127.0.0.1:0"
+	}
+	if strings.TrimSpace(remoteAddr) == "" {
+		return TunnelInfo{}, fmt.Errorf("remote address is required")
+	}
+
+	listener, err := net.Listen("tcp", localAddr)
+	if err != nil {
+		return TunnelInfo{}, err
+	}
+
+	id := strconv.FormatUint(s.tunnelSeq.Add(1), 36)
+	tunnel := &sshTunnel{
+		id:         id,
+		localAddr:  listener.Addr().String(),
+		remoteAddr: remoteAddr,
+		listener:   listener,
+		done:       make(chan struct{}),
+	}
+
+	s.tunnelsMu.Lock()
+	s.tunnels[id] = tunnel
+	s.tunnelsMu.Unlock()
+
+	go s.runTunnel(tunnel)
+
+	return TunnelInfo{
+		ID:         id,
+		Alias:      s.entry.Alias,
+		LocalAddr:  tunnel.localAddr,
+		RemoteAddr: tunnel.remoteAddr,
+		Active:     true,
+	}, nil
+}
+
+func (s *sshSession) runTunnel(tunnel *sshTunnel) {
+	defer close(tunnel.done)
+	for {
+		conn, err := tunnel.listener.Accept()
+		if err != nil {
+			if tunnel.closed.Load() {
+				return
+			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Temporary() {
+				continue
+			}
+			return
+		}
+		go s.proxyConnection(conn, tunnel.remoteAddr)
+	}
+}
+
+func (s *sshSession) proxyConnection(localConn net.Conn, remoteAddr string) {
+	remoteConn, err := s.client.Dial("tcp", remoteAddr)
+	if err != nil {
+		_ = localConn.Close()
+		return
+	}
+
+	go func() {
+		_, _ = io.Copy(remoteConn, localConn)
+		_ = remoteConn.Close()
+	}()
+	go func() {
+		_, _ = io.Copy(localConn, remoteConn)
+		_ = localConn.Close()
+	}()
+}
+
+func (s *sshSession) closeTunnel(id string) error {
+	s.tunnelsMu.Lock()
+	tunnel, ok := s.tunnels[id]
+	if ok {
+		delete(s.tunnels, id)
+	}
+	s.tunnelsMu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown tunnel id: %s", id)
+	}
+	return tunnel.close()
+}
+
+func (s *sshSession) listTunnels() []TunnelInfo {
+	s.tunnelsMu.RLock()
+	defer s.tunnelsMu.RUnlock()
+	out := make([]TunnelInfo, 0, len(s.tunnels))
+	for _, t := range s.tunnels {
+		out = append(out, TunnelInfo{
+			ID:         t.id,
+			Alias:      s.entry.Alias,
+			LocalAddr:  t.localAddr,
+			RemoteAddr: t.remoteAddr,
+			Active:     !t.closed.Load(),
+		})
+	}
+	return out
+}
+
+func (s *sshSession) closeTunnels() {
+	s.tunnelsMu.Lock()
+	tunnels := make([]*sshTunnel, 0, len(s.tunnels))
+	for _, t := range s.tunnels {
+		tunnels = append(tunnels, t)
+	}
+	s.tunnels = make(map[string]*sshTunnel)
+	s.tunnelsMu.Unlock()
+
+	for _, t := range tunnels {
+		_ = t.close()
+		select {
+		case <-t.done:
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+func (s *sshSession) Close() error {
+	s.closeOnce.Do(func() {
+		s.closeTunnels()
+		if s.client != nil {
+			s.closeErr = s.client.Close()
+		}
+		closeAll(s.authClosers)
+	})
+	return s.closeErr
+}
+
+func (s *sshSession) currentCWD() string {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.cwd
+}
+
+func (s *sshSession) currentUser() string {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.user
+}
+
+func decodeBase64(raw string) (string, error) {
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(raw))
+	if err != nil {
+		return "", err
+	}
+	return string(decoded), nil
+}
+

@@ -1,0 +1,50 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T03:42:14.0860849Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "sandbox-server 서버에서 'whoami' 명령을 실행해줘. 비밀번호는 'Welcome1!@#$' 야. 반드시 bash 도구의 password 인자에 이 비밀번호를 넣어서 호출해."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "nwGJwrxK4auCHQnUs2hRJdS2dRAN1EpK",
+          "name": "bash",
+          "input": {
+            "command": "whoami",
+            "password": "Welcome1!@#$",
+            "server": "sandbox-server"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "{\"Stdout\":\"\\u001b]0;sandbox@localhost:~\\u0007\\u001b[?2004h[sandbox@localhost ~]$ \\u001b[?2004l\\r\\r\\nsandbox\\r\\n\\u001b]0;sandbox@localhost:~\\u0007\\u001b[?2004h[sandbox@localhost ~]$ \\u001b[?2004l\",\"Stderr\":\"\",\"Code\":0,\"Interrupted\":false,\"BackgroundTaskID\":\"\",\"OutputFilePath\":\"\",\"OutputFileSize\":0,\"OutputTaskID\":\"\",\"PreSpawnError\":\"\",\"AssistantAutoBackgrounded\":false,\"BackgroundedByUser\":false}",
+          "name": "bash",
+          "tool_use_id": "nwGJwrxK4auCHQnUs2hRJdS2dRAN1EpK"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "`sandbox-server` 서버에서 `whoami` 명령을 실행한 결과, 현재 사용자는 **sandbox** 입니다."
+        }
+      ]
+    }
+  ]
+}

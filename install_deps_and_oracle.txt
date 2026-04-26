@@ -1,0 +1,5 @@
+/server connect sandbox-server
+Welcome1!@#$
+bash 도구 server="sandbox-server" 으로 Oracle 필수 빌드 패키지 설치: echo 'Welcome1!@#$' | sudo -S dnf install -y make gcc gcc-c++ binutils glibc-devel libaio-devel libstdc++-devel sysstat libXi libXtst unixODBC unixODBC-devel libnsl 2>&1 | tail -5 && which make 2>&1 && echo packages_ok
+bash 도구 server="sandbox-server" 으로 installer 재실행 (CV_ASSUME_DISTID=OEL7.6 + make 설치 후): echo 'Welcome1!@#$' | sudo -S pkill -f runInstaller 2>/dev/null || true && echo 'Welcome1!@#$' | sudo -S -u oracle bash -c "export CV_ASSUME_DISTID=OEL7.6; export ORACLE_BASE=/u01/app/oracle; export ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1; cd /u01/app/oracle/product/19.0.0/dbhome_1; nohup ./runInstaller -silent -ignorePrereqFailure -responseFile /tmp/db_install_clean.rsp -waitforcompletion > /tmp/oracle_install5.log 2>&1 & echo installer_pid=\$!" 2>&1
+bash 도구 server="sandbox-server" 으로 90초 대기 후 설치 진행 확인: sleep 90 && echo "=== process ===" && ps aux | grep -E "runInstaller|java" | grep -v grep | head -5 2>&1 && echo "=== log ===" && cat /tmp/oracle_install5.log 2>&1

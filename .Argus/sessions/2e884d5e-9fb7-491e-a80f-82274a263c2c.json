@@ -1,0 +1,76 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-25T11:03:56.4155104Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "a100-server 프로세스 리스트 보여줘"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "chatcmpl-tool-ad7edc8227a2f37d",
+          "name": "bash",
+          "input": {
+            "command": "ps aux | grep a100-server | grep -v grep"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "exit_code: 1",
+          "name": "bash",
+          "tool_use_id": "chatcmpl-tool-ad7edc8227a2f37d"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "thought\n"
+        },
+        {
+          "type": "tool_use",
+          "id": "chatcmpl-tool-aae8d1986d825510",
+          "name": "bash",
+          "input": {
+            "command": "ps aux"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "exit_code: 0\n\nstdout:\nPID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND\n      481       1     481      21416  ?         197609 20:03:55 /usr/bin/bash\n      482     481     481       7380  ?         197609 20:03:55 /usr/bin/ps",
+          "name": "bash",
+          "tool_use_id": "chatcmpl-tool-aae8d1986d825510"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "`a100-server`라는 이름이 포함된 프로세스를 검색했으나, 현재 시스템에서 실행 중인 프로세스 중 해당 이름을 가진 프로세스는 발견되지 않았습니다.\n\n혹시 프로세스 이름이 정확한지, 혹은 다른 이름(예: `python`, `nvidia`, `docker` 등)으로 실행 중인지 확인이 필요하시면 말씀해 주세요. 다른 방식으로 검색해 드릴 수도 있습니다."
+        }
+      ]
+    }
+  ]
+}

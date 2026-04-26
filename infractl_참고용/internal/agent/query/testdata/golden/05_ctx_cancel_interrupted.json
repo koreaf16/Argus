@@ -1,0 +1,7 @@
+{
+  "name": "ctx_cancel_interrupted",
+  "description": "ctx cancel 중간 → terminal interrupted + 부분 결과",
+  "input_messages": [],
+  "expected_terminal_reason": "interrupted",
+  "notes": "이 시나리오는 golden_test.go 에서 ctx cancel 을 직접 주입하여 실행한다."
+}

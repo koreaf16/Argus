@@ -1,0 +1,33 @@
+﻿=== [4] Assistant (assistant) ===
+
+--- example 1: star-marker ---
+
+✦ 데모 우선으로 진행하고 코어는 이후 반영하겠습니다.
+
+--- example 2: markdown-rich ---
+
+✦ ## Demo Output Plan
+  - category 11개
+  - category당 example 5개
+  - snapshot 모드/interactive 모드 동시 지원
+
+--- example 3: code-heavy ---
+
+✦ 
+  [ code:go ]                               
+  go build -o argus_demo.exe ./cmd/ui_demo
+  argus_demo.exe --snapshot all --no-ansi 
+[ end ]                                   
+
+--- example 4: table-heavy ---
+
+✦ 
+  category      examples
+  splash        5       
+  prompt        5       
+  assistant     5       
+  ...           ...     
+
+--- example 5: long-stream ---
+
+✦ Stable stream demo: rendering plain text immediately, markdown blocks at stable boundaries.

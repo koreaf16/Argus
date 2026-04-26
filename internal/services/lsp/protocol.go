@@ -1,0 +1,71 @@
+package lsp
+
+type Request struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      int64  `json:"id"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
+}
+
+type Notification struct {
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
+}
+
+type Response struct {
+	JSONRPC string      `json:"jsonrpc"`
+	ID      int64       `json:"id"`
+	Result  any         `json:"result,omitempty"`
+	Error   *RespError  `json:"error,omitempty"`
+	Method  string      `json:"method,omitempty"`
+	Params  interface{} `json:"params,omitempty"`
+}
+
+type RespError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type Position struct {
+	Line      int `json:"line"`
+	Character int `json:"character"`
+}
+
+type Range struct {
+	Start Position `json:"start"`
+	End   Position `json:"end"`
+}
+
+type Diagnostic struct {
+	Range    Range  `json:"range"`
+	Severity int    `json:"severity,omitempty"`
+	Code     any    `json:"code,omitempty"`
+	Message  string `json:"message"`
+	Source   string `json:"source,omitempty"`
+}
+
+type PublishDiagnosticsParams struct {
+	URI         string       `json:"uri"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+type Location struct {
+	URI   string `json:"uri"`
+	Range Range  `json:"range"`
+}
+
+type LocationLink struct {
+	TargetURI            string `json:"targetUri"`
+	TargetRange          Range  `json:"targetRange"`
+	TargetSelectionRange Range  `json:"targetSelectionRange"`
+}
+
+type DocumentSymbol struct {
+	Name           string           `json:"name"`
+	Detail         string           `json:"detail,omitempty"`
+	Kind           int              `json:"kind"`
+	Range          Range            `json:"range"`
+	SelectionRange Range            `json:"selectionRange"`
+	Children       []DocumentSymbol `json:"children,omitempty"`
+}

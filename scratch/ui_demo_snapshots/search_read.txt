@@ -1,0 +1,31 @@
+﻿=== [9] Search/Read (search_read) ===
+
+--- example 1: web-search ---
+
+│ ⦿ web_search                                     
+│ query: "bubbletea streaming markdown stable line"
+│ results: 10  duration: 2.1s                      
+
+--- example 2: file-read ---
+
+│ ⦿ fileread                  
+│ path: internal/tui/render.go
+│ lines: 1..260               
+
+--- example 3: glob-list ---
+
+│ ⦿ glob/list               
+│ pattern: internal/tui/*.go
+│ matches: 27               
+
+--- example 4: mcp-resource ---
+
+│ ⦿ mcp resource read      
+│ server: openai-docs      
+│ uri: docs://models/latest
+
+--- example 5: citation-preview ---
+
+│ citation preview                           
+│ • https://charm.sh/bubbletea               
+│ • https://github.com/charmbracelet/lipgloss

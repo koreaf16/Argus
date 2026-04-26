@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-25T05:08:56.3222847Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 무엇을 도와드릴까요?"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "방가"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 반갑습니다. 😊\n\n무엇을 도와드릴까요? 궁금한 점이나 작업이 있으시면 말씀해 주세요!"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "qkdrk"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 반가워요! 😊\n\n오늘 어떤 도움이 필요하신가요? 궁금한 점이나 작업이 있으시면 언제든지 말씀해 주세요!"
+        }
+      ]
+    }
+  ]
+}

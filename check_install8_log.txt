@@ -1,0 +1,4 @@
+/server connect sandbox-server
+Welcome1!@#$
+bash 도구 server="sandbox-server" 으로 install8 상세 로그 오류 확인 (새 로그의 실제 링크 오류): (1) echo 'Welcome1!@#$' | sudo -S grep -n "cannot find\|undefined reference\|ld:\|error:\|Error" /tmp/InstallActions2026-04-26_11-23-30AM/installActions2026-04-26_11-23-30AM.log 2>&1 | grep -v "\.xml\|oraInstall\|installMakeFile\|undoMakeFile" | tail -30. (2) echo 'Welcome1!@#$' | sudo -S grep -n "libpthread_nonshared\|libclntsh\|libasmclnt" /tmp/InstallActions2026-04-26_11-23-30AM/installActions2026-04-26_11-23-30AM.log 2>&1 | grep -v "\.xml\|installMakeFile" | tail -20.
+bash 도구 server="sandbox-server" 으로 ins_rdbms.mk ASM 관련 링크 변수 확인 (RHEL9 호환 패치): (1) grep -n "libasmclntsh19\|libasmperl19\|NASMLIBS\|NASMEXTRALBS\|ld_shlib\|dlopenlib" /u01/app/oracle/product/19.0.0/dbhome_1/rdbms/lib/ins_rdbms.mk 2>&1 | head -25. (2) grep -n "libpthread\|PTHREAD\|nonshared" /u01/app/oracle/product/19.0.0/dbhome_1/rdbms/lib/ins_rdbms.mk 2>&1 | head -10.

@@ -1,0 +1,143 @@
+// Package agent
+// File: tool_groups.go
+// Description: 도구 그룹 정의와 그룹명 집합을 실제 도구 이름 집합으로 변환하는 로직
+// Responsibility: 분류 결과의 tool_groups를 레지스트리 필터링에 사용할 이름 맵으로 해석
+
+package agent
+
+import (
+	"log/slog"
+
+	"github.com/yourorg/infractl/internal/connector"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+// ToolGroup은 논리적으로 연관된 도구들의 묶음 이름이다.
+type ToolGroup string
+
+const (
+	GroupSystemInfo    ToolGroup = "system_info"
+	GroupFileOps       ToolGroup = "file_ops"
+	GroupShell         ToolGroup = "shell"
+	GroupNetwork       ToolGroup = "network"
+	GroupServiceMgmt   ToolGroup = "service_mgmt"
+	GroupDiscovery     ToolGroup = "discovery"
+	GroupKnowledge     ToolGroup = "knowledge"
+	GroupWeb           ToolGroup = "web"
+	GroupServerMgmt    ToolGroup = "server_mgmt"
+	GroupConnector     ToolGroup = "connector"
+	GroupOrchestration ToolGroup = "orchestration"
+)
+
+// toolGroupMembers는 각 그룹에 속하는 정적 도구 이름 목록이다.
+// "connector" 그룹은 런타임에 동적으로 결정되므로 여기에 포함하지 않는다.
+var toolGroupMembers = map[ToolGroup][]string{
+	GroupSystemInfo: {
+		"system_info", "process_list", "disk_usage", "session_context",
+	},
+	GroupFileOps: {
+		"file_read", "file_write", "file_transfer", "log_tail",
+	},
+	GroupShell: {
+		"shell_exec",
+	},
+	GroupNetwork: {
+		"network_info", "k8s_query",
+	},
+	GroupServiceMgmt: {
+		"service_status",
+	},
+	GroupDiscovery: {
+		"discover_services", "connector_activate",
+		"connector_probe_os_auth", "learned_connector_activate",
+	},
+	GroupKnowledge: {
+		"knowledge_search", "knowledge_add", "rag_search",
+		"rag_probe_source", "rag_register", "memory_search", "save_learned_system",
+	},
+	GroupWeb: {
+		"web_search", "web_fetch",
+	},
+	GroupServerMgmt: {
+		"server_list", "server_add", "server_remove", "server_focus",
+		"workspace_list", "workspace_add", "workspace_remove", "workspace_focus",
+	},
+	GroupOrchestration: {
+		"background_jobs", "delegate_task", "subagent_analyze",
+		"checkpoint_list", "checkpoint_rollback",
+		"schedule_create", "schedule_list", "hook_register", "user_tool_create",
+	},
+}
+
+// baseToolNames는 needs_tools=true일 때 항상 포함하는 기반 도구이다.
+// ask_user_question은 어떤 그룹에도 속하지 않으므로 항상 포함시켜야
+// Qwen 모델이 올바른 스키마(question + options)를 참조할 수 있다.
+var baseToolNames = []string{"session_context", "read_placeholder", "ask_user_question", "propose_action"}
+
+func ResolveAllToolGroups(
+	reg *tools.Registry,
+	connectorMgr *connector.Manager,
+) map[string]bool {
+	groups := []string{
+		"system_info", "file_ops", "shell", "network",
+		"service_mgmt", "discovery", "knowledge", "web",
+		"server_mgmt", "connector", "orchestration",
+	}
+	return ResolveToolGroups(groups, reg, connectorMgr)
+}
+
+// ResolveToolGroups는 분류 결과의 그룹 이름 목록을 실제 도구 이름 집합으로 변환한다.
+// connector 그룹은 connectorMgr에서 동적으로 활성 도구를 가져온다.
+// registry가 nil이 아닌 경우 실제로 등록된 도구만 포함한다.
+func ResolveToolGroups(
+	groups []string,
+	reg *tools.Registry,
+	connectorMgr *connector.Manager,
+) map[string]bool {
+	result := make(map[string]bool, 32)
+
+	// 기반 도구 항상 포함
+	for _, name := range baseToolNames {
+		result[name] = true
+	}
+
+	for _, g := range groups {
+		group := ToolGroup(g)
+
+		if group == GroupConnector {
+			// connector 그룹: 커넥터 매니저에서 동적 도구 수집
+			if connectorMgr != nil {
+				for _, state := range connectorMgr.States() {
+					for _, toolName := range state.Tools {
+						result[toolName] = true
+					}
+				}
+			}
+			// discovery 그룹 도구도 함께 포함 (활성화 도구 필요)
+			for _, name := range toolGroupMembers[GroupDiscovery] {
+				result[name] = true
+			}
+			continue
+		}
+
+		members, ok := toolGroupMembers[group]
+		if !ok {
+			slog.Warn("unknown tool group in classification result", "group", g)
+			continue
+		}
+		for _, name := range members {
+			result[name] = true
+		}
+	}
+
+	// 레지스트리 필터: 실제로 등록되지 않은 도구 제거
+	if reg != nil {
+		for name := range result {
+			if !reg.Has(name) {
+				delete(result, name)
+			}
+		}
+	}
+
+	return result
+}

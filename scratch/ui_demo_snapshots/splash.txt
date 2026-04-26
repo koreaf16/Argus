@@ -1,0 +1,36 @@
+﻿=== [1] Splash (splash) ===
+
+--- example 1: constellation ---
+
+    ·      ∙        ·      ●       ∙      ·      ∙
+
+█▀▀█ █▀▀█ █▀▀▀ █  █ █▀▀
+█▄▄█ █▄▄▀ █ ▀█ █  █ ▀▀█
+█  █ █  █ ▀▀▀▀  ▀▀  ▀▀▀
+
+ crafted by Jihoon Kwak  · one hundred eyes · never sleeps 
+
+--- example 2: compact-logo ---
+
+│ ⦿ ARGUS                                          
+│ model: gpt-5.5  provider: openai  effort: high   
+│ workspace: local  cwd: C:\Dev\Argus              
+│ hint: type /model or /workspace to change context
+
+--- example 3: eye-grid ---
+
+│ Argus Eye Grid   
+│ ◉ ◌ ◉ ◌ ◉ ◌ ◉ ◌ ◉
+│ ◌ ◉ ◌ ◉ ◌ ◉ ◌ ◉ ◌
+│ ◉ ◌ ◉ ◎ ◉ ◌ ◉ ◌ ◉
+
+--- example 4: creator-ribbon ---
+
+│ Creator Ribbon                                   
+│ ╾────────────✦ crafted by 곽 지 훈 ✦────────────╼
+
+--- example 5: minimal-start ---
+
+ARGUS
+local • no sandbox • unconfigured
+type your message and press Enter

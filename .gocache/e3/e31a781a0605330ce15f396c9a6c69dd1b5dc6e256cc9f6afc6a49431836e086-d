@@ -1,0 +1,8 @@
+./credentials.go
+./endpoint.go
+./helpers.go
+./inspect.go
+./manager.go
+./registry.go
+./ssh_session.go
+./types.go

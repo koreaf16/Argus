@@ -1,0 +1,10 @@
+# test log
+getenv GOTMPDIR
+open .
+chdir C:\Users\jhkwa\AppData\Local\Temp\TestPersistSessionTodosUpdatesState3939449773\001
+stat C:\Users\jhkwa\AppData\Local\Temp\TestPersistSessionTodosUpdatesState3939449773\001\.Argus\todos
+stat C:\Users\jhkwa\AppData\Local\Temp\TestPersistSessionTodosUpdatesState3939449773\001\.Argus
+stat C:\Users\jhkwa\AppData\Local\Temp\TestPersistSessionTodosUpdatesState3939449773\001
+open C:\Users\jhkwa\AppData\Local\Temp\TestPersistSessionTodosUpdatesState3939449773\001\.Argus\todos\s1.json.tmp
+open C:\Users\jhkwa\AppData\Local\Temp\TestPersistSessionTodosUpdatesState3939449773\001\.Argus\todos\s1.json
+open C:\Users\jhkwa\AppData\Local\Temp

@@ -1,0 +1,595 @@
+package commands
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/koreaf16/argus/internal/constants"
+	"github.com/koreaf16/argus/internal/session"
+	"github.com/koreaf16/argus/internal/services/llm"
+)
+
+func Dispatch(line string, ctx CommandContext) (bool, error) {
+	fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "/"))
+	if len(fields) == 0 {
+		return false, nil
+	}
+	cmd := strings.ToLower(fields[0])
+	args := fields[1:]
+
+	switch cmd {
+	case "exit", "quit":
+		return true, nil
+	case "clear":
+		fmt.Fprint(ctx.Stdout, "\x1b[2J\x1b[H")
+		return false, nil
+	case "help":
+		fmt.Fprintln(ctx.Stdout, "Commands:")
+		fmt.Fprintln(ctx.Stdout, "/help /exit /clear /model /status /session /plan /memory /mcp /skills /commit /diff /review /init /config /keybindings")
+		fmt.Fprintln(ctx.Stdout, "Hints:")
+		fmt.Fprintln(ctx.Stdout, "/session save|load|list  /memory add|list|search  /mcp list|reload|tools|resources|read  /skills list|run")
+		return false, nil
+	case "model":
+		if ctx.ModelHandler == nil {
+			return false, fmt.Errorf("model handler is unavailable")
+		}
+		return false, ctx.ModelHandler(args)
+	case "status":
+		model := "unconfigured"
+		plan := false
+		sessionID := ""
+		if ctx.State != nil {
+			_, display, _ := ctx.State.ActiveModel()
+			if display != "" {
+				model = display
+			}
+			plan = ctx.State.InPlanMode()
+			sessionID = ctx.State.SessionID()
+		}
+		servers := 0
+		if ctx.MCP != nil {
+			servers = len(ctx.MCP.ServerNames())
+		}
+		langs := 0
+		if ctx.LSP != nil {
+			langs = len(ctx.LSP.Languages())
+		}
+		skills := 0
+		if ctx.Skills != nil {
+			skills = len(ctx.Skills.List())
+		}
+		fmt.Fprintf(ctx.Stdout, "model: %s\nplan mode: %t\nsession: %s\nmcp servers: %d\nlsp languages: %d\nskills: %d\n", model, plan, sessionID, servers, langs, skills)
+		if ctx.MCP != nil {
+			names := ctx.MCP.ServerNames()
+			if len(names) > 0 {
+				fmt.Fprintf(ctx.Stdout, "mcp list: %s\n", strings.Join(names, ", "))
+			}
+		}
+		if ctx.LSP != nil {
+			st := ctx.LSP.Status()
+			if len(st) > 0 {
+				keys := make([]string, 0, len(st))
+				for k := range st {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				pairs := make([]string, 0, len(keys))
+				for _, k := range keys {
+					pairs = append(pairs, fmt.Sprintf("%s=%s", k, st[k]))
+				}
+				fmt.Fprintf(ctx.Stdout, "lsp status: %s\n", strings.Join(pairs, ", "))
+			}
+		}
+		return false, nil
+	case "session":
+		return false, handleSession(args, ctx)
+	case "plan":
+		return false, handlePlan(args, ctx)
+	case "memory":
+		return false, handleMemory(args, ctx)
+	case "mcp":
+		return false, handleMCP(args, ctx)
+	case "skills":
+		return false, handleSkills(args, ctx)
+	case "commit":
+		return false, handleCommit(args, ctx)
+	case "diff":
+		return false, handleDiff(args, ctx)
+	case "review":
+		return false, handleReview(ctx)
+	case "init":
+		return false, handleInit(ctx)
+	case "config":
+		return false, handleConfig(args, ctx)
+	case "keybindings":
+		fmt.Fprintln(ctx.Stdout, "keybindings: default readline bindings")
+		return false, nil
+	default:
+		return false, fmt.Errorf("unknown command: /%s", cmd)
+	}
+}
+
+func handleSession(args []string, ctx CommandContext) error {
+	if ctx.Memory == nil {
+		return fmt.Errorf("session store is unavailable")
+	}
+	if len(args) < 1 {
+		return fmt.Errorf("usage: /session <save|load|list> [name]")
+	}
+	switch strings.ToLower(args[0]) {
+	case "list":
+		names, err := ctx.Memory.ListSessions()
+		if err != nil {
+			return err
+		}
+		if len(names) == 0 {
+			fmt.Fprintln(ctx.Stdout, "no sessions")
+			return nil
+		}
+		for _, name := range names {
+			fmt.Fprintln(ctx.Stdout, name)
+		}
+		return nil
+	case "save":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /session save <name>")
+		}
+		var messages []llm.Message
+		if ctx.Engine != nil {
+			messages = ctx.Engine.Messages()
+		}
+		snap := session.Snapshot{
+			SavedAt:  time.Now().UTC(),
+			Messages: messages,
+		}
+		if err := ctx.Memory.SaveSession(args[1], snap); err != nil {
+			return err
+		}
+		if ctx.State != nil {
+			ctx.State.SetSessionID(args[1])
+		}
+		fmt.Fprintf(ctx.Stdout, "session saved: %s (%d messages)\n", args[1], len(messages))
+		return nil
+	case "load":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /session load <name>")
+		}
+		var snap session.Snapshot
+		if err := ctx.Memory.LoadSession(args[1], &snap); err != nil {
+			return err
+		}
+		if ctx.Engine != nil {
+			ctx.Engine.ReplaceMessages(snap.Messages)
+		}
+		if ctx.State != nil {
+			ctx.State.SetSessionID(args[1])
+		}
+		fmt.Fprintf(ctx.Stdout, "session loaded: %s (%d messages)\n", args[1], len(snap.Messages))
+		return nil
+	default:
+		return fmt.Errorf("usage: /session <save|load|list> [name]")
+	}
+}
+
+func handlePlan(args []string, ctx CommandContext) error {
+	if ctx.State == nil {
+		return nil
+	}
+	if len(args) == 0 {
+		if ctx.State.InPlanMode() {
+			fmt.Fprintln(ctx.Stdout, "plan mode: on")
+		} else {
+			fmt.Fprintln(ctx.Stdout, "plan mode: off")
+		}
+		return nil
+	}
+	switch strings.ToLower(args[0]) {
+	case "on":
+		ctx.State.SetMode("plan")
+		fmt.Fprintln(ctx.Stdout, "plan mode: on")
+	case "off":
+		ctx.State.SetMode("normal")
+		fmt.Fprintln(ctx.Stdout, "plan mode: off")
+	default:
+		return fmt.Errorf("usage: /plan [on|off]")
+	}
+	return nil
+}
+
+func handleMemory(args []string, ctx CommandContext) error {
+	if ctx.Memory == nil {
+		return fmt.Errorf("memory store is unavailable")
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("usage: /memory <add|list|search> ...")
+	}
+	switch strings.ToLower(args[0]) {
+	case "add":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /memory add <text>")
+		}
+		rec, err := ctx.Memory.AddMemory(strings.Join(args[1:], " "), nil)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(ctx.Stdout, "memory added: %s\n", rec.ID)
+		return nil
+	case "list":
+		items, err := ctx.Memory.ListMemories()
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			fmt.Fprintln(ctx.Stdout, "no memories")
+			return nil
+		}
+		for _, item := range items {
+			fmt.Fprintf(ctx.Stdout, "- %s %s\n", item.ID, item.Text)
+		}
+		return nil
+	case "search":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /memory search <query>")
+		}
+		items, err := ctx.Memory.FindRelevantMemories(strings.Join(args[1:], " "), 10)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			fmt.Fprintf(ctx.Stdout, "- %s %s\n", item.ID, item.Text)
+		}
+		return nil
+	default:
+		return fmt.Errorf("usage: /memory <add|list|search> ...")
+	}
+}
+
+func handleMCP(args []string, ctx CommandContext) error {
+	if ctx.MCP == nil {
+		return fmt.Errorf("mcp manager is unavailable")
+	}
+	if len(args) == 0 || strings.ToLower(args[0]) == "list" {
+		names := ctx.MCP.ServerNames()
+		if len(names) == 0 {
+			fmt.Fprintln(ctx.Stdout, "no mcp servers configured")
+			return nil
+		}
+		for _, name := range names {
+			fmt.Fprintln(ctx.Stdout, name)
+		}
+		return nil
+	}
+	switch strings.ToLower(args[0]) {
+	case "reload":
+		if ctx.MCPReload != nil {
+			if err := ctx.MCPReload(); err != nil {
+				return err
+			}
+		} else if err := ctx.MCP.Load(); err != nil {
+			return err
+		}
+		fmt.Fprintf(ctx.Stdout, "reloaded mcp config: %s\n", ctx.MCP.Path())
+		return nil
+	case "tools":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /mcp tools <server>")
+		}
+		tools := ctx.MCP.ListTools(args[1])
+		fmt.Fprintf(ctx.Stdout, "%s tools: %v\n", args[1], tools)
+		return nil
+	case "resources":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /mcp resources <server>")
+		}
+		resources := ctx.MCP.ListResources(args[1])
+		fmt.Fprintf(ctx.Stdout, "%s resources: %v\n", args[1], resources)
+		return nil
+	case "read":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: /mcp read <server> <uri>")
+		}
+		content, err := ctx.MCP.ReadResource(args[1], strings.Join(args[2:], " "))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(ctx.Stdout, content)
+		return nil
+	default:
+		return fmt.Errorf("usage: /mcp [list|reload|tools <server>|resources <server>|read <server> <uri>]")
+	}
+}
+
+func handleSkills(args []string, ctx CommandContext) error {
+	if ctx.Skills == nil {
+		return fmt.Errorf("skills registry is unavailable")
+	}
+	if len(args) == 0 || strings.ToLower(args[0]) == "list" {
+		for _, skill := range ctx.Skills.List() {
+			meta, _ := ctx.Skills.Describe(skill)
+			if strings.TrimSpace(meta.Description) == "" {
+				fmt.Fprintln(ctx.Stdout, skill)
+				continue
+			}
+			fmt.Fprintf(ctx.Stdout, "%s - %s\n", skill, meta.Description)
+		}
+		return nil
+	}
+	if strings.ToLower(args[0]) == "run" {
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /skills run <name> [args...]")
+		}
+		out, err := ctx.Skills.Run(args[1], args[2:])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(ctx.Stdout, out)
+		return nil
+	}
+	return fmt.Errorf("usage: /skills [list|run <name> [args...]]")
+}
+
+func handleInit(ctx CommandContext) error {
+	configDir := constants.ConfigDir()
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return err
+	}
+	type seedFile struct {
+		path    string
+		content string
+	}
+	files := []seedFile{
+		{
+			path: constants.SettingsPath(),
+			content: `{
+  "activeModel": "",
+  "permissions": {
+    "defaultMode": "ask",
+    "allow": [],
+    "deny": []
+  },
+  "ui": {
+    "theme": "default"
+  }
+}
+`,
+		},
+		{
+			path: constants.ModelsPath(),
+			content: `{
+  "active": "",
+  "servers": [],
+  "userModels": []
+}
+`,
+		},
+		{
+			path: filepath.Join(constants.ConfigDir(), "mcp.json"),
+			content: `{
+  "servers": []
+}
+`,
+		},
+	}
+	for _, f := range files {
+		if _, err := os.Stat(f.path); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.WriteFile(f.path, []byte(f.content), 0o600); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(ctx.Stdout, "initialized %s\n", configDir)
+	return nil
+}
+
+func handleConfig(args []string, ctx CommandContext) error {
+	path := strings.TrimSpace(ctx.SettingsPath)
+	if path == "" {
+		return fmt.Errorf("settings path is empty")
+	}
+	if len(args) == 0 || strings.EqualFold(args[0], "show") {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(ctx.Stdout, string(data))
+		return nil
+	}
+	if strings.EqualFold(args[0], "get") {
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /config get <key>")
+		}
+		root, err := loadSettings(path)
+		if err != nil {
+			return err
+		}
+		val, ok := getNested(root, args[1])
+		if !ok {
+			return fmt.Errorf("config key not found: %s", args[1])
+		}
+		out, _ := json.MarshalIndent(val, "", "  ")
+		fmt.Fprintln(ctx.Stdout, string(out))
+		return nil
+	}
+	if strings.EqualFold(args[0], "set") {
+		if len(args) < 3 {
+			return fmt.Errorf("usage: /config set <key> <json-value>")
+		}
+		root, err := loadSettings(path)
+		if err != nil {
+			return err
+		}
+		rawVal := strings.Join(args[2:], " ")
+		var value any
+		if err := json.Unmarshal([]byte(rawVal), &value); err != nil {
+			value = rawVal
+		}
+		setNested(root, args[1], value)
+		data, err := json.MarshalIndent(root, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			return err
+		}
+		fmt.Fprintf(ctx.Stdout, "config updated: %s\n", args[1])
+		return nil
+	}
+	return fmt.Errorf("usage: /config [show|get <key>|set <key> <json-value>]")
+}
+
+func loadSettings(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	if root == nil {
+		root = make(map[string]any)
+	}
+	return root, nil
+}
+
+func getNested(root map[string]any, dotted string) (any, bool) {
+	parts := strings.Split(dotted, ".")
+	var cur any = root
+	for _, p := range parts {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		next, ok := m[p]
+		if !ok {
+			return nil, false
+		}
+		cur = next
+	}
+	return cur, true
+}
+
+func setNested(root map[string]any, dotted string, value any) {
+	parts := strings.Split(dotted, ".")
+	cur := root
+	for i, p := range parts {
+		if i == len(parts)-1 {
+			cur[p] = value
+			return
+		}
+		next, ok := cur[p].(map[string]any)
+		if !ok {
+			next = make(map[string]any)
+			cur[p] = next
+		}
+		cur = next
+	}
+}
+
+func handleCommit(args []string, ctx CommandContext) error {
+	if err := ensureGitRepo(ctx.WorkDir, "commit"); err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		out, err := gitOutput(ctx.WorkDir, "status", "--short")
+		if err != nil {
+			return err
+		}
+		out = strings.TrimSpace(out)
+		if out == "" {
+			fmt.Fprintln(ctx.Stdout, "working tree is clean; nothing to commit")
+			return nil
+		}
+		fmt.Fprintln(ctx.Stdout, "staged/unstaged summary:")
+		fmt.Fprintln(ctx.Stdout, out)
+		fmt.Fprintln(ctx.Stdout, "usage: /commit <message>")
+		return nil
+	}
+	msg := strings.Join(args, " ")
+	out, err := gitOutput(ctx.WorkDir, "commit", "-m", msg)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(ctx.Stdout, strings.TrimSpace(out))
+	return nil
+}
+
+func handleDiff(args []string, ctx CommandContext) error {
+	if err := ensureGitRepo(ctx.WorkDir, "diff"); err != nil {
+		return err
+	}
+	gitArgs := []string{"diff", "--staged"}
+	if len(args) > 0 && strings.EqualFold(args[0], "working") {
+		gitArgs = []string{"diff"}
+	}
+	out, err := gitOutput(ctx.WorkDir, gitArgs...)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) == "" {
+		fmt.Fprintln(ctx.Stdout, "no diff")
+		return nil
+	}
+	fmt.Fprintln(ctx.Stdout, out)
+	return nil
+}
+
+func handleReview(ctx CommandContext) error {
+	if err := ensureGitRepo(ctx.WorkDir, "review"); err != nil {
+		return err
+	}
+	status, err := gitOutput(ctx.WorkDir, "status", "--short")
+	if err != nil {
+		return err
+	}
+	diff, err := gitOutput(ctx.WorkDir, "diff", "--staged", "--stat")
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(ctx.Stdout, "review summary")
+	if strings.TrimSpace(status) == "" {
+		fmt.Fprintln(ctx.Stdout, "- working tree: clean")
+	} else {
+		fmt.Fprintln(ctx.Stdout, "- working tree:")
+		fmt.Fprintln(ctx.Stdout, strings.TrimSpace(status))
+	}
+	if strings.TrimSpace(diff) == "" {
+		fmt.Fprintln(ctx.Stdout, "- staged diff: none")
+	} else {
+		fmt.Fprintln(ctx.Stdout, "- staged diff stats:")
+		fmt.Fprintln(ctx.Stdout, strings.TrimSpace(diff))
+	}
+	return nil
+}
+
+func ensureGitRepo(workDir, command string) error {
+	out, err := gitOutput(workDir, "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		return fmt.Errorf("/%s unavailable: not a git repository (%s)", command, strings.TrimSpace(err.Error()))
+	}
+	if strings.TrimSpace(out) != "true" {
+		return fmt.Errorf("/%s unavailable: not a git repository", command)
+	}
+	return nil
+}
+
+func gitOutput(workDir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	if strings.TrimSpace(workDir) != "" {
+		cmd.Dir = filepath.Clean(workDir)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s failed: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}

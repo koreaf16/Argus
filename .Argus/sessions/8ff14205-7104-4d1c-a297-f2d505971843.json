@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T13:07:01.493812Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 만나서 반가워요. 무엇을 도와드릴까요? :)"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "방가워용?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "네, 반가워요! 😊 기분이 좋아 보이시네요! \n\n오늘 하루는 어떻게 보내고 계신가요? 궁금한 점이 있거나 도움이 필요하면 언제든 편하게 말씀해 주세요! 도와드릴 준비가 되어 있습니다. ㅎㅎ"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "아아"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "무슨 고민이나 할 이야기가 있으신가요? 아니면 그냥 심심해서 말을 걸어주신 건가요? ㅎㅎ\n\n어떤 것이든 괜찮으니 편하게 말씀해 주세요! 듣고 있을게요. 😊"
+        }
+      ]
+    }
+  ]
+}

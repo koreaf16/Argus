@@ -1,0 +1,130 @@
+# Changelog
+
+## 2026-04-23 (Constellation splash screen + creator signature)
+- 세션 시작 스플래시를 `Constellation` 컨셉으로 전면 교체:
+  - `internal/components/logo/condensed.go`: 기존 `아이콘 + 메타데이터 3행` 레이아웃을 `starfield(상) + ARGUS 반블럭 로고(중) + 금색 리본 서명(하)` 구성으로 재작성.
+  - 별(●)에 7색 그라데이션(보라→분홍→주황→황금→초록→청록→파랑)을 순환 적용, 상·하단 3행씩 배치해 "100개의 눈" 서사를 시각화.
+  - `crafted by 곽 지 훈 / Jihoon Kwak` 금색 리본 서명을 하단 중앙에 배치.
+  - model/provider/cwd 등 시스템 메타 정보는 스플래시에서 제거(하단 상태줄 footer 로 일원화).
+  - `Data` 구조체 시그니처는 보존하여 `tui/render.go`, `cmd/argus/init_menu.go` 호출부 수정 없음.
+  - `--aidebug` 모드는 ANSI 없는 plain 중앙정렬 버전으로 분기 렌더.
+- 컨셉 탐색용 프리뷰 스크립트 추가:
+  - `scratch/splash_concepts/`: 4가지 초안(Sentinel Gate / Constellation / Monolith / Aegis Crest).
+  - `scratch/splash_final/`: 채택안(Constellation)의 서명 배치 3종 비교.
+  - `scratch/splash_integrated/`: 통합 후 실제 `logo.Render()` 출력 검증용.
+
+## 2026-04-22 (Claude-style bottom UI + debug log suppression)
+- TUI 하단 레이아웃을 `status bar 분리형`에서 `입력창 + footer 통합형`으로 변경:
+  - `internal/tui/model.go`: `View()`에서 별도 `renderStatusBar()` 렌더 제거.
+  - `internal/tui/render.go`: 상태 정보를 `composeFooterStatusLine()`으로 footer 내부에 통합.
+  - `internal/components/promptinput/input_box.go`: 깨진 경계 문자를 교체하고 Claude 스타일의 `프롬프트 인디케이터 + 상하단 라인`으로 재작성.
+  - `internal/components/promptinput/footer.go`: 상태줄 + 단축키 힌트 2줄 렌더 구조로 확장.
+- 모델 요청 직전 툴 목록 디버그 로그 기본 숨김:
+  - `internal/query/config.go`: `DebugTools` 필드 추가.
+  - `internal/query/engine.go`: `[DEBUG] Sending N tools to model` 출력은 `DebugTools=true`일 때만 출력.
+  - `cmd/argus/main.go`: bootstrap에서 `DebugTools` 기본값 `false` 적용.
+- 테스트 업데이트:
+  - `internal/tui/layout_test.go`: status bar 기준 검증을 footer 통합 렌더 기준으로 변경.
+- 에이전트 운영 문서 정리:
+  - `CLAUDE.md`, `gemini.md`, `agent.md`를 UTF-8 한국어 문서로 정리하고
+    “모든 보고/사전 계획은 한국어 + 존댓말” 규칙을 명시.
+
+## 2026-04-22 (UI scrolling TUI port)
+- Converted `internal/tui` from alt-screen box TUI to scrolling TUI (claude_cli 1:1 port):
+  - Removed `tea.WithAltScreen()` — terminal scrollback now accumulates all messages.
+  - `View()` rewritten to return only anchored area: overlays + input box + 1-line footer.
+  - Each completed transcript entry emitted via `tea.Println()` (`scrollbackCmd`).
+  - Logo printed once at session start via `p.Println(renderLogoBlock(cfg))`.
+  - Removed viewport/sidebar layout; simplified `resize()`.
+  - Removed `ctrl+o/e/b`, `pgup/pgdown/home/end` key handlers (terminal handles scrolling).
+- New packages:
+  - `internal/components/logo`: `RenderIcon()` (Argus 9-col ASCII), `Render()` (condensed logo block).
+  - `internal/components/promptinput`: `Render()` (top-border-only input box), `RenderFooter()` (space-between 1-line footer).
+- `internal/utils/permissions/permission_mode.go`: updated `PermissionModeSymbol` mapping; added `PermissionModeTitle()`.
+- `internal/state/model_state.go`: added `SetActiveModelProvider/ActiveModelProvider`, `SetEffortLevel/GetEffortLevel`.
+- `internal/presentation/events.go`: `FooterState` extended with `PermissionSymbol`, `PermissionTitle`, `ProviderName`, `EffortSuffix`; `BuildFooterState()` populates new fields.
+- Affected files: `internal/tui/tui.go`, `internal/tui/render.go`, `internal/tui/model.go`, `internal/tui/transcript.go`.
+
+## 2026-04-22
+- Implemented core execution hardening and plan/todo runtime behavior:
+  - Improved terminal tool execution context:
+    - `bash`/`powershell` tools now accept optional `workdir`.
+    - shell commands now run in validated working directory (default: tool context `WorkingDir`).
+    - working directory is enforced under allowed roots and must be an existing directory.
+    - whitespace-only shell commands are rejected as invalid input.
+  - Added shared tool path guards in `internal/tools/path_guard.go` and `internal/tools/path_resolvers.go`.
+  - Added shared shell permission policy in `internal/tools/permission_policy.go`.
+  - Reworked `bash` and `powershell` tools:
+    - removed SSH password helper injection and hardcoded credential paths.
+    - added `timeout_ms` input support.
+    - switched permission checks from unconditional allow to policy-based allow/ask/deny.
+  - Reworked file tools:
+    - `fileread` now enforces path boundaries and supports `start_line`/`end_line`.
+    - `filewrite` now enforces path boundaries and atomic writes.
+    - `glob` now enforces pattern/root boundaries.
+    - `grep` now prefers `rg` and falls back to Go-native search when `rg` is unavailable.
+  - Reworked plan/todo behavior:
+    - `EnterPlanMode` now stores pre-plan mode, sets plan mode, and ensures session plan file.
+    - `ExitPlanMode` now normalizes `allowedPrompts`, restores previous mode, returns `allowed_prompts`, and writes numbered approved steps to plan file.
+    - `TodoWrite` now validates todo schema, persists session todo list, and clears list when all items are completed.
+    - Added multi-step execution flow:
+      - `query.Engine` emits `plan_execution_ready` event when `ExitPlanMode` returns approved prompts.
+      - REPL now executes approved steps sequentially with per-step confirmation.
+      - Planned steps auto-approve `ask` permission checks (but still respect `deny`) and sync status to session todos.
+  - Added shared todo persistence helper package `internal/todostore` for `TodoWrite` + REPL step runner.
+  - Added state/session metadata helpers:
+    - pre-plan mode and additional working directories (`internal/state/permission_state.go`)
+    - per-session todos (`internal/state/todo_state.go`)
+  - Added `internal/types/todo.go` and `internal/tools/toolfs/toolfs.go`.
+  - Updated `query.Engine` plan-mode guard to allow explicit plan write exceptions (`TodoWrite`, `ExitPlanMode`).
+  - Updated `/plan` slash command to sync both app mode and permission mode.
+  - Extended `internal/memdir` with `plans` bootstrap and todo/plan persistence helpers.
+  - Added `internal/memdir/store_test.go` coverage for todo/plan persistence.
+- Fixed root baseline so `go test ./...` passes.
+- Removed Windows case-collision tool directories under `internal/tools/*Tool`.
+- Removed API-mismatched files:
+  - `internal/bootstrap/state.go`
+  - `internal/hooks/use_can_use_tool.go`
+- Rebased runtime tool registration in `cmd/argus/main.go` to keep only Phase 2 default surface tools.
+- Added source-aware tool registry methods in `internal/tool/registry.go`.
+- Added minimal platform facades:
+  - `internal/memdir`
+  - `internal/services/mcp`
+  - `internal/services/lsp`
+  - `internal/skills`
+- Added REPL slash command dispatcher package:
+  - `internal/repl/commands/context.go`
+  - `internal/repl/commands/dispatcher.go`
+- Added minimal retained tools:
+  - `internal/tools/lsptool`
+  - `internal/tools/mcptool`
+  - `internal/tools/listmcpresourcestool`
+  - `internal/tools/readmcpresourcetool`
+  - `internal/tools/mcpauthtool`
+  - `internal/tools/skilltool`
+- Added tests:
+  - `internal/memdir/store_test.go`
+  - `internal/tool/registry_test.go`
+  - `internal/repl/commands/dispatcher_test.go`
+  - `internal/services/mcp/manager_test.go`
+- Rewrote phase2 and architecture docs to match current repository state.
+- Upgraded slash commands:
+  - `/session` now supports save/load/list with engine message snapshot restore.
+  - `/memory` now supports relevance search.
+  - `/mcp` now supports list/reload/tools/resources/read using `~/.argus/mcp.json`.
+  - `/commit`, `/diff`, `/review` now run real git commands and return explicit non-git errors.
+  - `/config` now supports `show`, `get`, `set` against `settings.json`.
+  - `/init` in REPL now creates missing baseline config files.
+- Extended MCP config schema to support `tools[]` and `resources[]` entries and resource content reads.
+- Added MCP dynamic bridge registration at bootstrap: each configured `tools[].name` is registered as `mcp__<server>__<tool>`.
+- `/mcp reload` now synchronizes bridge tools in registry (adds new, removes stale).
+- Added LSP process manager lifecycle (`start`/`stop`/status) and connected `lsptool` to shared manager instance.
+- Added LSP stdio JSON-RPC client framing, request/notification transport, and diagnostics cache support.
+- Added provider-agnostic tool-call stream accumulator and tool-result message builder in `internal/services/llm/toolcalls.go`, wired into OpenAI-compatible streaming.
+- Added user skill loader from `~/.argus/skills` (`*.skill.json`, markdown `# skill: <name>` format).
+- Added session lifecycle updates:
+  - New CLI flags: `--resume` / `-r <session-id>`.
+  - New session ID generation (`internal/session`) with UUIDv4 format for new sessions.
+  - Per-turn autosave and exit-time final save to `.Argus/sessions/<session-id>.json`.
+  - Session resume at startup restores prior engine messages.
+  - On successful REPL/print exit, `session_id: <id>` is printed to stderr.

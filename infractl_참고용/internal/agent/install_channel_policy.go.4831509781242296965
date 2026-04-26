@@ -1,0 +1,96 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/agent/taskctx"
+	"github.com/yourorg/infractl/internal/store"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+var installChannelBypassTools = map[string]struct{}{
+	"server_add":       {},
+	"server_focus":     {},
+	"server_list":      {},
+	"server_remove":    {},
+	"session_context":  {},
+	"ask_user_question": {},
+	"propose_action":   {},
+	"declare_task":     {},
+	"propose_task":     {},
+	"end_task":         {},
+	"task_note":        {},
+}
+
+func requiresInstallChannel(kind taskctx.TaskKind) bool {
+	switch kind {
+	case taskctx.KindInstall, taskctx.KindMigrate:
+		return true
+	default:
+		return false
+	}
+}
+
+func isInstallChannelBypassTool(toolName string) bool {
+	_, ok := installChannelBypassTools[strings.ToLower(strings.TrimSpace(toolName))]
+	return ok
+}
+
+func isInstallChannelServerProfile(srv store.Server) bool {
+	return srv.Ephemeral && strings.EqualFold(strings.TrimSpace(srv.Purpose), "install_channel")
+}
+
+func (a *Agent) enforceInstallChannelPolicy(ctx context.Context, tool tools.Tool, toolName, target string) (string, bool) {
+	if a == nil || a.taskMgr == nil || a.store == nil {
+		return "", false
+	}
+	tc := a.taskMgr.Current()
+	if tc == nil || !requiresInstallChannel(tc.Kind) {
+		return "", false
+	}
+	if tool == nil || tool.IsReadOnly() || isInstallChannelBypassTool(toolName) {
+		return "", false
+	}
+	if lt, ok := tool.(tools.LocalOnlyTool); ok && lt.IsLocalOnly() {
+		return "", false
+	}
+
+	trimmedTarget := strings.TrimSpace(target)
+	if trimmedTarget == "" || isLocalhostLiteral(trimmedTarget) {
+		return fmt.Sprintf("Install/migration task requires a dedicated install channel profile. Current target=%q is not allowed.", target), true
+	}
+
+	srv, ok := a.lookupServerByName(ctx, trimmedTarget)
+	if !ok {
+		return fmt.Sprintf("Install/migration task requires an install channel profile, but target %q is not a registered server profile.", trimmedTarget), true
+	}
+	if !isInstallChannelServerProfile(srv) {
+		return fmt.Sprintf("Target %q is not an install channel profile (ephemeral=true, purpose=install_channel required).", trimmedTarget), true
+	}
+	if expected := strings.TrimSpace(tc.TargetAccount); expected != "" && !strings.EqualFold(strings.TrimSpace(srv.OwnerUser), expected) {
+		return fmt.Sprintf("Install channel owner mismatch: expected owner_user=%q, got %q.", expected, strings.TrimSpace(srv.OwnerUser)), true
+	}
+
+	return "", false
+}
+
+func (a *Agent) lookupServerByName(ctx context.Context, name string) (store.Server, bool) {
+	if a == nil || a.store == nil {
+		return store.Server{}, false
+	}
+	if srv, err := a.store.Get(ctx, name); err == nil {
+		return srv, true
+	}
+	servers, err := a.store.List(ctx)
+	if err != nil {
+		return store.Server{}, false
+	}
+	for _, srv := range servers {
+		if strings.EqualFold(strings.TrimSpace(srv.Name), strings.TrimSpace(name)) {
+			return srv, true
+		}
+	}
+	return store.Server{}, false
+}

@@ -1,0 +1,28 @@
+{
+  "active": "models-gemma-4-26b-a4b-it-awq-4bit",
+  "servers": [
+    {
+      "alias": "gemma4-26b",
+      "provider": "openai-compat",
+      "display": "gemma4-26b",
+      "base_url": "http://192.168.0.3:11435/v1"
+    }
+  ],
+  "userModels": [
+    {
+      "alias": "models-gemma-4-26b-a4b-it-awq-4bit",
+      "model_id": "/models/gemma-4-26B-A4B-it-AWQ-4bit",
+      "provider": "openai-compat",
+      "base_url": "http://192.168.0.3:11435/v1",
+      "display": "/models/gemma-4-26B-A4B-it-AWQ-4bit",
+      "context_win": 130048,
+      "caps": {
+        "tools": true,
+        "thinking": false,
+        "vision": true,
+        "web_search": true
+      },
+      "server_alias": "gemma4-26b"
+    }
+  ]
+}

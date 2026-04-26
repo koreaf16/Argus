@@ -1,0 +1,78 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T13:10:11.4563917Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 만나서 반가워요. 무엇을 도와드릴까요? :)"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 다시 인사해주셨네요. 반갑습니다! 😊\n\n오늘 어떤 도움을 드릴까요? 궁금한 점이 있거나 도움이 필요하시면 언제든 말씀해 주세요."
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 계속 인사해 주시니 저도 기분이 좋아지네요! 😊\n\n혹시 제가 도와드릴 일이 있을까요? 아니면 그냥 가벼운 대화를 나누고 싶으신가요? 무엇이든 좋습니다! 말씀해 주세요. :)"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 😊 계속해서 반갑게 인사해 주시니 저도 정말 즐겁네요!\n\n혹시 제가 도와드릴 특별한 일이 있을까요? 아니면 계속해서 인사를 나누며 시간을 보낼까요? 무엇이든 말씀해 주세요! :)"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "saved_at": "2026-04-21T23:40:27.1965824Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "hi"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello! How can I help you today?"
+        }
+      ]
+    }
+  ]
+}

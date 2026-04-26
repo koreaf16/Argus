@@ -1,0 +1,16 @@
+./ast.go
+./bash_parser.go
+./commands.go
+./heredoc.go
+./interactive_monitor.go
+./parsed_command.go
+./parser.go
+./pipe_command.go
+./prefix.go
+./registry.go
+./shell_completion.go
+./shell_prefix.go
+./shell_quote.go
+./shell_quoting.go
+./shell_snapshot.go
+./tree_sitter_analysis.go

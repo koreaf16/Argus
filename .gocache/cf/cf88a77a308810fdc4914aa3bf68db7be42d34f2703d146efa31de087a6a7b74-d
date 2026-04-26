@@ -1,0 +1,15 @@
+# test log
+getenv GOTMPDIR
+open C:\Users\jhkwa\AppData\Local\Temp
+getenv GOTMPDIR
+stat C:\Users\jhkwa\AppData\Local\Temp\TestDistiller_PARTIAL_LargeOutput237726915\001\session-artifacts\test-session
+stat C:\Users\jhkwa\AppData\Local\Temp\TestDistiller_PARTIAL_LargeOutput237726915\001\session-artifacts
+stat C:\Users\jhkwa\AppData\Local\Temp\TestDistiller_PARTIAL_LargeOutput237726915\001
+open C:\Users\jhkwa\AppData\Local\Temp\TestDistiller_PARTIAL_LargeOutput237726915\001\session-artifacts\test-session\1-bash-call-1.txt
+open C:\Users\jhkwa\AppData\Local\Temp
+getenv GOTMPDIR
+stat C:\Users\jhkwa\AppData\Local\Temp\TestDistiller_ErrorPrefix_Preserved1955407464\001\session-artifacts\test-session
+stat C:\Users\jhkwa\AppData\Local\Temp\TestDistiller_ErrorPrefix_Preserved1955407464\001\session-artifacts
+stat C:\Users\jhkwa\AppData\Local\Temp\TestDistiller_ErrorPrefix_Preserved1955407464\001
+open C:\Users\jhkwa\AppData\Local\Temp\TestDistiller_ErrorPrefix_Preserved1955407464\001\session-artifacts\test-session\1-bash-call-err.txt
+open C:\Users\jhkwa\AppData\Local\Temp

@@ -1,0 +1,50 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T02:54:08.85344Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "sandbox-server 서버에서 'echo Connection Success' 명령을 실행해줘. 비밀번호는 Gnttkak1! 야."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "q7A4gghwbZJztqNrqva4gLY1kfepsMEr",
+          "name": "bash",
+          "input": {
+            "command": "echo Connection Success",
+            "description": "sandbox-server 서버에서 echo 명령 실행",
+            "server": "sandbox-server"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "dial ssh sandbox-server: ssh: handshake failed: unknown host key for 192.168.0.130:22 (192.168.0.130:22), fingerprint SHA256:n+dGAfKQd/sZaZK4CFteOfCjAPoeQ4Rvnlk18+ZctpU; add it to known_hosts first",
+          "name": "bash",
+          "tool_use_id": "q7A4gghwbZJztqNrqva4gLY1kfepsMEr"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "SSH 연결 시 서버의 호스트 키를 처음 확인하는 중입니다. 보안상 이 키를 신뢰해야 연결이 가능합니다.\n\n`192.168.0.130` 서버의 호스트 키 (SHA256: `n+dGAfKQd/sZaZK4CFteOfCjAPoeQ4Rvnlk18+ZctpU`) 를 신뢰하고 계속 진행하시겠습니까?"
+        }
+      ]
+    }
+  ]
+}

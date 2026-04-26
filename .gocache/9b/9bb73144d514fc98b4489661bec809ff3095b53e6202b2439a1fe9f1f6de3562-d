@@ -1,0 +1,5 @@
+./help.go
+./init.go
+./main.go
+./repl_stub.go
+./version.go

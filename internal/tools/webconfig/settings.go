@@ -1,0 +1,70 @@
+package webconfig
+
+import (
+	"encoding/json"
+	"os"
+	"strings"
+
+	"github.com/koreaf16/argus/internal/constants"
+)
+
+const (
+	DefaultSearXNGBaseURL   = "http://192.168.0.3:30080/search"
+	DefaultSearXNGMaxResult = 10
+	DefaultCrawl4AIBaseURL  = "http://192.168.0.3:30090"
+	DefaultCrawl4AITimeout  = 60_000
+)
+
+type Config struct {
+	SearXNGBaseURL    string
+	SearXNGMax        int
+	Crawl4AIBase      string
+	Crawl4AITimeoutMS int
+}
+
+type settingsFile struct {
+	Web struct {
+		SearXNG struct {
+			BaseURL    string `json:"base_url"`
+			MaxResults int    `json:"max_results"`
+		} `json:"searxng"`
+		Crawl4AI struct {
+			BaseURL   string `json:"base_url"`
+			TimeoutMS int    `json:"timeout_ms"`
+		} `json:"crawl4ai"`
+	} `json:"web"`
+}
+
+func Load() Config {
+	cfg := Config{
+		SearXNGBaseURL:    DefaultSearXNGBaseURL,
+		SearXNGMax:        DefaultSearXNGMaxResult,
+		Crawl4AIBase:      DefaultCrawl4AIBaseURL,
+		Crawl4AITimeoutMS: DefaultCrawl4AITimeout,
+	}
+
+	data, err := os.ReadFile(constants.SettingsPath())
+	if err != nil {
+		return cfg
+	}
+
+	var parsed settingsFile
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return cfg
+	}
+
+	if v := strings.TrimSpace(parsed.Web.SearXNG.BaseURL); v != "" {
+		cfg.SearXNGBaseURL = v
+	}
+	if parsed.Web.SearXNG.MaxResults > 0 {
+		cfg.SearXNGMax = parsed.Web.SearXNG.MaxResults
+	}
+	if v := strings.TrimSpace(parsed.Web.Crawl4AI.BaseURL); v != "" {
+		cfg.Crawl4AIBase = strings.TrimRight(v, "/")
+	}
+	if parsed.Web.Crawl4AI.TimeoutMS > 0 {
+		cfg.Crawl4AITimeoutMS = parsed.Web.Crawl4AI.TimeoutMS
+	}
+
+	return cfg
+}

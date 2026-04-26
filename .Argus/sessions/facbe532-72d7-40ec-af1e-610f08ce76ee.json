@@ -1,0 +1,80 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T02:26:53.7254516Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 반갑습니다. 😊\n\n무엇을 도와드릴까요? 궁금한 점이나 작업이 있으시면 말씀해 주세요!"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "오늘 날씨?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "9yfBANBMhR9ARxiKiREiVOMOhg82AhoD",
+          "name": "web_search",
+          "input": {
+            "query": "오늘 날씨"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "{\"query\":\"오늘 날씨\",\"results\":[\"Found 10 result(s). Use the webfetch tool with a selected URL and extraction prompt to read page content.\",{\"content\":[{\"title\":\"홈 - 기상청 날씨누리\",\"url\":\"https://www.weather.go.kr/\",\"snippet\":\"안녕하세요 예보관리포트 기상청 예보분석관 남민지입니다 이번 영상의 날씨 키워드는 '강수'와 '기온'입니다 그럼 자세히 살펴보겠습니다 오늘 우리나라는 고기압 가장자리에 드는 한편 제주도남쪽해상으로 다가오는 저기압의 영향으로 대체로 흐리고 ...\"},{\"title\":\"대구지방기상청\",\"url\":\"https://www.kma.go.kr/daegu/\",\"snippet\":\"오늘 · 시각: 14시 · 날씨: 맑음 · 기온(체감온도) 22℃(22℃) · 체감온도: 22℃ · 강수량: - · - · 강수확률: · 바람: 서풍 약 4m/s ...\"},{\"title\":\"네이버 날씨\",\"url\":\"http://weather.naver.com/\",\"snippet\":\"네이버 날씨는 현재 날씨, 예보 및 기상청 정보를 제공합니다.\"},{\"title\":\"[날씨] 오늘 충청 이남 비, 고온 주춤 '서울 21℃'...중부 대기 건조\",\"url\":\"https://www.ytn.co.kr/_ln/0108_202604170648519815\",\"snippet\":\"6 days ago · 오늘은 충청 이남에 봄비가 내리겠습니다.비가 내리며, 최근 이어지던 고온 현상도 주춤하겠는데요.서울은 비 대신 하늘빛만 흐리겠지만, 낮 ...\"},{\"title\":\"지역별 날씨 : 웨더아이 - 날씨로부터의 자유, 날씨와 함께하는 행복\",\"url\":\"https://www.weatheri.co.kr/forecast/forecast01.php\",\"snippet\":\"메뉴 바로가기 · 내용 바로가기 · 1 기상특보 · 2 장기예보 · 3 SMS서비스 · 4 황사정보 · 5 세계예보 · 6 상세예보 · 7 골프장날씨 · 8 슈퍼컴예보\"},{\"title\":\"케이웨더-날씨와 미세먼지\",\"url\":\"https://weather.kweather.co.kr/\",\"snippet\":\"오늘 저녁(18~24시) 3/4℃ · 구름많음 · 미세먼지 · 보통 · 케이웨더 날씨 APP · 안드로이드 · 아이폰 · 홍보센터 보도자료 기상뉴스 · 0000-00-00 · 0000-00-00 · 0000-00-00 · 0000-00-00 · 0000-00-00 · 0000-00-00 ·\"},{\"title\":\"수도권기상청\",\"url\":\"https://www.kma.go.kr/metropolitan/\",\"snippet\":\"관심지역토글 도움말 별표를 누르면 관심지역으로 등록 또는 삭제할 수 있습니다 날씨지도\"},{\"title\":\"[출근길 YTN 날씨 4/17] 오늘 전국 흐리고 고온 현상 주춤...충청·남부...\",\"url\":\"https://www.ytn.co.kr/_ln/0108_202604170737175746\",\"snippet\":\"6 days ago · 오늘 흐리고 충청 이남 비…고온 주춤, 서울 21℃ / 제주도 강풍 동반 요란한 비…제주 산간 호우예비특보 / 대기 건조, 중부 곳곳\"},{\"title\":\"다음날씨 | 동네날씨\",\"url\":\"https://weather.daum.net/\",\"snippet\":\"현재날씨. 현위치. 지역 즐겨찾기 종로구 청운효자동. 현위치. 날씨 데이터 제공처 ... 오늘은 음력 3.7. 입니다. 오늘. 월출 10:27. 월몰 01:48. 내일. 월출 11:40. 월몰 ...\"},{\"title\":\"예보 종합(위치) - 기상청 날씨누리\",\"url\":\"https://www.weather.go.kr/w/forecast/overall/short-term.do\",\"snippet\":\"오늘 · 시각: 15시 · 날씨: 구름 많음 · 기온 : 22℃ · 체감온도: 22℃ · 강수량: · - · 강수확률: 20% · 바람: 북동풍 약 ...\"}],\"tool_use_id\":\"searxng-112536\"}],\"durationSeconds\":3.0309622}",
+          "name": "web_search",
+          "tool_use_id": "9yfBANBMhR9ARxiKiREiVOMOhg82AhoD"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Do not finalize your answer yet.\n1) Select the best URL from the existing web_search results.\n2) Prefer official sources when available.\nPreferred official domains: ai.google.dev, deepmind.google, blog.google, developers.googleblog.com, developer.android.com, huggingface.co, cloud.google.com\n3) Call webfetch on one selected URL.\n4) Extract publication/update date, key facts, and what changed.\n5) Then provide the final answer with absolute dates and a Sources section.\nIf webfetch cannot be completed due to permission denial, explicitly say verification is incomplete."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "d02RcC9qSL1dg6iKAh5VWMxWHZtm9SaV",
+          "name": "webfetch",
+          "input": {
+            "url": "https://www.weather.go.kr/",
+            "prompt": "Extract today's weather information including: publication/update date, current weather conditions, temperature, precipitation, wind, and any weather warnings or special notices for Korea"
+          }
+        }
+      ]
+    }
+  ]
+}

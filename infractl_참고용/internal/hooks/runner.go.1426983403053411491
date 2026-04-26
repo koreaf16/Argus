@@ -1,0 +1,154 @@
+// Package hooks
+// File: runner.go
+// Description: Hook execution orchestrator for PreToolUse/PostToolUse.
+package hooks
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+
+	"github.com/yourorg/infractl/internal/llm"
+)
+
+// Runner executes matched hooks for each event.
+type Runner struct {
+	llmRegistry *llm.Registry
+	http        *httpBackend
+	agentRunner AgentRunner
+	once sync.Map
+}
+
+// NewRunner builds a hook runner.
+func NewRunner(llmRegistry *llm.Registry) *Runner {
+	return &Runner{
+		llmRegistry: llmRegistry,
+		http:        newHTTPBackend(),
+	}
+}
+
+// SetAgentRunner injects the agent backend runner.
+func (r *Runner) SetAgentRunner(runner AgentRunner) {
+	r.agentRunner = runner
+}
+
+// RunPostToolUse runs post hooks in best-effort mode.
+func (r *Runner) RunPostToolUse(ctx context.Context, input HookInput) {
+	input.Event = HookEventPostToolUse
+	r.runEvent(ctx, HookEventPostToolUse, input, false)
+}
+
+// RunPreToolUse runs pre hooks in fail-closed mode.
+func (r *Runner) RunPreToolUse(ctx context.Context, input HookInput) HookOutput {
+	input.Event = HookEventPreToolUse
+	return r.runEvent(ctx, HookEventPreToolUse, input, true)
+}
+
+func (r *Runner) runEvent(ctx context.Context, event HookEvent, input HookInput, failClosed bool) HookOutput {
+	cfg := GetSnapshot()
+	matchers := cfg.MatchersFor(event)
+	if len(matchers) == 0 {
+		return HookOutput{Decision: DecisionAllow}
+	}
+
+	defs, matched := MatchInput(matchers, input)
+	if !matched {
+		return HookOutput{Decision: DecisionAllow}
+	}
+
+	merged := HookOutput{Decision: DecisionAllow}
+	for _, def := range defs {
+		onceKey := r.onceKey(event, input, def)
+		if def.Once {
+			if _, loaded := r.once.LoadOrStore(onceKey, struct{}{}); loaded {
+				continue
+			}
+		}
+		if def.Async {
+			go func(def HookDef) {
+				if _, err := r.runSingle(context.Background(), def, input); err != nil {
+					slog.Warn("async hook execution failed",
+						"event", event,
+						"tool", input.Tool,
+						"backend", def.Type,
+						"err", err,
+					)
+				}
+			}(def)
+			continue
+		}
+
+		out, err := r.runSingle(ctx, def, input)
+		if err != nil {
+			slog.Warn("hook execution failed",
+				"event", event,
+				"tool", input.Tool,
+				"backend", def.Type,
+				"err", err,
+			)
+			if failClosed {
+				return HookOutput{
+					Decision:      DecisionDeny,
+					Reason:        fmt.Sprintf("hook error: %s", err),
+					SystemMessage: fmt.Sprintf("Hook execution failed and blocked tool call: %s", err),
+					RuntimeError:  true,
+				}
+			}
+			continue
+		}
+
+		slog.Debug("hook executed",
+			"event", event,
+			"tool", input.Tool,
+			"backend", def.Type,
+			"decision", string(out.Decision),
+		)
+
+		if out.IsDeny() {
+			return out
+		}
+		if len(out.NewInput) > 0 {
+			merged.NewInput = out.NewInput
+		}
+		if out.SystemMessage != "" {
+			merged.SystemMessage = out.SystemMessage
+		}
+	}
+	return merged
+}
+
+func (r *Runner) onceKey(event HookEvent, input HookInput, def HookDef) string {
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%s", event, input.Tool, def.Type, def.Command, def.URL, def.Prompt+def.Agent)
+}
+
+func (r *Runner) runSingle(ctx context.Context, def HookDef, input HookInput) (HookOutput, error) {
+	timeout := HookTimeout(def)
+	tctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	b, err := r.selectBackend(def)
+	if err != nil {
+		return HookOutput{}, err
+	}
+	return b.Run(tctx, def, input)
+}
+
+func (r *Runner) selectBackend(def HookDef) (Backend, error) {
+	switch def.Type {
+	case BackendCommand:
+		return &commandBackend{}, nil
+	case BackendPrompt:
+		if r.llmRegistry == nil {
+			return nil, errors.New("prompt backend: llm registry not configured")
+		}
+		return &promptBackend{registry: r.llmRegistry}, nil
+	case BackendHTTP:
+		return r.http, nil
+	case BackendAgent:
+		return &agentBackend{runner: r.agentRunner}, nil
+	default:
+		return nil, fmt.Errorf("unknown backend type: %q", def.Type)
+	}
+}

@@ -1,0 +1,75 @@
+// Package agent
+// File: compaction_restore.go
+// Description: compaction ?꾨즺 ???쒖꽦 ?쒕쾭/而ㅻ꽖???곹깭瑜??덉뒪?좊━???ъ＜??// Responsibility: compaction?쇰줈 ?먯떎?????덈뒗 ?댁쁺 而⑦뀓?ㅽ듃(activeServer, 而ㅻ꽖??瑜?利됱떆 蹂듭썝
+
+package agent
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/connector"
+	"github.com/yourorg/infractl/internal/llm"
+)
+
+// injectPostCompactContext??compaction ?꾨즺 吏곹썑 ?쒖꽦 ?쒕쾭? 而ㅻ꽖???곹깭瑜?// ?덉뒪?좊━??user/assistant ?띿쑝濡??ъ＜?낇븳??
+//
+// 二쇱엯 議곌굔: activeServer媛 ?ㅼ젙?섏뼱 ?덇굅???쒖꽦 而ㅻ꽖?곌? 1媛??댁긽 議댁옱????
+// ?쒖뒪???꾨＼?꾪듃?먮룄 ???뺣낫媛 ?ы븿?섏?留? ?덉뒪?좊━??紐낆떆?곸쑝濡?議댁옱?섎㈃
+// LLM???꾩옱 而⑦뀓?ㅽ듃瑜????뺤떎?섍쾶 ?몄??쒕떎.
+func (a *Agent) injectPostCompactContext(_ context.Context) {
+	var parts []string
+
+	if a.activeServer != nil {
+		parts = append(parts, fmt.Sprintf(
+			"[Active Workspace] %s (%s@%s:%d) OS: %s Workspace: %s",
+			a.activeServer.Name,
+			a.activeServer.User,
+			a.activeServer.Host,
+			a.activeServer.Port,
+			a.activeServer.OS,
+			a.activeServer.WorkspaceDir,
+		))
+		if a.activeServer.EnvProfile != "" {
+			parts = append(parts, "  Environment: "+a.activeServer.EnvProfile)
+		}
+	}
+
+	if a.connectorMgr != nil {
+		var activeConns []string
+		for _, cs := range a.connectorMgr.States() {
+			if cs.Status == connector.StatusConnected {
+				activeConns = append(activeConns, fmt.Sprintf(
+					"%s/%s/%s (%d tools)",
+					cs.ServerName, cs.Type, cs.ServiceName, len(cs.Tools),
+				))
+			}
+		}
+		if len(activeConns) > 0 {
+			parts = append(parts, "[Active Connectors]")
+			for _, c := range activeConns {
+				parts = append(parts, "  - "+c)
+			}
+		}
+	}
+
+	if len(parts) == 0 {
+		return
+	}
+
+	note := "[Context restored after compaction]\n" + strings.Join(parts, "\n") +
+		"\n\n[Reminder] Workspaces are execution contexts. Verify service state with dedicated tools before acting on service assumptions."
+
+	a.history = append(a.history,
+		llm.Message{Role: llm.RoleUser, Content: note},
+		llm.Message{Role: llm.RoleAssistant, Content: "Context noted. Active workspace and connector state restored."},
+	)
+
+	serverName := ""
+	if a.activeServer != nil {
+		serverName = a.activeServer.Name
+	}
+	slog.Info("post-compact context injected", "active_server", serverName)
+}

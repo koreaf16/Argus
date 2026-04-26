@@ -1,0 +1,5 @@
+/server connect sandbox-server
+Welcome1!@#$
+bash 도구 server="sandbox-server" 으로 OPatch 실패 상태 파일 확인: (1) ls -la /u01/app/oracle/product/19.0.0/dbhome_1/.patch_storage/ 2>&1 | head -20 || echo no_patch_storage. (2) find /u01/app/oracle/product/19.0.0/dbhome_1 -maxdepth 2 -name ".patch_storage" -o -name "*.lck" -o -name "patchinprogress" 2>/dev/null | head -10. (3) ls -la /u01/app/oracle/product/19.0.0/dbhome_1/inventory/ 2>&1 | head -10 || echo no_inventory_dir.
+bash 도구 server="sandbox-server" 으로 OPatch util Cleanup 실행: (1) echo 'Welcome1!@#$' | sudo -S -u oracle /u01/app/oracle/product/19.0.0/dbhome_1/OPatch/opatch util Cleanup -force 2>&1 | tail -20. (2) echo opatch_cleanup_done.
+bash 도구 server="sandbox-server" 으로 OPatch cleanup 후 oracle home 상태 재확인 및 installer 재실행: (1) echo 'Welcome1!@#$' | sudo -S -u oracle bash -c "export CV_ASSUME_DISTID=OEL7.6; export ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1; export ORACLE_BASE=/u01/app/oracle; nohup /u01/app/oracle/product/19.0.0/dbhome_1/runInstaller -silent -ignorePrereqFailure -responseFile /tmp/db_install_clean.rsp -waitforcompletion > /tmp/oracle_install13.log 2>&1 &"; echo "install13_launched"

@@ -1,0 +1,393 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/koreaf16/argus/internal/presentation"
+	"github.com/koreaf16/argus/internal/query"
+	"github.com/koreaf16/argus/internal/types"
+	"github.com/koreaf16/argus/internal/utils/permissions"
+)
+
+type submitStartedMsg struct{}
+type submitFinishedMsg struct{}
+type quitRequestedMsg struct{}
+
+type queryEventMsg struct {
+	Event query.UIEvent
+}
+
+type presentationEventMsg struct {
+	Event presentation.Event
+}
+
+type footerStateMsg struct {
+	Footer presentation.FooterState
+}
+
+type decisionResult struct {
+	Allow bool
+	Err   error
+}
+
+type passwordResult struct {
+	Value string
+	Err   error
+}
+
+type approvalRequestMsg struct {
+	ToolName string
+	Input    string
+	Response chan decisionResult
+}
+
+type confirmRequestMsg struct {
+	Prompt    string
+	DefaultNo bool
+	Response  chan decisionResult
+}
+
+type passwordRequestMsg struct {
+	Prompt   string
+	Response chan passwordResult
+}
+
+type transcriptEntry struct {
+	Kind  string
+	Title string
+	Body  string
+}
+
+type transcriptRow struct {
+	Plain string
+	Style lipgloss.Style
+}
+
+type textSelection struct {
+	Active   bool
+	Dragging bool
+	StartRow int
+	StartCol int
+	EndRow   int
+	EndCol   int
+}
+
+type uiModel struct {
+	app *app
+	cfg Config
+
+	width  int
+	height int
+
+	viewport viewport.Model
+	input  textarea.Model
+	footer presentation.FooterState
+
+	entries []transcriptEntry
+	rows    []transcriptRow
+
+	assistantOpen      bool
+	assistantStreamIdx int
+	busy               bool
+
+	modalQueue []modalState
+	modal      modalState
+
+	slashMatches []slashSuggestion
+	slashCursor  int
+
+	inputHistory []string
+	historyIdx   int
+	historyCycle bool
+
+	maxEntries int
+
+	selection textSelection
+}
+
+func newUIModel(a *app, cfg Config) uiModel {
+	in := textarea.New()
+	in.Placeholder = "Type a message..."
+	in.Prompt = ""
+	in.ShowLineNumbers = false
+	in.CharLimit = 0
+	in.SetHeight(3)
+	in.Focus()
+	vp := viewport.New(0, 0)
+	vp.MouseWheelEnabled = cfg.MouseEnabled
+	vp.MouseWheelDelta = 3
+
+	m := uiModel{
+		app:                a,
+		cfg:                cfg,
+		viewport:           vp,
+		input:              in,
+		entries:            make([]transcriptEntry, 0, 256),
+		assistantStreamIdx: -1,
+		footer:             presentation.BuildFooterState(cfg.State, cfg.WorkDir),
+		historyIdx:         -1,
+		maxEntries:         4000,
+		rows:               make([]transcriptRow, 0, 512),
+	}
+	for _, evt := range presentation.ReplayEvents(cfg.Engine.Messages()) {
+		m.applyPresentationEvent(evt)
+	}
+	m.refreshViewport(true)
+	return m
+}
+
+func (m uiModel) Init() tea.Cmd {
+	return tea.Batch(
+		textarea.Blink,
+		tea.Println(renderLogoBlock(m.cfg)),
+	)
+}
+
+func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch v := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = v.Width
+		m.height = v.Height
+		m.resize()
+		return m, nil
+	case quitRequestedMsg:
+		return m, tea.Quit
+	case submitStartedMsg:
+		m.busy = true
+		return m, nil
+	case submitFinishedMsg:
+		m.busy = false
+		m.refreshViewport(false)
+		return m, nil
+	case queryEventMsg:
+		if evt, ok := presentation.FromUIEvent(v.Event); ok {
+			m.applyPresentationEvent(evt)
+			m.refreshViewport(false)
+			return m, nil
+		}
+		return m, nil
+	case presentationEventMsg:
+		m.applyPresentationEvent(v.Event)
+		m.refreshViewport(false)
+		return m, nil
+	case footerStateMsg:
+		m.footer = v.Footer
+		return m, nil
+	case approvalRequestMsg:
+		m.enqueueModal(modalState{
+			Kind:      modalApproval,
+			Title:     "Tool Permission",
+			Prompt:    "Allow this tool execution?",
+			ToolName:  v.ToolName,
+			InputJSON: v.Input,
+			DecisionC: v.Response,
+		})
+		return m, nil
+	case confirmRequestMsg:
+		m.enqueueModal(modalState{
+			Kind:      modalConfirm,
+			Title:     "Confirm",
+			Prompt:    v.Prompt,
+			DefaultNo: v.DefaultNo,
+			DecisionC: v.Response,
+		})
+		return m, nil
+	case passwordRequestMsg:
+		m.enqueueModal(modalState{
+			Kind:      modalPassword,
+			Title:     "Password Required",
+			Prompt:    v.Prompt,
+			PasswordC: v.Response,
+		})
+		return m, nil
+	case tea.MouseMsg:
+		if m.modal.Kind != modalNone || !m.cfg.MouseEnabled {
+			return m, nil
+		}
+		if m.handleMouse(v) {
+			return m, nil
+		}
+		return m, nil
+	case tea.KeyMsg:
+		if m.modal.Kind != modalNone {
+			m.handleModalKey(v)
+			return m, nil
+		}
+		if m.selection.Active {
+			switch v.String() {
+			case "esc":
+				m.clearSelection()
+				m.refreshViewport(false)
+				return m, nil
+			case "ctrl+c":
+				m.copySelectionToClipboard()
+				return m, nil
+			default:
+				m.clearSelection()
+				m.refreshViewport(false)
+			}
+		}
+		switch v.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "pgup":
+			m.viewport.HalfViewUp()
+			return m, nil
+		case "pgdown":
+			m.viewport.HalfViewDown()
+			return m, nil
+		case "home":
+			m.viewport.GotoTop()
+			return m, nil
+		case "end":
+			m.viewport.GotoBottom()
+			return m, nil
+		case "ctrl+r":
+			m.cycleInputHistoryBackward()
+			m.refreshSlashSuggestions()
+			m.resize()
+			return m, nil
+		case "tab":
+			if m.applySlashSuggestion() {
+				m.resize()
+				return m, nil
+			}
+		case "ctrl+n":
+			if m.moveSlashSuggestion(1) {
+				return m, nil
+			}
+		case "ctrl+p":
+			if m.moveSlashSuggestion(-1) {
+				return m, nil
+			}
+		case "enter":
+			text := strings.TrimSpace(m.input.Value())
+			if text == "" {
+				return m, nil
+			}
+			if m.busy {
+				m.applyPresentationEvent(presentation.Event{
+					Kind: presentation.EventNotice,
+					Text: "Previous request is still running.",
+				})
+				return m, nil
+			}
+			m.pushInputHistory(text)
+			m.resetHistoryCycle()
+			m.input.SetValue("")
+			m.input.SetCursor(0)
+			m.refreshSlashSuggestions()
+			m.app.submit(text)
+			return m, nil
+		case "ctrl+j":
+			m.input.InsertRune('\n')
+			m.resize()
+			return m, nil
+		case "shift+tab":
+			m.cyclePermissionMode()
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(v)
+		if len(v.Runes) > 0 || v.String() == "backspace" || v.String() == "delete" {
+			m.resetHistoryCycle()
+		}
+		m.refreshSlashSuggestions()
+		m.resize()
+		return m, cmd
+	}
+
+	prev := m.input.Value()
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	if m.input.Value() != prev {
+		m.resetHistoryCycle()
+		m.refreshSlashSuggestions()
+		m.resize()
+	}
+	return m, cmd
+}
+
+func (m *uiModel) cyclePermissionMode() {
+	if m.cfg.State == nil {
+		return
+	}
+	permCtx := permissions.NewDefaultPermissionContext()
+	permCtx.Mode = m.cfg.State.GetPermissionMode()
+	next, _ := permissions.CyclePermissionMode(permCtx)
+	m.cfg.State.SetPermissionMode(next)
+	if next == types.PermissionModePlan {
+		m.cfg.State.SetMode("plan")
+	} else if m.cfg.State.GetMode() == "plan" {
+		m.cfg.State.SetMode("normal")
+	}
+	m.footer = presentation.BuildFooterState(m.cfg.State, m.cfg.WorkDir)
+	m.applyPresentationEvent(presentation.Event{
+		Kind: presentation.EventNotice,
+		Text: fmt.Sprintf("permission mode -> %s", next),
+	})
+}
+
+func (m *uiModel) resize() {
+	if m.width <= 0 {
+		return
+	}
+	inputWidth := m.width - 5
+	if inputWidth < 12 {
+		inputWidth = 12
+	}
+	m.input.SetWidth(inputWidth)
+	maxHeight := 8
+	if m.height > 0 {
+		maxHeight = m.height / 3
+		if maxHeight < 2 {
+			maxHeight = 2
+		}
+		if maxHeight > 8 {
+			maxHeight = 8
+		}
+	}
+	m.input.SetHeight(min(maxHeight, 3))
+	m.input.MaxHeight = maxHeight
+
+	if m.height > 0 {
+		inputHeight := lipgloss.Height(m.renderInput())
+		footerHeight := lipgloss.Height(m.renderFooter())
+		modalHeight := 0
+		if m.modal.Kind != modalNone {
+			modalHeight = lipgloss.Height(m.renderModal())
+		}
+		viewportHeight := m.height - inputHeight - footerHeight - modalHeight
+		if viewportHeight < 3 {
+			viewportHeight = 3
+		}
+		m.viewport.Height = viewportHeight
+	}
+	m.viewport.Width = max(m.width, 1)
+	m.refreshViewport(false)
+}
+
+func (m uiModel) View() string {
+	if m.width == 0 {
+		return ""
+	}
+
+	parts := []string{m.renderViewport()}
+	if m.modal.Kind != modalNone {
+		parts = append(parts, m.renderModal())
+	}
+	parts = append(parts, m.renderInput(), m.renderFooter())
+	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	if m.height > 0 {
+		if gap := m.height - lipgloss.Height(out); gap > 0 {
+			out += strings.Repeat("\n", gap)
+		}
+	}
+	return out
+}

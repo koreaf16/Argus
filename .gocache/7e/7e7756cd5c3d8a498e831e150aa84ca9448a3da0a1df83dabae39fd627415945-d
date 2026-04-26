@@ -1,0 +1,9 @@
+./help.go
+./init.go
+./init_menu.go
+./init_prompt.go
+./main.go
+./repl_stub.go
+./version.go
+./main_aidebug_test.go
+./main_test.go

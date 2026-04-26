@@ -1,0 +1,5 @@
+/server connect sandbox-server
+Welcome1!@#$
+bash 도구 server="sandbox-server" 으로 기존 installer 정리 및 확인: (1) echo 'Welcome1!@#$' | sudo -S pkill -f runInstaller 2>&1 || true. (2) echo 'Welcome1!@#$' | sudo -S rm -f /tmp/*.lck /tmp/oracle_*.log 2>/dev/null; echo cleanup_ok. (3) ls /u01/app/oraInventory/ 2>&1. (4) echo 'Welcome1!@#$' | sudo -S ls /u01/app/oracle/product/19.0.0/dbhome_1/cv/cvdata/cvu_prereq.xml 2>&1 && echo prereq_xml_ok.
+bash 도구 server="sandbox-server" 으로 CV_ASSUME_DISTID=OEL7.6 설정 후 installer nohup 실행: echo 'Welcome1!@#$' | sudo -S -u oracle bash -c "export CV_ASSUME_DISTID=OEL7.6; export ORACLE_BASE=/u01/app/oracle; export ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1; cd /u01/app/oracle/product/19.0.0/dbhome_1; nohup ./runInstaller -silent -ignorePrereqFailure -responseFile /tmp/db_install_clean.rsp -waitforcompletion > /tmp/oracle_install3.log 2>&1 & echo installer_pid=\$!" 2>&1
+bash 도구 server="sandbox-server" 으로 30초 대기 후 설치 진행 확인: sleep 30 && echo "=== process ===" && ps aux | grep -E "runInstaller|java" | grep -v grep | head -5 2>&1 && echo "=== log ===" && cat /tmp/oracle_install3.log 2>&1

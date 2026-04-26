@@ -1,0 +1,127 @@
+exit_code: 0
+
+stdout:
+UID          PID    PPID  C STIME TTY          TIME CMD
+root           1       0  0  4월05 ?      00:02:24 /usr/lib/systemd/systemd --switched-root --system --deserialize 31
+root        1404       1  0  4월05 ?      00:00:57 /usr/lib/systemd/systemd-journald
+root        1419       1  0  4월05 ?      00:01:08 /usr/lib/systemd/systemd-udevd
+root        1619       1  0  4월05 ?      00:00:11 /sbin/auditd
+dbus        1646       1  0  4월05 ?      00:00:00 /usr/bin/dbus-broker-launch --scope system --audit
+dbus        1647    1646  0  4월05 ?      00:00:40 dbus-broker --log 4 --controller 9 --machine-id 2b74dd50612a43b3ac3850d0e9ecc977 --max-bytes 536870912 --max-fds 4096 --max-matches 131072 --audit
+root        1648       1  0  4월05 ?      00:03:38 /usr/sbin/NetworkManager --no-daemon
+root        1651       1  0  4월05 ?      00:31:40 /usr/sbin/irqbalance
+root        1652       1  0  4월05 ?      00:54:12 /usr/bin/nv-hostengine -n --service-account nvidia-dcgm
+root        1654       1  0  4월05 ?      00:00:15 /usr/lib/systemd/systemd-logind
+chrony      1660       1  0  4월05 ?      00:00:02 /usr/sbin/chronyd -F 2
+root        1830       1  6  4월05 ?      1-05:26:02 /usr/bin/containerd
+root        1831       1  0  4월05 ?      00:00:02 /usr/sbin/crond -n
+root        2040       1  0  4월05 tty1   00:00:00 /sbin/agetty -o -p -- \u --noclear - linux
+root        2043       1  0  4월05 ?      00:00:00 login -- root
+root        2052       1  0  4월05 ?      00:00:44 /usr/lib/systemd/systemd --user
+root        2054    2052  0  4월05 ?      00:00:00 (sd-pam)
+root        2062    2043  0  4월05 tty2   00:00:00 -bash
+root        2100       1  0  4월05 ?      00:51:41 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+root        2102       1  3  4월05 ?      15:18:35 /usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock --pod-infra-container-image=registry.k8s.io/pause:3.9
+root        2103       1  0  4월05 ?      00:01:26 /usr/sbin/rsyslogd -n
+root        2803       1  0  4월05 ?      00:06:13 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 578497fb9d6b62f14bf006c08c0e3ab9d8870a06001f9f0c6ce516762dc86164 -address /run/containerd/containerd.sock
+root        2837       1  0  4월05 ?      00:06:07 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 7df41e04fe2d89f2f5ddf3aa21ca2f40583e99d35fbcf4bedc33196aee3e8cf5 -address /run/containerd/containerd.sock
+root        2870       1  0  4월05 ?      00:06:14 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 1ba7a4f2ea33a332b265f2792f9c3e5e454b39a2fe4d74bd8fc96a9d6980a03f -address /run/containerd/containerd.sock
+root        2896       1  0  4월05 ?      00:06:11 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 95fd578caadf2159baebbb869b00dcddd35037b47b8aa5d42ac94bdc64117651 -address /run/containerd/containerd.sock
+65535       2943    2803  0  4월05 ?      00:00:00 /pause
+65535       2952    2837  0  4월05 ?      00:00:00 /pause
+65535       2978    2870  0  4월05 ?      00:00:00 /pause
+65535       3010    2896  0  4월05 ?      00:00:00 /pause
+root        3180    2803  1  4월05 ?      07:13:15 etcd --advertise-client-urls=https://172.16.100.100:2379 --cert-file=/etc/kubernetes/pki/etcd/server.crt --client-cert-auth=true --data-dir=/var/lib/etcd --experimental-initial-corrupt-check=true --experimental-watch-progress-notify-interval=5s --initial-advertise-peer-urls=https://172.16.100.100:2380 --initial-cluster=aisvr=https://172.16.100.100:2380 --key-file=/etc/kubernetes/pki/etcd/server.key --listen-client-urls=https://127.0.0.1:2379,https://172.16.100.100:2379 --listen-metrics-urls=http://127.0.0.1:2381 --listen-peer-urls=https://172.16.100.100:2380 --name=aisvr --peer-cert-file=/etc/kubernetes/pki/etcd/peer.crt --peer-client-cert-auth=true --peer-key-file=/etc/kubernetes/pki/etcd/peer.key --peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt --snapshot-count=10000 --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt
+root        3188    2870  1  4월05 ?      05:31:51 kube-controller-manager --allocate-node-cidrs=true --authentication-kubeconfig=/etc/kubernetes/controller-manager.conf --authorization-kubeconfig=/etc/kubernetes/controller-manager.conf --bind-address=127.0.0.1 --client-ca-file=/etc/kubernetes/pki/ca.crt --cluster-cidr=192.168.0.0/16 --cluster-name=kubernetes --cluster-signing-cert-file=/etc/kubernetes/pki/ca.crt --cluster-signing-key-file=/etc/kubernetes/pki/ca.key --controllers=*,bootstrapsigner,tokencleaner --kubeconfig=/etc/kubernetes/controller-manager.conf --leader-elect=true --requestheader-client-ca-file=/etc/kubernetes/pki/front-proxy-ca.crt --root-ca-file=/etc/kubernetes/pki/ca.crt --service-account-private-key-file=/etc/kubernetes/pki/sa.key --service-cluster-ip-range=10.96.0.0/12 --use-service-account-credentials=true
+root        3191    2837  2  4월05 ?      14:03:00 kube-apiserver --advertise-address=172.16.100.100 --allow-privileged=true --authorization-mode=Node,RBAC --client-ca-file=/etc/kubernetes/pki/ca.crt --enable-admission-plugins=NodeRestriction --enable-bootstrap-token-auth=true --etcd-cafile=/etc/kubernetes/pki/etcd/ca.crt --etcd-certfile=/etc/kubernetes/pki/apiserver-etcd-client.crt --etcd-keyfile=/etc/kubernetes/pki/apiserver-etcd-client.key --etcd-servers=https://127.0.0.1:2379 --kubelet-client-certificate=/etc/kubernetes/pki/apiserver-kubelet-client.crt --kubelet-client-key=/etc/kubernetes/pki/apiserver-kubelet-client.key --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname --proxy-client-cert-file=/etc/kubernetes/pki/front-proxy-client.crt --proxy-client-key-file=/etc/kubernetes/pki/front-proxy-client.key --requestheader-allowed-names=front-proxy-client --requestheader-client-ca-file=/etc/kubernetes/pki/front-proxy-ca.crt --requestheader-extra-headers-prefix=X-Remote-Extra- --requestheader-group-headers=X-Remote-Group --requestheader-username-headers=X-Remote-User --secure-port=6443 --service-account-issuer=https://kubernetes.default.svc.cluster.local --service-account-key-file=/etc/kubernetes/pki/sa.pub --service-account-signing-key-file=/etc/kubernetes/pki/sa.key --service-cluster-ip-range=10.96.0.0/12 --tls-cert-file=/etc/kubernetes/pki/apiserver.crt --tls-private-key-file=/etc/kubernetes/pki/apiserver.key
+root        3198    2896  0  4월05 ?      00:53:26 kube-scheduler --authentication-kubeconfig=/etc/kubernetes/scheduler.conf --authorization-kubeconfig=/etc/kubernetes/scheduler.conf --bind-address=127.0.0.1 --kubeconfig=/etc/kubernetes/scheduler.conf --leader-elect=true
+root        3487       1  0  4월05 ?      00:06:02 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 57a7cc32cb5bd3c5ccf81f0f78f1f598af6eaf1fd6058b3964d8c44f44a6710b -address /run/containerd/containerd.sock
+root        3581       1  0  4월05 ?      00:43:40 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 510b9f070763a507049ec470363ed4ac99c0f358e04da8ad5f9f9849ee6a9909 -address /run/containerd/containerd.sock
+65535       3589    3487  0  4월05 ?      00:00:00 /pause
+65535       3719    3581  0  4월05 ?      00:00:00 /pause
+root        3751    3487  0  4월05 ?      00:07:08 /usr/local/bin/kube-proxy --config=/var/lib/kube-proxy/config.conf --hostname-override=aisvr
+root        4236       1  0  4월05 ?      00:06:08 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 24d99719f3cca820f43f1bc58efe8b29b06e6b17c77ee8a688ee78d62c0d3d1d -address /run/containerd/containerd.sock
+65535       4267    4236  0  4월05 ?      00:00:00 /pause
+65532       4303    4236  0  4월05 ?      00:37:59 /coredns -conf /etc/coredns/Corefile
+root        4632       1  0  4월05 ?      00:06:05 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id a7b3fe2362f3b4033c6e2e01dd3623dc75ab7923ad4a570a7d125093b000b636 -address /run/containerd/containerd.sock
+65535       4661    4632  0  4월05 ?      00:00:00 /pause
+65532       4698    4632  0  4월05 ?      00:36:45 /coredns -conf /etc/coredns/Corefile
+root        4760    3581  0  4월05 ?      00:00:15 /usr/local/bin/runsvdir -P /etc/service/enabled
+root        4845    4760  0  4월05 ?      00:00:00 runsv felix
+root        4846    4760  0  4월05 ?      00:00:00 runsv monitor-addresses
+root        4847    4760  0  4월05 ?      00:00:00 runsv allocate-tunnel-addrs
+root        4848    4760  0  4월05 ?      00:00:00 runsv node-status-reporter
+root        4849    4760  0  4월05 ?      00:00:00 runsv bird
+root        4850    4760  0  4월05 ?      00:00:00 runsv bird6
+root        4851    4760  0  4월05 ?      00:00:00 runsv confd
+root        4852    4760  0  4월05 ?      00:00:00 runsv cni
+root        4853    4845  1  4월05 ?      04:59:06 calico-node -felix
+root        4854    4846  0  4월05 ?      00:04:19 calico-node -monitor-addresses
+root        4857    4848  0  4월05 ?      00:06:12 calico-node -status-reporter
+root        4858    4851  0  4월05 ?      00:07:33 calico-node -confd
+root        4859    4852  0  4월05 ?      00:03:26 calico-node -monitor-token
+root        4860    4847  0  4월05 ?      00:06:25 calico-node -allocate-tunnel-addrs
+root        5390       1  0  4월05 ?      00:39:25 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 164f842e3c7a1f61ca71c7a9d5dadd907bd8d56223b22d773ddbc9f4487e97cb -address /run/containerd/containerd.sock
+65535       5419    5390  0  4월05 ?      00:00:00 /pause
+systemd+    5454    5390  0  4월05 ?      00:20:16 /usr/bin/kube-controllers
+root        5506    4849  0  4월05 ?      00:14:45 bird -R -s /var/run/calico/bird.ctl -d -c /etc/calico/confd/config/bird.cfg
+root        5507    4850  0  4월05 ?      00:13:26 bird6 -R -s /var/run/calico/bird6.ctl -d -c /etc/calico/confd/config/bird6.cfg
+root     1154330       1  0  4월13 ?      00:03:31 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 086b42b4eaffcd3458b3af7f22d2cc6bb6eb7f6470345fd3cb376205fa847476 -address /run/containerd/containerd.sock
+65535    1154360 1154330  0  4월13 ?      00:00:00 /pause
+root     1154521 1154330  0  4월13 ?      00:00:00 searxng
+root     1155525 1154521  0  4월13 ?      00:00:00 /usr/local/searxng/.venv/bin/python3 -c from multiprocessing.resource_tracker import main;main(7)
+root     1155526 1154521  0  4월13 ?      00:05:20 searxng worker-1
+koreaf16 1434681       1  0  4월12 ?      00:01:52 watch -n 10 ls -lh /home/vllm/models/hub/models--cyankiwi--Qwen3.5-4B-AWQ-4bit/*.safetensors 2>/dev/null | tail -5; du -sh /home/vllm/models/hub/models--cyankiwi--Qwen3.5-4B-AWQ-4bit/ 2>/dev/null
+koreaf16 1667896 1667847  0  4월25 ?      00:00:02 sshd: koreaf16@pts/0
+koreaf16 1667897 1667896  0  4월25 pts/0  00:00:00 -bash
+root     2079018    2062  0  4월22 tty2   00:00:10 nmtui
+koreaf16 2089192 1667897  6  4월25 pts/0  00:09:31 claude --dangerously-skip-permissions
+koreaf16 2101265       1  0  4월10 ?      00:00:29 /usr/lib/systemd/systemd --user
+koreaf16 2101267 2101265  0  4월10 ?      00:00:00 (sd-pam)
+koreaf16 2102308       1  0  4월10 ?      00:00:00 /bin/bash ./run_gpu2.sh
+koreaf16 2102309 2102308  0  4월10 ?      00:51:18 python kohya_gui.py --listen 0.0.0.0 --server_port 8200
+koreaf16 2156402 2156297  0  4월25 ?      00:00:01 sshd: koreaf16@pts/1
+koreaf16 2156403 2156402  0  4월25 pts/1  00:00:04 -bash
+koreaf16 2165022 2164957  0  4월25 ?      00:00:00 sshd: koreaf16@pts/2
+koreaf16 2165023 2165022  0  4월25 pts/2  00:00:00 -bash
+koreaf16 2165105 2165023  1  4월25 pts/2  00:01:39 claude --dangerously-skip-permissions
+root     2169328       1  0  4월25 ?      00:00:00 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 1e7d0b2305c62b11f56b16ed573bb85eded1d0beb45c6f461b9f6605914fd2e0 -address /run/containerd/containerd.sock
+65535    2169359 2169328  0  4월25 ?      00:00:00 /pause
+root     2169395 2169328  1  4월25 ?      00:00:59 /usr/bin/python3 /usr/local/bin/vllm serve /models/gemma-4-26B-A4B-it-AWQ-4bit --gpu-memory-utilization 0.90 --max-model-len 65536 --max-num-seqs 4 --kv-cache-dtype auto --enable-chunked-prefill --port 8000 --trust-remote-code --enable-auto-tool-choice --tool-call-parser gemma4
+root     2170504 2169395  0  4월25 ?      00:00:00 /usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(48)
+root     2170505 2169395  5  4월25 ?      00:04:30 VLLM::EngineCore
+root     2171642       1  0  4월22 ?      00:01:00 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id d4ebb2ae2586381b5c17164efc0f3263df85573c131f12c3ad70290ec6b4e43c -address /run/containerd/containerd.sock
+65535    2171701 2171642  0  4월22 ?      00:00:00 /pause
+systemd+ 2174351 2171642  0  4월22 ?      00:00:18 /usr/bin/python3 /usr/bin/supervisord -c supervisord.conf
+systemd+ 2174372 2174351  0  4월22 ?      00:05:52 /usr/bin/redis-server *:6379
+systemd+ 2174373 2174351  0  4월22 ?      00:00:18 /usr/local/bin/python3.12 /usr/local/bin/gunicorn --bind 0.0.0.0:11235 --workers 1 --threads 4 --timeout 1800 --graceful-timeout 30 --keep-alive 300 --log-level info --worker-class uvicorn.workers.UvicornWorker server:app
+systemd+ 2174379 2174373  0  4월22 ?      00:05:06 /usr/local/bin/python3.12 /usr/local/bin/gunicorn --bind 0.0.0.0:11235 --workers 1 --threads 4 --timeout 1800 --graceful-timeout 30 --keep-alive 300 --log-level info --worker-class uvicorn.workers.UvicornWorker server:app
+systemd+ 2174448 2174379  0  4월22 ?      00:03:20 /usr/local/lib/python3.12/site-packages/playwright/driver/node /usr/local/lib/python3.12/site-packages/playwright/driver/package/cli.js run-driver
+systemd+ 2174504 2174448  0  4월22 ?      00:00:57 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --no-sandbox --disable-gpu --disable-gpu-compositing --disable-software-rasterizer --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --disable-infobars --window-position=0,0 --ignore-certificate-errors --ignore-certificate-errors-spki-list --disable-blink-features=AutomationControlled --window-position=400,0 --disable-renderer-backgrounding --disable-ipc-flooding-protection --force-color-profile=srgb --mute-audio --disable-background-timer-throttling --disable-features=OptimizationHints,MediaRouter,DialMediaRouteProvider --disable-component-update --disable-domain-reliability --window-size=1080,600 --blink-settings=imagesEnabled=false --disable-remote-fonts --disable-images --disable-javascript --disable-web-security --allow-insecure-localhost --user-data-dir=/tmp/playwright_chromiumdev_profile-fgmFaH --remote-debugging-pipe --no-startup-window
+systemd+ 2174507 2174351  0  4월22 ?      00:00:00 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome_crashpad_handler --monitor-self --monitor-self-annotation=ptype=crashpad-handler --database=/home/appuser/.config/google-chrome-for-testing/Crash Reports --annotation=lsb-release=Debian GNU/Linux 12 (bookworm) --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=145.0.7632.6 --initial-client-fd=7 --shared-client-connection
+systemd+ 2174509 2174351  0  4월22 ?      00:00:00 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome_crashpad_handler --no-periodic-tasks --monitor-self-annotation=ptype=crashpad-handler --database=/home/appuser/.config/google-chrome-for-testing/Crash Reports --annotation=lsb-release=Debian GNU/Linux 12 (bookworm) --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=145.0.7632.6 --initial-client-fd=4 --shared-client-connection
+systemd+ 2174512 2174504  0  4월22 ?      00:00:00 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --type=zygote --no-zygote-sandbox --no-sandbox --headless --crashpad-handler-pid=94 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/playwright_chromiumdev_profile-fgmFaH --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl
+systemd+ 2174513 2174504  0  4월22 ?      00:00:00 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --type=zygote --no-sandbox --headless --crashpad-handler-pid=94 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/playwright_chromiumdev_profile-fgmFaH --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl
+systemd+ 2174533 2174512  0  4월22 ?      00:00:08 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --type=gpu-process --no-sandbox --disable-dev-shm-usage --disable-breakpad --headless --ozone-platform=headless --use-angle=swiftshader-webgl --enable-unsafe-swiftshader --crashpad-handler-pid=94 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/playwright_chromiumdev_profile-fgmFaH --change-stack-guard-on-fork=enable --gpu-preferences=UAAAAAAAAAAgAQAEAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAYAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAA --use-gl=disabled --shared-files --field-trial-handle=3,i,8744533512851014639,12384400231429041767,262144 --enable-features=CDPScreenshotNewSurface --disable-features=DialMediaRouteProvider,MediaRouter,OptimizationHints,PaintHolding --variations-seed-version --trace-process-track-uuid=3190708988185955192
+systemd+ 2174540 2174504  0  4월22 ?      00:00:10 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --ignore-certificate-errors-spki-list --no-sandbox --disable-dev-shm-usage --ignore-certificate-errors --use-angle=swiftshader-webgl --mute-audio --ignore-certificate-errors --crashpad-handler-pid=94 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/playwright_chromiumdev_profile-fgmFaH --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,8744533512851014639,12384400231429041767,262144 --enable-features=CDPScreenshotNewSurface --disable-features=DialMediaRouteProvider,MediaRouter,OptimizationHints,PaintHolding --variations-seed-version --trace-process-track-uuid=3190708989122997041
+systemd+ 2174541 2174513  0  4월22 ?      00:00:06 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=utility --ignore-certificate-errors-spki-list --no-sandbox --disable-dev-shm-usage --ignore-certificate-errors --use-angle=swiftshader-webgl --mute-audio --ignore-certificate-errors --crashpad-handler-pid=94 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/playwright_chromiumdev_profile-fgmFaH --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,8744533512851014639,12384400231429041767,262144 --enable-features=CDPScreenshotNewSurface --disable-features=DialMediaRouteProvider,MediaRouter,OptimizationHints,PaintHolding --variations-seed-version --trace-process-track-uuid=3190708990060038890
+systemd+ 2184746 2174513  0  4월22 ?      00:00:02 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --type=renderer --crashpad-handler-pid=94 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/playwright_chromiumdev_profile-fgmFaH --allow-insecure-localhost --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --disable-back-forward-cache --disable-background-timer-throttling --disable-breakpad --enable-automation --force-color-profile=srgb --remote-debugging-pipe --allow-pre-commit-input --blink-settings=imagesEnabled=false --ozone-platform=headless --disable-gpu-compositing --disable-blink-features=AutomationControlled --lang=en-US --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=5 --time-ticks-at-unix-epoch=-1775388006222094 --launch-time-ticks=1461149184657 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,8744533512851014639,12384400231429041767,262144 --enable-features=CDPScreenshotNewSurface --disable-features=DialMediaRouteProvider,MediaRouter,OptimizationHints,PaintHolding --variations-seed-version --trace-process-track-uuid=3190708990997080739
+systemd+ 2185235 2174513  0  4월22 ?      00:00:02 /home/appuser/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --type=renderer --crashpad-handler-pid=94 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/playwright_chromiumdev_profile-fgmFaH --allow-insecure-localhost --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --disable-back-forward-cache --disable-background-timer-throttling --disable-breakpad --enable-automation --force-color-profile=srgb --remote-debugging-pipe --allow-pre-commit-input --blink-settings=imagesEnabled=false --ozone-platform=headless --disable-gpu-compositing --disable-blink-features=AutomationControlled --lang=en-US --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=8 --time-ticks-at-unix-epoch=-1775388006222094 --launch-time-ticks=1461165084137 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,8744533512851014639,12384400231429041767,262144 --enable-features=CDPScreenshotNewSurface --disable-features=DialMediaRouteProvider,MediaRouter,OptimizationHints,PaintHolding --variations-seed-version --trace-process-track-uuid=3190708993808206286
+root     2256096       1  0 00:37 ?        00:00:00 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 84f9c392f1cc7be7d42baa0cbe8ffe1f95d738cea5ee43a4df80484fec40eb23 -address /run/containerd/containerd.sock
+65535    2256128 2256096  0 00:37 ?        00:00:00 /pause
+root     2256164 2256096  9 00:37 ?        00:00:59 /usr/bin/python3 /usr/local/bin/vllm serve /models/Qwen3.6-27B-AWQ-INT4 --host 0.0.0.0 --port 8000 --quantization compressed-tensors --kv-cache-dtype fp8 --dtype bfloat16 --gpu-memory-utilization 0.92 --max-model-len 131072 --enable-chunked-prefill --max-num-seqs 4 --trust-remote-code
+root     2257479 2256164  0 00:38 ?        00:00:00 /usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(55)
+root     2257480 2256164 50 00:38 ?        00:05:12 VLLM::EngineCore
+koreaf16 2270503 2270472  0 00:47 ?        00:00:00 sshd: koreaf16@pts/4,pts/3
+root     2270823       1  0 00:47 ?        00:00:00 /usr/lib/systemd/systemd-hostnamed
+koreaf16 2271583 2271499  0 00:48 pts/3    00:00:00 systemctl list-units --type=service --state=running
+koreaf16 2271584 2271583  0 00:48 pts/3    00:00:00 less
+koreaf16 2271659 2156403  0 00:48 pts/1    00:00:00 nvidia-smi
+koreaf16 2271717 2271661  0 00:48 pts/4    00:00:00 ps -ef
+root     3763496       1  0  4월14 ?      00:03:21 /usr/bin/containerd-shim-runc-v2 -namespace k8s.io -id 809cb32b355dde240618e4a090f6dee5de8884e137bb2133c2ca7d3d97c42527 -address /run/containerd/containerd.sock
+65535    3763529 3763496  0  4월14 ?      00:00:00 /pause
+root     3763690 3763496  0  4월14 ?      00:01:02 nvidia-device-plugin
+root     4121082       1  0  4월21 ?      00:00:27 /usr/bin/containerd-shim-runc-v2 -namespace moby -id 69d1a8a23118eec599ccc8495df03ae28909c97ba5291f1dc371c7648d688191 -address /run/containerd/containerd.sock
+systemd+ 4121105 4121082  0  4월21 ?      00:19:08 mysqld
+root     4121251    2100  0  4월21 ?      00:00:00 /usr/bin/docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 3306 -container-ip 172.17.0.2 -container-port 3306 -use-listen-fd
+root     4121258    2100  0  4월21 ?      00:00:00 /usr/bin/docker-proxy -proto tcp -host-ip :: -host-port 3306 -container-ip 172.17.0.2 -container-port 3306 -use-listen-fd

@@ -1,0 +1,294 @@
+// Package agent
+// File: prompt.go
+// Description: Build and compose system prompts with server context and behavior rules.
+// Responsibility: BuildContextual prompt assembly and INFRACTL.md loading with @include support.
+package agent
+
+import (
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/yourorg/infractl/internal/connector"
+	"github.com/yourorg/infractl/internal/rag"
+	"github.com/yourorg/infractl/internal/serverenv"
+	"github.com/yourorg/infractl/internal/store"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+// BuildContextual assembles the contextual system prompt from enabled sections.
+func BuildContextual(
+	sections SectionSet,
+	toolList []tools.Tool,
+	infractlMD string,
+	servers []store.Server,
+	activeServer *store.Server,
+	connectorStates []connector.ConnectorState,
+	learnedSystems []store.LearnedSystem,
+	ragSources []store.RAGSource,
+	knowledgeStats *rag.KnowledgeStats,
+	modelName string,
+	knowledgeContext string,
+	taskMemoryContext string,
+) string {
+	layout := BuildContextualLayoutAt(
+		sections,
+		toolList,
+		infractlMD,
+		servers,
+		activeServer,
+		connectorStates,
+		learnedSystems,
+		ragSources,
+		knowledgeStats,
+		modelName,
+		time.Now(),
+		"",
+	)
+	return layout.Render(taskMemoryContext, knowledgeContext)
+}
+
+// appendActiveServerContext renders the active remote server and the local controller context.
+func appendActiveServerContext(sb *strings.Builder, srv *store.Server) {
+	sb.WriteString("## Environment Context (Hybrid Orchestration)\n")
+	sb.WriteString(fmt.Sprintf("You are the Orchestrator residing on the **Local Controller** while managing the **Remote Active Server (%s)**.\n", srv.Name))
+	sb.WriteString("- **Full Access Scope**: You have simultaneous access to BOTH the Local Controller (localhost) and the Active Server. You are responsible for assets on both systems.\n")
+	sb.WriteString("- **Hybrid Operations**: For tasks like deployments or file transfers, you MUST use `target: \"localhost\"` to locate and verify local installation media (e.g. in Downloads, staging folders) before sending them to the remote server.\n")
+	sb.WriteString("- **Target Selection**: Omit the `target` parameter or set it to the active server's name to run commands on it. Explicitly set `target: \"localhost\"` to read/list files or run shell commands on your local controller PC.\n")
+
+	sb.WriteString(fmt.Sprintf("\n### Remote Active Server: **%s**\n", srv.Name))
+	sb.WriteString(fmt.Sprintf("- SSH: %s@%s:%d\n", srv.User, srv.Host, srv.Port))
+	if srv.WorkspaceDir != "" {
+		sb.WriteString(fmt.Sprintf("- Server directory: `%s`\n", srv.WorkspaceDir))
+	}
+	if srv.OS != "" {
+		sb.WriteString(fmt.Sprintf("- OS/distribution: %s\n", srv.OS))
+	}
+	if su := formatServiceUsers(srv.ServiceUsers); su != "" {
+		sb.WriteString(fmt.Sprintf("- Service users: %s\n", su))
+		sb.WriteString("- When you operate on any Service user's assets, call `shell_exec` with `become_method: \"sudo\"` and `become_user: \"<name>\"`. Do **not** wrap the command with inline `sudo -iu`. Repeated calls with the same `become_user` reuse a single persistent SSH shell, so `cd`, env vars, and opened files survive between calls.\n")
+	}
+
+	hostname, _ := os.Hostname()
+	cwd, _ := os.Getwd()
+	sb.WriteString("\n### Local Controller (Your Command Center)\n")
+	sb.WriteString(fmt.Sprintf("- Local OS: %s (%s), Hostname: %s\n", runtime.GOOS, runtime.GOARCH, hostname))
+	sb.WriteString(fmt.Sprintf("- Current Working Directory: %s\n", cwd))
+	switch runtime.GOOS {
+	case "windows":
+		sb.WriteString("- Local Shell: PowerShell. Use Windows-style paths (`C:\\...`).\n")
+	default:
+		sb.WriteString("- Local Shell: bash/sh.\n")
+	}
+	sb.WriteString("- Access local files (Downloads, etc.) using `target: \"localhost\"` freely at any time.\n\n")
+}
+
+// appendServerFocusSection guides the model to select the current server when needed.
+func appendServerFocusSection(sb *strings.Builder, activeServer *store.Server, servers []store.Server) {
+	if activeServer != nil {
+		return
+	}
+	sb.WriteString("## Server Focus\n")
+	switch {
+	case len(servers) == 1:
+		sb.WriteString(fmt.Sprintf("One SSH server is registered: **%s**. Call `server_focus` to make it the active server when the user wants remote execution.\n", servers[0].Name))
+	case len(servers) > 1:
+		sb.WriteString("Multiple SSH servers are registered. Rules:\n")
+		sb.WriteString("- If the user names a server, call `server_focus server=<name>` before omitting target.\n")
+		sb.WriteString("- If it is unclear which server to use, call `server_focus` with no arguments so the user can choose.\n")
+		sb.WriteString("- After a server is active, omit target for tools that should run there. Use `target: \"localhost\"` only for the local controller.\n")
+	default:
+		sb.WriteString("No SSH servers are registered. The current server is the local controller.\n")
+	}
+	sb.WriteString("\n")
+}
+
+// appendLearnedSystemsSection renders learned systems discovered in previous sessions.
+func appendLearnedSystemsSection(sb *strings.Builder, learnedSystems []store.LearnedSystem) {
+	sb.WriteString("## Learned Systems\n")
+	sb.WriteString("The entries below were learned from previous sessions.\n")
+	const maxDisplay = 10
+	for i, sys := range learnedSystems {
+		if i >= maxDisplay {
+			sb.WriteString(fmt.Sprintf("- ... and %d more entries\n", len(learnedSystems)-maxDisplay))
+			break
+		}
+		sb.WriteString(fmt.Sprintf("- **%s** on `%s`", sys.ServiceType, sys.ServerName))
+		if sys.CLIPath != "" {
+			sb.WriteString(fmt.Sprintf(" | CLI: `%s`", sys.CLIPath))
+		}
+		if sys.ConfigPath != "" {
+			sb.WriteString(fmt.Sprintf(" | Config: `%s`", sys.ConfigPath))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("Reuse these known paths first before running broad discovery.\n\n")
+}
+
+// appendConnectorsSection renders active connector state.
+func appendConnectorsSection(sb *strings.Builder, connectorStates []connector.ConnectorState) {
+	sb.WriteString("## Active Connectors\n")
+	sb.WriteString("Currently connected database/service connectors are listed below.\n")
+	sb.WriteString("**Note:** these are service connectors inside the active server, not registered SSH servers.\n")
+	sb.WriteString("Use connector-specific tools for interactions (for example, `oracle_ORCL.tablespace`).\n\n")
+	const maxDisplay = 15
+	for i, cs := range connectorStates {
+		if i >= maxDisplay {
+			sb.WriteString(fmt.Sprintf("- ... and %d more connectors\n", len(connectorStates)-maxDisplay))
+			break
+		}
+		icon := connectorIcon(string(cs.Status))
+		serviceName := cs.ServiceName
+		if cs.SubInstance != "" {
+			serviceName += "/" + cs.SubInstance
+		}
+		queryTool := ""
+		for _, name := range cs.Tools {
+			if strings.HasSuffix(strings.ToLower(strings.TrimSpace(name)), ".query") {
+				queryTool = name
+				break
+			}
+		}
+		line := fmt.Sprintf("%s %s/%s/%s -> %s (%d tools",
+			icon, cs.ServerName, cs.Type, serviceName, cs.Status, len(cs.Tools))
+		if queryTool != "" {
+			line += fmt.Sprintf(", query tool: `%s`", queryTool)
+		}
+		line += ")\n"
+		sb.WriteString(line)
+	}
+	sb.WriteString("\nSee **## Connector-First Rule** below for the mandatory activation sequence.\n\n")
+}
+
+// appendBehaviorRules renders global behavioral constraints.
+func appendBehaviorRules(sb *strings.Builder) {
+	sb.WriteString("## Behavior Rules\n")
+	sb.WriteString("1. **Absolute Ownership**: You are the Commander. **NEVER** ask the user to copy-paste and run shell commands. If a user, group, or directory is missing, use your tools (sudo, shell_exec) to create them yourself immediately. Asking the user to run a command for you is a sign of incompetence.\n")
+	sb.WriteString("2. **Managed Privilege & Session Reuse**: For any command that needs root, use `become_method: \"sudo\"`. For work as a registered Service user, add `become_user: \"<name>\"` — consecutive calls with the same pair reuse a persistent SSH shell (shared cwd, env, running processes). Never embed `sudo`/`su`/`runuser` inside the command string when a parameter expresses the same intent. If a security policy blocks you, analyze the guidance and self-correct using authorized parameters.\n")
+	sb.WriteString("3. **Hybrid Execution**: You have full concurrent access to the Local Controller (localhost) and the Active Server. Use `target: \"localhost\"` for any local files (e.g., Downloads) without hesitation.\n")
+	sb.WriteString("4. **Proactive Self-Correction**: If a tool fails (e.g., 'user not found' or 'path error'), do not report it as a blocker. Instead, infer the fix (e.g., create the user, list the parent dir) and execute the correction tool in the same turn if possible.\n")
+	sb.WriteString("5. **Conversational Narration (필수)**: 사용자는 tool_call 나열만 보면 불안해한다. 사람에게 말하듯이 자연스럽게 대화한다.\n")
+	sb.WriteString("   - **첫 tool_call 직전**: 한국어 text 메시지로 1–2문장 의도를 선언한다. 예: \"MySQL 커넥터가 안 붙어서 먼저 실제 서비스가 떠 있는지 확인해볼게요.\" (tool 인자의 `description` 필드만으로는 부족하다 — 반드시 별도 text 블록으로 말한다.)\n")
+	sb.WriteString("   - **연속 실패 시**: 같은 tool을 2회 이상 재시도하기 전에 반드시 text로 \"첫 시도는 X 때문에 실패했고, 이번엔 Y를 바꿔서 재시도합니다\"를 써라. 무언의 반복 재시도 금지.\n")
+	sb.WriteString("   - **tier 전환 시**: `escalate_to_reasoning` 직전에 왜 상위 tier가 필요한지 한 줄 설명한다.\n")
+	sb.WriteString("   - **턴 종료 시**: 마지막 tool_call 뒤에는 항상 ① 수행한 작업 요약 ② 결과(성공/실패 + 근거) ③ 다음 제안할 스텝 — 세 가지를 짧게 써서 마무리한다.\n")
+	sb.WriteString("   - 문장은 짧고 구체적으로. \"작업 중입니다\" 같은 공허한 멘트 금지. 사용자가 그 한 줄만 읽어도 현재 상황을 이해할 수 있어야 한다.\n")
+	sb.WriteString("6. **NEVER Mimic Tools in Text**: Do not write command strings like `tool|args` in plain text. The engine will NOT execute them. You MUST use the formal `tool_calls` mechanism.\n")
+	sb.WriteString("7. **Propose-then-Execute Rule**: If you use `propose_action` to get permission for a risky command, and the user approves it, you MUST immediately follow up by calling the actual `shell_exec` (or relevant tool) in the very next turn. Approval is NOT completion; it is only the green light to act.\n")
+	sb.WriteString("8. **Truth and Freshness over Tokens**: Your priority is providing the most accurate and up-to-date information. For software versions, official documentation, or current events, treat your internal training data as potentially obsolete. Always verify via `rag_search` and `web_search` in that order. Accuracy and user-requested search take absolute precedence over token saving.\n\n")
+}
+
+// LoadInfractlMD loads ~/.infractl/INFRACTL.md with include expansion.
+type infractlMDFileState struct {
+	Path        string
+	Size        int64
+	ModUnixNano int64
+}
+
+func LoadInfractlMD() string {
+	content, _ := loadInfractlMDData()
+	return content
+}
+
+func loadInfractlMDData() (string, []infractlMDFileState) {
+	stateDir, err := serverenv.StateDir()
+	if err != nil {
+		slog.Debug("get infractl state dir for INFRACTL.md", "err", err)
+		return "", nil
+	}
+
+	path := filepath.Join(stateDir, "INFRACTL.md")
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", nil
+	}
+
+	slog.Debug("loaded INFRACTL.md", "path", path)
+	baseDir := filepath.Dir(path)
+	content, states := processIncludesWithState(string(data), baseDir, 0)
+	root := infractlMDFileState{
+		Path:        path,
+		Size:        info.Size(),
+		ModUnixNano: info.ModTime().UnixNano(),
+	}
+	return content, append([]infractlMDFileState{root}, states...)
+}
+
+// BuildMinimalChat builds a compact chat-only system prompt for no-tools flows.
+func BuildMinimalChat(infractlMD string) string {
+	return buildMinimalChatAt(infractlMD, time.Now())
+}
+func appendCurrentDateContext(sb *strings.Builder, now time.Time) {
+	sb.WriteString(fmt.Sprintf("## Current Date\n**%s** (UTC%s)\n\n",
+		now.Format("2006-01-02 (Mon)"),
+		now.Format("-07:00"),
+	))
+}
+
+func processIncludes(content string, baseDir string, depth int) string {
+	rendered, _ := processIncludesWithState(content, baseDir, depth)
+	return rendered
+}
+
+func processIncludesWithState(content string, baseDir string, depth int) (string, []infractlMDFileState) {
+	if depth >= 5 {
+		return content, nil
+	}
+
+	var result strings.Builder
+	var states []infractlMDFileState
+	totalSize := 0
+	const maxTotalMDSize = 50000 // max 50KB
+
+	for _, line := range strings.Split(content, "\n") {
+		if totalSize > maxTotalMDSize {
+			result.WriteString("\n[... INFRACTL.md include limit reached ...]\n")
+			break
+		}
+
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "@include ") {
+			includePath := strings.TrimSpace(trimmed[len("@include "):])
+			if !filepath.IsAbs(includePath) {
+				includePath = filepath.Join(baseDir, includePath)
+			}
+			info, statErr := os.Stat(includePath)
+			if statErr == nil {
+				states = append(states, infractlMDFileState{
+					Path:        includePath,
+					Size:        info.Size(),
+					ModUnixNano: info.ModTime().UnixNano(),
+				})
+			}
+			data, err := os.ReadFile(includePath)
+			if err != nil {
+				slog.Debug("@include file not found", "path", includePath, "err", err)
+				result.WriteString(line + "\n")
+				totalSize += len(line) + 1
+				continue
+			}
+			slog.Debug("@include processed", "path", includePath)
+			includeBaseDir := filepath.Dir(includePath)
+			included, nestedStates := processIncludesWithState(string(data), includeBaseDir, depth+1)
+			states = append(states, nestedStates...)
+			result.WriteString(included)
+			totalSize += len(included)
+			if !strings.HasSuffix(included, "\n") {
+				result.WriteString("\n")
+				totalSize += 1
+			}
+			continue
+		}
+		result.WriteString(line + "\n")
+		totalSize += len(line) + 1
+	}
+	return strings.TrimSuffix(result.String(), "\n"), states
+}

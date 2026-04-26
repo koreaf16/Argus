@@ -1,0 +1,14 @@
+# test log
+getenv GOTMPDIR
+stat C:\Users\jhkwa\AppData\Local\Temp\TestResolveWorkingDirectoryDefaultsToContextWorkingDir3551941797\001
+open C:\Users\jhkwa\AppData\Local\Temp
+getenv GOTMPDIR
+stat C:\Users\jhkwa\AppData\Local\Temp\TestResolveWorkingDirectoryResolvesRelativePath2009717852\001\subdir
+open C:\Users\jhkwa\AppData\Local\Temp
+getenv GOTMPDIR
+stat C:\Users\jhkwa\AppData\Local\Temp\TestResolveWorkingDirectoryRejectsOutsideRoots3510140990
+open C:\Users\jhkwa\AppData\Local\Temp
+getenv GOTMPDIR
+open C:\Users\jhkwa\AppData\Local\Temp\TestResolveWorkingDirectoryRejectsFilePath3881834415\001\file.txt
+stat C:\Users\jhkwa\AppData\Local\Temp\TestResolveWorkingDirectoryRejectsFilePath3881834415\001\file.txt
+open C:\Users\jhkwa\AppData\Local\Temp

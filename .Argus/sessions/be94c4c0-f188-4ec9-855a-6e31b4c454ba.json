@@ -1,0 +1,47 @@
+{
+  "saved_at": "2026-04-21T23:33:31.3705209Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Execute the following exact command using your bash tool: ssh -o StrictHostKeyChecking=no sandbox@192.168.0.130 'ls -al'. DO NOT ADD ANY OTHER OPTIONS OR PYTHON SCRIPTS."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "chatcmpl-tool-a7e9d730f58a798d",
+          "name": "bash",
+          "input": {
+            "command": "ssh -o StrictHostKeyChecking=no sandbox@192.168.0.130 'ls -al'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "{\"Stdout\":\"합계 28\\ndrwx------. 14 sandbox sandbox 4096  4월 10 15:24 .\\ndrwxr-xr-x.  3 root    root      21  4월 10 15:23 ..\\n-rw-------.  1 sandbox sandbox   34  4월 10 15:24 .bash_history\\n-rw-r--r--.  1 sandbox sandbox   18  4월 30  2024 .bash_logout\\n-rw-r--r--.  1 sandbox sandbox  141  4월 30  2024 .bash_profile\\n-rw-r--r--.  1 sandbox sandbox  492  4월 30  2024 .bashrc\\ndrwx------.  9 sandbox sandbox 4096  4월 10 15:23 .cache\\ndrwxr-xr-x.  8 sandbox sandbox 4096  4월 10 15:23 .config\\ndrwx------.  4 sandbox sandbox   32  4월 10 15:23 .local\\ndrwxr-xr-x.  4 sandbox sandbox   39  4월 10 14:04 .mozilla\\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 공개\\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 다운로드\\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 문서\\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 바탕화면\\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 비디오\\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 사진\\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 서식\\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 음악\\n\",\"Stderr\":\"** WARNING: connection is not using a post-quantum key exchange algorithm.\\r\\n** This session may be vulnerable to \\\"store now, decrypt later\\\" attacks.\\r\\n** The server may need to be upgraded. See https://openssh.com/pq.html\\r\\n\",\"Code\":0,\"Interrupted\":false,\"BackgroundTaskID\":\"\",\"OutputFilePath\":\"\",\"OutputFileSize\":0,\"OutputTaskID\":\"\",\"PreSpawnError\":\"\",\"AssistantAutoBackgrounded\":false,\"BackgroundedByUser\":false}",
+          "name": "bash",
+          "tool_use_id": "chatcmpl-tool-a7e9d730f58a798d"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "thought\n합계 28\ndrwx------. 14 sandbox sandbox 4096  4월 10 15:24 .\ndrwxr-xr-x.  3 root    root      21  4월 10 15:23 ..\n-rw-------.  1 sandbox sandbox   34  4월 10 15:24 .bash_history\n-rw-r--r--.  1 sandbox sandbox   18  4월 30  2024 .bash_logout\n-rw-r--r--.  1 sandbox sandbox  141  4월 30  2024 .bash_profile\n-rw-r--r--.  1 sandbox sandbox  492  4월 30  2024 .bashrc\ndrwx------.  9 sandbox sandbox 4096  4월 10 15:23 .cache\ndrwxr-xr-x.  8 sandbox sandbox 4096  4월 10 15:23 .config\ndrwx------.  4 sandbox sandbox   32  4월 10 15:23 .local\ndrwxr-xr-x.  4 sandbox sandbox   39  4월 10 14:04 .mozilla\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 공개\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 다운로드\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 문서\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 바탕화면\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 비디오\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 사진\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 서식\ndrwxr-xr-x.  2 sandbox sandbox    6  4월 10 15:23 음악"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T14:05:34.6676114Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "gkdl"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "'gkdl'은 한글 키보드 상태에서 **'하이'**를 입력했을 때 나오는 오타입니다.\n\n혹시 **\"하이(Hi)\"**라고 인사하신 것이라면, **안녕하세요!** 무엇을 도와드릴까요? :)"
+        }
+      ]
+    }
+  ]
+}

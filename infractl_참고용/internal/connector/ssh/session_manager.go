@@ -1,0 +1,232 @@
+// Package ssh
+// File: session_manager.go
+// Description: Lifecycle manager for persistent shell sessions per SSH client
+// Responsibility: Create, retrieve, reap idle, and destroy PersistentShell instances.
+//                 Enforces per-server session limits and idle-timeout cleanup.
+
+package ssh
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/yourorg/infractl/internal/executor"
+)
+
+const (
+	defaultSessionIdleTimeout = 10 * time.Minute
+	defaultMaxSessions        = 5
+	reaperInterval            = 1 * time.Minute
+)
+
+// SessionManager manages the pool of PersistentShell instances for a single SSH Client.
+// All public methods are goroutine-safe.
+type SessionManager struct {
+	client      *Client
+	sessions    map[string]*PersistentShell
+	mu          sync.Mutex
+	idleTimeout time.Duration
+	maxSessions int
+	sink        ElevationEventSink
+}
+
+// newSessionManager creates a SessionManager for client and starts the idle reaper.
+func newSessionManager(ctx context.Context, client *Client) *SessionManager {
+	m := &SessionManager{
+		client:      client,
+		sessions:    make(map[string]*PersistentShell),
+		idleTimeout: defaultSessionIdleTimeout,
+		maxSessions: defaultMaxSessions,
+	}
+	go m.reaper(ctx)
+	return m
+}
+
+// SetSink wires an ElevationEventSink that receives lifecycle events for all
+// sessions managed by this SessionManager.
+func (m *SessionManager) SetSink(sink ElevationEventSink) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sink = sink
+}
+
+// GetOrCreate returns the PersistentShell for sessionID, creating it if needed.
+// If the existing session is dead, it is removed and a fresh one is created.
+func (m *SessionManager) GetOrCreate(ctx context.Context, sessionID string) (*PersistentShell, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if sh, ok := m.sessions[sessionID]; ok {
+		if sh.IsAlive() {
+			return sh, nil
+		}
+		// Dead session — remove and recreate
+		slog.Info("session manager: dead session replaced", "session", sessionID)
+		delete(m.sessions, sessionID)
+	}
+
+	if len(m.sessions) >= m.maxSessions {
+		if err := m.evictOldestIdleLocked(); err != nil {
+			return nil, fmt.Errorf("session manager: max sessions reached (%d), eviction failed: %w", m.maxSessions, err)
+		}
+	}
+
+	sh, err := newPersistentShell(ctx, m.client)
+	if err != nil {
+		return nil, fmt.Errorf("session manager: create session %q: %w", sessionID, err)
+	}
+	m.sessions[sessionID] = sh
+	slog.Info("session manager: session created", "session", sessionID, "target", m.client.cfg.Host)
+	sh.SetSink(m.sink, m.client.cfg.Host, sessionID)
+	if m.sink != nil {
+		m.sink.OnSessionCreated(m.client.cfg.Host, sessionID, "")
+	}
+	return sh, nil
+}
+
+// Elevate gets or creates a session and runs elevationCmd in it without delimiter
+// wrapping, allowing the new shell (e.g., root bash) to persist for future commands.
+func (m *SessionManager) Elevate(
+	ctx context.Context,
+	sessionID, elevationCmd string,
+	timeout time.Duration,
+	onIdle func([]string) (string, bool),
+) error {
+	sh, err := m.GetOrCreate(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	return sh.Elevate(ctx, elevationCmd, timeout, onIdle)
+}
+
+// Info returns metadata for a session without creating it.
+func (m *SessionManager) Info(sessionID string) (executor.SessionInfo, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sh, ok := m.sessions[sessionID]
+	if !ok {
+		return executor.SessionInfo{}, false
+	}
+	return executor.SessionInfo{
+		SessionID:   sessionID,
+		CurrentUser: sh.CurrentUser(),
+		CurrentDir:  sh.CurrentDir(),
+		CreatedAt:   sh.createdAt,
+		LastUsed:    sh.lastUsed,
+		Alive:       sh.IsAlive(),
+	}, true
+}
+
+// ListAll returns metadata for all active sessions.
+func (m *SessionManager) ListAll() []executor.SessionInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	list := make([]executor.SessionInfo, 0, len(m.sessions))
+	for id, sh := range m.sessions {
+		list = append(list, executor.SessionInfo{
+			SessionID:   id,
+			CurrentUser: sh.CurrentUser(),
+			CurrentDir:  sh.CurrentDir(),
+			CreatedAt:   sh.createdAt,
+			LastUsed:    sh.lastUsed,
+			Alive:       sh.IsAlive(),
+		})
+	}
+	return list
+}
+
+// Close destroys the named session and removes it from the pool.
+func (m *SessionManager) Close(sessionID string) error {
+	m.mu.Lock()
+	sh, ok := m.sessions[sessionID]
+	if !ok {
+		m.mu.Unlock()
+		return nil
+	}
+	if m.sink != nil {
+		m.sink.OnSessionClosed(m.client.cfg.Host, sessionID)
+	}
+	delete(m.sessions, sessionID)
+	m.mu.Unlock()
+
+	if err := sh.Close(); err != nil {
+		return fmt.Errorf("session manager: close %q: %w", sessionID, err)
+	}
+	slog.Info("session manager: session closed", "session", sessionID)
+	return nil
+}
+
+// CloseAll destroys every session. Called when the SSH Client itself is closed.
+func (m *SessionManager) CloseAll() {
+	m.mu.Lock()
+	sessions := m.sessions
+	m.sessions = make(map[string]*PersistentShell)
+	m.mu.Unlock()
+
+	for id, sh := range sessions {
+		if err := sh.Close(); err != nil {
+			slog.Warn("session manager: close all error", "session", id, "err", err)
+		}
+	}
+}
+
+// reaper runs on a fixed interval and closes sessions that have been idle longer
+// than idleTimeout or are no longer alive.
+func (m *SessionManager) reaper(ctx context.Context) {
+	ticker := time.NewTicker(reaperInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.reapOnce()
+		}
+	}
+}
+
+func (m *SessionManager) reapOnce() {
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, sh := range m.sessions {
+		dead := !sh.IsAlive()
+		idle := now.Sub(sh.lastUsed) > m.idleTimeout
+		if dead || idle {
+			reason := "idle"
+			if dead {
+				reason = "dead"
+			}
+			slog.Info("session manager: reaping session", "session", id, "reason", reason)
+			if m.sink != nil {
+				m.sink.OnSessionClosed(m.client.cfg.Host, id)
+			}
+			delete(m.sessions, id)
+			go sh.Close() // close without blocking the reaper
+		}
+	}
+}
+
+// evictOldestIdleLocked removes the session with the oldest lastUsed timestamp.
+// Caller must hold m.mu.
+func (m *SessionManager) evictOldestIdleLocked() error {
+	var oldest string
+	var oldestTime time.Time
+	for id, sh := range m.sessions {
+		if oldest == "" || sh.lastUsed.Before(oldestTime) {
+			oldest = id
+			oldestTime = sh.lastUsed
+		}
+	}
+	if oldest == "" {
+		return fmt.Errorf("no sessions to evict")
+	}
+	sh := m.sessions[oldest]
+	delete(m.sessions, oldest)
+	go sh.Close()
+	slog.Info("session manager: evicted oldest session", "session", oldest)
+	return nil
+}

@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T03:07:43.7447793Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "반드시 bash 도구의 'server' 파라미터를 'sandbox-server'로 설정해서 실행해. 로컬에서 ssh 명령어를 직접 쓰지 마. 비밀번호는 'Welcome1!@#$' 야."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! bash 도구의 'server' 파라미터를 'sandbox-server'로 설정해서 실행해드리기 전에, 어떤 명령어를 실행하시길 원하시는지 알려주시겠어요?\n\n예를 들어:\n- 파일 목록 확인 (`ls`)\n- 디렉토리 구조 확인 (`tree`)\n- 특정 파일 내용 확인 (`cat`)\n- 기타 특정 명령어\n\n어떤 작업을 수행하시길 원하시는지 말씀해주시면, 'sandbox-server' 서버에서 해당 명령어를 실행해드리겠습니다."
+        }
+      ]
+    }
+  ]
+}

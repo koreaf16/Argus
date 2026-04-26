@@ -1,0 +1,433 @@
+// Package query
+// File: tool_invoker_test.go
+// Description: ToolInvoker hook 통합 실행 래퍼 단위 테스트
+
+package query
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/yourorg/infractl/internal/agent/todo"
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/hooks"
+	"github.com/yourorg/infractl/internal/llm"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+func makeTC(name, args string) llm.ToolCall {
+	return llm.ToolCall{
+		ID:       "tc-1",
+		Type:     "function",
+		Function: llm.FunctionCall{Name: name, Arguments: args},
+	}
+}
+
+type invokerStubTool struct {
+	name     string
+	readOnly bool
+}
+
+func (t invokerStubTool) Name() string                       { return t.name }
+func (t invokerStubTool) Description() string                { return "stub tool" }
+func (t invokerStubTool) Parameters() map[string]interface{} { return map[string]interface{}{} }
+func (t invokerStubTool) IsReadOnly() bool                   { return t.readOnly }
+func (t invokerStubTool) IsEnabled() bool                    { return true }
+func (t invokerStubTool) Execute(context.Context, map[string]interface{}, executor.Executor) (tools.ToolOutcome, error) {
+	return tools.ToolOutcome{Content: "stub", Success: true}, nil
+}
+
+// TestToolInvoker_NilHookRunner: hook runner 없으면 base 를 직접 호출한다.
+func TestToolInvoker_NilHookRunner(t *testing.T) {
+	called := false
+	base := func(_ context.Context, tc llm.ToolCall) (string, bool) {
+		called = true
+		return "ok", false
+	}
+	ti := NewToolInvoker(nil, base)
+	out, isErr := ti.Invoke(context.Background(), makeTC("read", `{"path":"/tmp"}`))
+	if !called {
+		t.Error("base should be called when hookRunner is nil")
+	}
+	if isErr {
+		t.Error("should not be error")
+	}
+	if out != "ok" {
+		t.Errorf("unexpected output: %q", out)
+	}
+}
+
+// TestToolInvoker_WithApprovedHook: Phase B hookRunner 는 항상 approved=true.
+// base 가 호출되고 결과가 그대로 반환되어야 한다.
+func TestToolInvoker_WithApprovedHook(t *testing.T) {
+	runner := hooks.NewRunner(nil)
+	called := false
+	base := func(_ context.Context, tc llm.ToolCall) (string, bool) {
+		called = true
+		return "result", false
+	}
+	ti := NewToolInvoker(runner, base)
+	out, isErr := ti.Invoke(context.Background(), makeTC("bash", `{"command":"ls"}`))
+	if !called {
+		t.Error("base should be called when hook approves")
+	}
+	if isErr {
+		t.Error("should not be error")
+	}
+	if out != "result" {
+		t.Errorf("want %q, got %q", "result", out)
+	}
+}
+
+// TestToolInvoker_BaseError: base 가 isError=true 를 반환하면 그대로 전파된다.
+func TestToolInvoker_BaseError(t *testing.T) {
+	runner := hooks.NewRunner(nil)
+	base := func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		return "tool failed", true
+	}
+	ti := NewToolInvoker(runner, base)
+	out, isErr := ti.Invoke(context.Background(), makeTC("bash", `{}`))
+	if !isErr {
+		t.Error("isError should propagate from base")
+	}
+	if out != "tool failed" {
+		t.Errorf("unexpected output: %q", out)
+	}
+}
+
+func TestToolInvokerBlocksSemanticPermissionRetry(t *testing.T) {
+	baseCalls := 0
+	ti := NewToolInvoker(nil, func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		baseCalls++
+		return "mkdir: cannot create directory '/home/oracle/app': Permission denied", true
+	})
+
+	out, isErr := ti.Invoke(context.Background(), makeTC("shell_exec", `{"command":"mkdir -p /home/oracle/app"}`))
+	if !isErr {
+		t.Fatalf("expected first permission failure, got %q", out)
+	}
+	if baseCalls != 1 {
+		t.Fatalf("expected first call to reach base, got %d", baseCalls)
+	}
+
+	out, isErr = ti.Invoke(context.Background(), makeTC("shell_exec", `{"command":"mkdir /home/oracle/app"}`))
+	if !isErr {
+		t.Fatalf("expected semantic retry block, got %q", out)
+	}
+	if baseCalls != 1 {
+		t.Fatalf("semantic retry should not reach base, got %d calls", baseCalls)
+	}
+	if !strings.Contains(out, "same path/account class") {
+		t.Fatalf("unexpected retry block message: %q", out)
+	}
+}
+
+func TestToolInvokerAllowsPermissionRetryWithPrivilegeCorrection(t *testing.T) {
+	baseCalls := 0
+	ti := NewToolInvoker(nil, func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		baseCalls++
+		return "mkdir: cannot create directory '/home/oracle/app': Permission denied", true
+	})
+
+	_, _ = ti.Invoke(context.Background(), makeTC("shell_exec", `{"command":"mkdir -p /home/oracle/app"}`))
+	out, _ := ti.Invoke(context.Background(), makeTC("shell_exec", `{"command":"mkdir /home/oracle/app","become_method":"sudo","become_user":"oracle"}`))
+	if baseCalls != 2 {
+		t.Fatalf("privilege-corrected retry should reach base, got %d calls; out=%q", baseCalls, out)
+	}
+}
+
+func TestToolInvokerAutoRoutesFileTransferOracleUpload(t *testing.T) {
+	var got map[string]any
+	ti := NewToolInvoker(nil, func(_ context.Context, tc llm.ToolCall) (string, bool) {
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &got); err != nil {
+			t.Fatalf("unmarshal routed args: %v", err)
+		}
+		return "ok", false
+	})
+
+	out, isErr := ti.Invoke(context.Background(), makeTC("file_transfer", `{"action":"upload","local_path":"db.zip","remote_path":"/home/oracle/db.zip","description":"db zip upload"}`))
+	if isErr {
+		t.Fatalf("expected success, got %q", out)
+	}
+	if got["become_user"] != "oracle" {
+		t.Fatalf("become_user = %#v, want oracle; args=%v", got["become_user"], got)
+	}
+	if got["become_method"] != "sudo" {
+		t.Fatalf("become_method = %#v, want sudo; args=%v", got["become_method"], got)
+	}
+}
+
+func TestToolInvokerAddsBecomeMethodWhenBecomeUserAlreadySet(t *testing.T) {
+	var got map[string]any
+	ti := NewToolInvoker(nil, func(_ context.Context, tc llm.ToolCall) (string, bool) {
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &got); err != nil {
+			t.Fatalf("unmarshal routed args: %v", err)
+		}
+		return "ok", false
+	})
+
+	out, isErr := ti.Invoke(context.Background(), makeTC("file_transfer", `{"action":"upload","local_path":"db.zip","remote_path":"/home/oracle/db.zip","become_user":"oracle","description":"db zip upload"}`))
+	if isErr {
+		t.Fatalf("expected success, got %q", out)
+	}
+	if got["become_user"] != "oracle" {
+		t.Fatalf("become_user = %#v, want oracle; args=%v", got["become_user"], got)
+	}
+	if got["become_method"] != "sudo" {
+		t.Fatalf("become_method = %#v, want sudo; args=%v", got["become_method"], got)
+	}
+}
+
+func TestToolInvokerBlocksRepeatedPrivilegePromptFailureWithPrivilegeArgs(t *testing.T) {
+	baseCalls := 0
+	ti := NewToolInvoker(nil, func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		baseCalls++
+		return "Failed to move file to final destination via sudo (exit=0): no privilege prompt handler available\nLocal file was verified and uploaded to staging path /tmp/.infractl/staging/db.zip; only the privileged final copy to /home/oracle/db.zip failed.", true
+	})
+
+	args := `{"action":"upload","local_path":"db.zip","remote_path":"/home/oracle/db.zip","become_user":"oracle","become_method":"sudo","description":"db zip upload"}`
+	out, isErr := ti.Invoke(context.Background(), makeTC("file_transfer", args))
+	if !isErr {
+		t.Fatalf("expected first privilege prompt failure, got %q", out)
+	}
+	if baseCalls != 1 {
+		t.Fatalf("expected first call to reach base, got %d", baseCalls)
+	}
+
+	out, isErr = ti.Invoke(context.Background(), makeTC("file_transfer", args))
+	if !isErr {
+		t.Fatalf("expected repeated privilege prompt failure to be blocked, got %q", out)
+	}
+	if baseCalls != 1 {
+		t.Fatalf("repeated prompt failure should not reach base, got %d calls", baseCalls)
+	}
+	if !strings.Contains(out, "previous privilege prompt failure") {
+		t.Fatalf("unexpected retry block message: %q", out)
+	}
+}
+
+func TestToolInvoker_PreToolUseDenyCallsBlockedCallback(t *testing.T) {
+	hooks.ResetSnapshot()
+	defer hooks.ResetSnapshot()
+
+	path := filepath.Join(t.TempDir(), "hooks.yaml")
+	if err := os.WriteFile(path, []byte(`
+PreToolUse:
+  - matcher: "mutate"
+    hooks:
+      - type: unknown_backend
+`), 0o600); err != nil {
+		t.Fatalf("write hooks config: %v", err)
+	}
+	if err := hooks.CaptureSnapshot(path); err != nil {
+		t.Fatalf("capture hooks snapshot: %v", err)
+	}
+
+	called := false
+	blocked := false
+	ti := NewToolInvoker(hooks.NewRunner(nil), func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		called = true
+		return "should not run", false
+	})
+	ti.SetBlockedCallback(func(_ llm.ToolCall, reason string) {
+		blocked = reason != ""
+	})
+
+	out, isErr := ti.Invoke(context.Background(), makeTC("mutate", `{}`))
+	if !isErr {
+		t.Fatalf("expected deny error, got output %q", out)
+	}
+	if called {
+		t.Fatal("denied tool must not reach base runner")
+	}
+	if !blocked {
+		t.Fatal("PreToolUse deny should call blocked callback")
+	}
+}
+
+func TestToolInvoker_PreToolUseDenyCanBeTemporarilyApproved(t *testing.T) {
+	hooks.ResetSnapshot()
+	defer hooks.ResetSnapshot()
+
+	path := filepath.Join(t.TempDir(), "hooks.yaml")
+	if err := os.WriteFile(path, []byte(`
+PreToolUse:
+  - matcher: "mutate"
+    hooks:
+      - type: unknown_backend
+`), 0o600); err != nil {
+		t.Fatalf("write hooks config: %v", err)
+	}
+	if err := hooks.CaptureSnapshot(path); err != nil {
+		t.Fatalf("capture hooks snapshot: %v", err)
+	}
+
+	baseCalls := 0
+	promptCalls := 0
+	ti := NewToolInvoker(hooks.NewRunner(nil), func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		baseCalls++
+		return "ran", false
+	})
+	ti.SetHookApprovalPrompter(func(context.Context, tools.QuestionRequest) (tools.QuestionResponse, error) {
+		promptCalls++
+		return tools.QuestionResponse{SelectedIndex: 0, SelectedLabel: "Allow Temporarily"}, nil
+	})
+
+	out, isErr := ti.Invoke(context.Background(), makeTC("mutate", `{}`))
+	if isErr {
+		t.Fatalf("expected approved execution, got error output: %q", out)
+	}
+	if out != "ran" {
+		t.Fatalf("unexpected output: %q", out)
+	}
+	if baseCalls != 1 {
+		t.Fatalf("expected base runner call once, got %d", baseCalls)
+	}
+	if promptCalls != 1 {
+		t.Fatalf("expected one prompt call, got %d", promptCalls)
+	}
+
+	out, isErr = ti.Invoke(context.Background(), makeTC("mutate", `{}`))
+	if isErr {
+		t.Fatalf("expected cached approval to keep allowing, got error output: %q", out)
+	}
+	if baseCalls != 2 {
+		t.Fatalf("expected base runner called twice, got %d", baseCalls)
+	}
+	if promptCalls != 1 {
+		t.Fatalf("expected no extra prompt after cache hit, got %d", promptCalls)
+	}
+}
+
+func TestToolInvoker_PreToolUseDenyStaysBlockedWhenUserDeclines(t *testing.T) {
+	hooks.ResetSnapshot()
+	defer hooks.ResetSnapshot()
+
+	path := filepath.Join(t.TempDir(), "hooks.yaml")
+	if err := os.WriteFile(path, []byte(`
+PreToolUse:
+  - matcher: "mutate"
+    hooks:
+      - type: unknown_backend
+`), 0o600); err != nil {
+		t.Fatalf("write hooks config: %v", err)
+	}
+	if err := hooks.CaptureSnapshot(path); err != nil {
+		t.Fatalf("capture hooks snapshot: %v", err)
+	}
+
+	baseCalls := 0
+	ti := NewToolInvoker(hooks.NewRunner(nil), func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		baseCalls++
+		return "ran", false
+	})
+	ti.SetHookApprovalPrompter(func(context.Context, tools.QuestionRequest) (tools.QuestionResponse, error) {
+		return tools.QuestionResponse{SelectedIndex: 1, SelectedLabel: "Keep Blocked"}, nil
+	})
+
+	out, isErr := ti.Invoke(context.Background(), makeTC("mutate", `{}`))
+	if !isErr {
+		t.Fatalf("expected deny error, got output %q", out)
+	}
+	if baseCalls != 0 {
+		t.Fatalf("denied tool must not reach base runner, got %d calls", baseCalls)
+	}
+}
+
+// TestToolInvoker_AsToolRunner: AsToolRunner 가 반환하는 함수는 Invoke 와 동일하다.
+func TestToolInvoker_AsToolRunner(t *testing.T) {
+	base := func(_ context.Context, _ llm.ToolCall) (string, bool) { return "via runner", false }
+	ti := NewToolInvoker(nil, base)
+	runner := ti.AsToolRunner()
+	out, isErr := runner(context.Background(), makeTC("read", `{}`))
+	if isErr || out != "via runner" {
+		t.Errorf("AsToolRunner: got %q isErr=%v", out, isErr)
+	}
+}
+
+// TestToolInvoker_TodoEnforcerUsesRegistryReadOnly: registry 기반 read-only 도구는 todo 비어 있어도 허용된다.
+func TestToolInvoker_TodoEnforcerUsesRegistryReadOnly(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(invokerStubTool{name: "clarify", readOnly: true}); err != nil {
+		t.Fatalf("register stub tool: %v", err)
+	}
+	called := false
+	ti := NewToolInvoker(nil, func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		called = true
+		return "allowed", false
+	})
+	ti.SetRegistry(reg)
+	ti.SetTodoEnforcer(todo.NewEnforcer(todo.NewStore()))
+
+	out, isErr := ti.Invoke(context.Background(), makeTC("clarify", `{"question":"need details"}`))
+	if isErr {
+		t.Fatalf("read-only tool should be allowed, got error output: %q", out)
+	}
+	if !called {
+		t.Fatal("read-only tool should reach the base runner")
+	}
+	if out != "allowed" {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
+// TestToolInvoker_TodoEnforcerBlocksRegistryMutation: mutation 도구는 todo 비어 있으면 계속 차단된다.
+func TestToolInvoker_TodoEnforcerBlocksRegistryMutation(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(invokerStubTool{name: "mutate", readOnly: false}); err != nil {
+		t.Fatalf("register stub tool: %v", err)
+	}
+	called := false
+	ti := NewToolInvoker(nil, func(_ context.Context, _ llm.ToolCall) (string, bool) {
+		called = true
+		return "should-not-run", false
+	})
+	ti.SetRegistry(reg)
+	ti.SetTodoEnforcer(todo.NewEnforcer(todo.NewStore()))
+
+	out, isErr := ti.Invoke(context.Background(), makeTC("mutate", `{}`))
+	if !isErr {
+		t.Fatal("mutation tool should be blocked when todo is empty")
+	}
+	if called {
+		t.Fatal("blocked tool must not reach base runner")
+	}
+	if out == "" {
+		t.Fatal("blocked tool should return a reason")
+	}
+}
+
+// TestParseArgsForHook_Valid: 올바른 JSON 은 map 으로 파싱된다.
+func TestParseArgsForHook_Valid(t *testing.T) {
+	args := `{"key":"value","num":42}`
+	m := parseArgsForHook(args)
+	if m["key"] != "value" {
+		t.Errorf("want key=value, got %v", m["key"])
+	}
+	if m["num"] != json.Number("42") && m["num"] != float64(42) {
+		// json.Unmarshal 은 number → float64
+		if m["num"] != float64(42) {
+			t.Errorf("want num=42, got %v", m["num"])
+		}
+	}
+}
+
+// TestParseArgsForHook_Invalid: 파싱 실패 시 빈 map 을 반환한다.
+func TestParseArgsForHook_Invalid(t *testing.T) {
+	m := parseArgsForHook("not json")
+	if len(m) != 0 {
+		t.Errorf("want empty map, got %v", m)
+	}
+}
+
+// TestParseArgsForHook_Empty: 빈 문자열도 에러 없이 빈 map 을 반환한다.
+func TestParseArgsForHook_Empty(t *testing.T) {
+	m := parseArgsForHook("")
+	if len(m) != 0 {
+		t.Errorf("want empty map for empty input, got %v", m)
+	}
+}

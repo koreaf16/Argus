@@ -1,0 +1,135 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/yourorg/infractl/internal/agent/query"
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/llm"
+	"github.com/yourorg/infractl/internal/tools"
+)
+
+type followUpTestClient struct {
+	chatResp llm.Response
+	chatErr  error
+}
+
+func (c followUpTestClient) Chat(context.Context, []llm.Message, []llm.ToolDef, interface{}, ...llm.CallOption) (llm.Response, error) {
+	return c.chatResp, c.chatErr
+}
+
+func (c followUpTestClient) ChatStream(context.Context, []llm.Message, []llm.ToolDef, interface{}, func(string), func(string), ...llm.CallOption) (llm.Response, error) {
+	return llm.Response{Content: "ok"}, nil
+}
+
+func TestResolveFollowUpDecision_PendingActionConfirm(t *testing.T) {
+	a := &Agent{
+		llmClient:     followUpTestClient{chatResp: llm.Response{Content: `{"kind":"confirm","target":"pending_action","reason":"approval"}`}},
+		pendingAction: newPendingActionTracker(),
+		history: []llm.Message{
+			{Role: llm.RoleAssistant, Content: "Do you want me to continue?"},
+		},
+	}
+	a.pendingAction.Activate(&PendingAction{ProposedCommand: "echo ok", CreatedAt: time.Now()}, 1)
+
+	decision, attempted := a.resolveFollowUpDecision(context.Background(), "go ahead")
+	if !attempted {
+		t.Fatal("expected follow-up decision to be attempted")
+	}
+	if decision.Kind != "confirm" {
+		t.Fatalf("kind=%q want confirm", decision.Kind)
+	}
+	if decision.Target != "pending_action" {
+		t.Fatalf("target=%q want pending_action", decision.Target)
+	}
+}
+
+func TestResolveFollowUpDecision_ChatFailureReturnsUnclear(t *testing.T) {
+	a := &Agent{
+		llmClient:     followUpTestClient{chatErr: errors.New("boom")},
+		pendingAction: newPendingActionTracker(),
+	}
+	a.pendingAction.Activate(&PendingAction{ProposedCommand: "echo ok", CreatedAt: time.Now()}, 1)
+
+	decision, attempted := a.resolveFollowUpDecision(context.Background(), "진행")
+	if !attempted {
+		t.Fatal("expected follow-up decision to be attempted")
+	}
+	if decision.Kind != "unclear" {
+		t.Fatalf("kind=%q want unclear", decision.Kind)
+	}
+}
+
+func TestConsumeEngineEvents_ActivatesPendingActionFromProposeAction(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(&tools.ProposeActionTool{}); err != nil {
+		t.Fatalf("register propose_action: %v", err)
+	}
+
+	a := New(followUpTestClient{}, reg, executor.NewManager(noopAgentExecutor{}), noopAgentEventHandler{}, nil)
+	tc := llm.ToolCall{
+		ID: "call-1",
+		Function: llm.FunctionCall{
+			Name:      "propose_action",
+			Arguments: `{"command":"echo apply","reason":"test"}`,
+		},
+	}
+
+	events := make(chan query.QueryEvent, 3)
+	events <- query.EventAssistantResponse{Text: "proposal", ToolCalls: []llm.ToolCall{tc}}
+	events <- query.EventToolResult{ID: "call-1", Name: "propose_action", ToolCall: tc, Output: "ok", IsError: false}
+	events <- query.EventTerminal{Reason: query.TerminalCompleted}
+	close(events)
+
+	if err := a.consumeEngineEvents(context.Background(), events, time.Now()); err != nil {
+		t.Fatalf("consumeEngineEvents() error = %v", err)
+	}
+
+	pending := a.pendingAction.Current()
+	if pending == nil {
+		t.Fatal("expected pending action to be activated")
+	}
+	if pending.ProposedCommand != "echo apply" {
+		t.Fatalf("command=%q want echo apply", pending.ProposedCommand)
+	}
+}
+
+func TestConsumeEngineEvents_ActivatesPendingProposalFromProposeTask(t *testing.T) {
+	a := New(followUpTestClient{}, tools.NewRegistry(), executor.NewManager(noopAgentExecutor{}), noopAgentEventHandler{}, nil)
+	tc := llm.ToolCall{
+		ID: "call-2",
+		Function: llm.FunctionCall{
+			Name:      "propose_task",
+			Arguments: `{"title":"Install Oracle","kind":"install","plan":["step1"]}`,
+		},
+	}
+
+	events := make(chan query.QueryEvent, 3)
+	events <- query.EventAssistantResponse{Text: "proposal", ToolCalls: []llm.ToolCall{tc}}
+	events <- query.EventToolResult{ID: "call-2", Name: "propose_task", ToolCall: tc, Output: "ok", IsError: false}
+	events <- query.EventTerminal{Reason: query.TerminalCompleted}
+	close(events)
+
+	if err := a.consumeEngineEvents(context.Background(), events, time.Now()); err != nil {
+		t.Fatalf("consumeEngineEvents() error = %v", err)
+	}
+	if a.pendingProposal == nil {
+		t.Fatal("expected pending proposal to be activated")
+	}
+	if a.pendingProposal.Draft.Title != "Install Oracle" {
+		t.Fatalf("title=%q want Install Oracle", a.pendingProposal.Draft.Title)
+	}
+}
+
+func TestShouldResolveAmbiguityInput_GuardsVagueConfirmationText(t *testing.T) {
+	if shouldResolveAmbiguityInput("진행하자", nil) {
+		t.Fatal("vague confirmation text should not trigger ambiguity resolver")
+	}
+	if !shouldResolveAmbiguityInput("oracle 서버", nil) {
+		t.Fatal("server/entity text should trigger ambiguity resolver")
+	}
+}
+

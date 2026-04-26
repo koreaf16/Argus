@@ -1,0 +1,28 @@
+{
+  "name": "echo_once",
+  "description": "단순 echo 도구 1회 호출 후 완료",
+  "input_messages": [],
+  "tool_behaviors": {
+    "echo": {"output": "hello", "is_error": false}
+  },
+  "llm_turns": [
+    {
+      "content": "",
+      "tool_calls": [{"id": "tc-1", "type": "function", "function": {"name": "echo", "arguments": "{}"}}]
+    },
+    {
+      "content": "완료했습니다.",
+      "tool_calls": []
+    }
+  ],
+  "expected_event_types": [
+    "EventStreamStart",
+    "EventAssistantResponse",
+    "EventToolUseStart",
+    "EventToolResult",
+    "EventStreamStart",
+    "EventAssistantResponse",
+    "EventTerminal"
+  ],
+  "expected_terminal_reason": "completed"
+}

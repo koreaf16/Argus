@@ -1,0 +1,19 @@
+﻿package ssh
+
+import "testing"
+
+func TestSSHExecutorWorkspaceCommandWrapsCommand(t *testing.T) {
+	exec := &SSHExecutor{name: "prod", workspaceDir: "/srv/ws"}
+	got := exec.workspaceCommand("pwd")
+	want := "mkdir -p '/srv/ws' && cd '/srv/ws' && pwd"
+	if got != want {
+		t.Fatalf("workspaceCommand() = %q, want %q", got, want)
+	}
+}
+
+func TestSSHExecutorWorkspaceDirDefaults(t *testing.T) {
+	exec := &SSHExecutor{name: "prod"}
+	if got := exec.WorkspaceDir(); got != "~/.infractl/workspace" {
+		t.Fatalf("WorkspaceDir() = %q", got)
+	}
+}

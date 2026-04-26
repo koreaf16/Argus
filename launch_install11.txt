@@ -1,0 +1,13 @@
+/server connect sandbox-server
+Welcome1!@#$
+bash 도구 server="sandbox-server" 으로 oracle_install10 로그 확인 및 installer 재실행 준비: (1) ls -la /tmp/oracle_install10.log 2>&1 || echo no_log10. (2) cat /tmp/oracle_install10.log 2>&1 | head -10 || echo empty_log10. (3) pgrep -la oracle 2>&1 || echo no_oracle_proc. (4) echo 'Welcome1!@#$' | sudo -S bash -c 'cat > /tmp/run_install.sh << '"'"'EOF'"'"'
+#!/bin/bash
+export CV_ASSUME_DISTID=OEL7.6
+export ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1
+export ORACLE_BASE=/u01/app/oracle
+exec /u01/app/oracle/product/19.0.0/dbhome_1/runInstaller -silent -ignorePrereqFailure -responseFile /tmp/db_install_clean.rsp -waitforcompletion
+EOF
+chmod 755 /tmp/run_install.sh
+chown oracle:oinstall /tmp/run_install.sh' && echo script_created.
+bash 도구 server="sandbox-server" 으로 oracle user로 installer 실행: (1) echo 'Welcome1!@#$' | sudo -S -u oracle nohup /tmp/run_install.sh > /tmp/oracle_install11.log 2>&1 & echo "bg_pid=$!"
+bash 도구 server="sandbox-server" 으로 5초 후 installer 시작 확인: (1) pgrep -la -u oracle 2>&1 | head -10. (2) ls -la /tmp/oracle_install11.log 2>&1. (3) head -5 /tmp/oracle_install11.log 2>&1 || echo no_output_yet.

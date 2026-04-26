@@ -1,0 +1,215 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-25T05:01:23.5234931Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "a100-server 접속ㅎ"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "`a100-server`에 접속하기 위해서는 해당 서버의 **접속 정보(IP 주소 또는 호스트 이름, 사용자 계정명)**가 필요합니다.\n\n일반적으로 SSH를 통해 접속하며, 상황에 따라 아래 방법 중 하나를 사용하시면 됩니다.\n\n### 1. 터미널(Terminal)에서 직접 접속할 때\n가장 기본적인 방법입니다. 터미널(또는 CMD, PowerShell)을 열고 아래 명령어를 입력하세요.\n\n```bash\nssh [사용자계정]@[서버IP주소 또는 호스트명]\n\n# 예시 (사용자명이 'admin'이고 IP가 '192.168.0.10'인 경우)\nssh admin@192.168.0.10\n```\n*접속 시 비밀번호를 물어보면 해당 서버의 비밀번호를 입력하시면 됩니다.*\n\n### 2. SSH 키(.pem, .key) 파일을 사용하는 경우\nAWS나 클라우드 환경을 사용하여 인증 키 파일이 따로 있다면 `-i` 옵션을 사용해야 합니다.\n\n```bash\nssh -i [키파일경로] [사용자계정]@[서버IP주소]\n\n# 예시\nssh -i ~/keys/my-a100-key.pem ubuntu@10.20.30.40\n```\n\n### 3. VS Code(Visual Studio Code)를 사용하는 경우 (추천)\nA100 서버에서 딥러닝 코딩을 하신다면 VS Code의 **Remote - SSH** 확장을 사용하는 것이 가장 편리합니다.\n\n1. VS Code 실행 후 왼쪽 사이드바의 **Extensions(확장)** 아이콘 클릭\n2. `Remote - SSH` 검색 후 설치\n3. `F1` 키를 누르고 `Remote-SSH: Connect to Host...` 선택\n4. `사용자계정@서버IP` 입력 후 엔터\n5. 새 창이 뜨면 비밀번호 입력\n\n---\n\n**만약 접속이 안 된다면 다음 사항을 확인해 주세요:**\n* **네트워크 연결:** 서버와 같은 네트워크(또는 VPN)에 연결되어 있는지 확인하세요.\n* **방화벽:** 서버의 22번 포트(SSH)가 열려 있는지 확인하세요.\n* **접속 정보:** 사용자 이름이나 IP 주소가 정확한지 다시 확인하세요.\n\n**혹시 제가 대신 접속을 시도하거나, 특정 환경(예: 특정 회사 내부망, 특정 클라우드)에 대한 가이드가 필요하신가요?** 정보를 더 주시면 맞춤형으로 도와드리겠습니다."
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "서버에 뭐 떠 있니?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "제가 직접 사용자의 개인 서버(`a100-server`)에 물리적으로 접속할 권한은 없습니다. 하지만, **사용자께서 저에게 서버 접속 권한(SSH 설정 등)을 부여하시거나, 제가 명령어를 실행할 수 있는 환경(Tool)이 구성되어 있다면** 제가 대신 명령어를 날려 상태를 확인해 드릴 수 있습니다.\n\n만약 제가 서버의 상태를 확인해 주길 원하신다면, **먼저 서버에 접속할 수 있는 환경을 만들어 주셔야 합니다.**\n\n일반적으로 서버에 무엇이 떠 있는지 확인하려면 다음과 같은 명령어들을 사용합니다. 제가 대신 실행해 드릴 수 있도록 환경을 열어주시면 바로 확인해 드리겠습니다.\n\n### 1. 현재 실행 중인 프로세스 확인 (CPU/메모리 점유)\n가장 먼저 어떤 프로그램이 돌아가고 있는지 확인하는 명령어입니다.\n*   `top` 또는 `htop`: 실시간 프로세스 모니터링\n*   `ps -ef`: 실행 중인 모든 프로세스 목록\n\n### 2. GPU 상태 확인 (A100 서버라면 필수!)\nA100 서버라면 GPU가 어떻게 사용되고 있는지 확인하는 것이 가장 중요합니다.\n*   `nvidia-smi`: GPU 모델, 메모리 사용량, 현재 실행 중인 GPU 프로세스 확인\n\n### 3. 네트워크 포트 확인 (어떤 서비스가 열려 있는지)\n웹 서버나 Jupyter Notebook 등이 떠 있는지 확인할 때 사용합니다.\n*   `netstat -tuln` 또는 `ss -tuln`: 열려 있는 포트 목록 확인\n\n### 4. 디스크 용량 확인\n*   `df -h`: 디스크 잔여 용량 확인\n\n---\n\n**💡 어떻게 도와드릴까요?**\n\n1.  **\"직접 확인해 줘\"**: 만약 제가 접속할 수 있는 환경(예: 특정 워크스페이스나 SSH 설정이 완료된 상태)이라면, **\"nvidia-smi 실행해 줘\"** 또는 **\"프로세스 목록 보여줘\"**라고 말씀해 주세요.\n2.  **\"명령어 알려줘\"**: 직접 접속하신 상태라면, 위 명령어 중 어떤 것을 입력해야 원하는 정보를 얻을 수 있는지 더 자세히 가이드해 드릴 수 있습니다.\n\n**지금 서버에 접속 중이신가요?** 접속 중이라면 어떤 정보를 알고 싶으신지 말씀해 주세요!"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "k8s 서버 리스트 한번 보자"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "PDApVVcjXrNRuJb4N8Njv5J8CLYz82k9",
+          "name": "server_inspect",
+          "input": {
+            "server": "a100-server"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "{\n  \"Alias\": \"a100-server\",\n  \"CollectedAt\": \"2026-04-25T13:42:59.9414504+09:00\",\n  \"OS\": \"Linux aisvr 5.14.0-611.36.1.el9_7.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Mar 3 17:30:12 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\\r\\n---\\r\\nNAME=\\\"Rocky Linux\\\"\\r\\nVERSION=\\\"9.7 (Blue Onyx)\\\"\",\n  \"Kernel\": \"\",\n  \"Shell\": \"/bin/bash\",\n  \"User\": \"koreaf16\",\n  \"CWD\": \"/home/koreaf16\",\n  \"Uptime\": \"13:43:02 up 19 days, 17:22, 11 users,  load average: 0.37, 0.17, 0.11\",\n  \"Memory\": \"total        used        free      shared  buff/cache   available\\r\\nMem:           251Gi        26Gi       4.1Gi       1.0Gi       223Gi       224Gi\\r\\nSwap:             0B          0B          0B\",\n  \"Disk\": \"Filesystem            Size  Used Avail Use% Mounted on\\r\\ndevtmpfs              4.0M     0  4.0M   0% /dev\\r\\ntmpfs                 126G  4.0K  126G   1% /dev/shm\\r\\ntmpfs                  51G  259M   50G   1% /run\\r\\nefivarfs              128K   58K   66K  47% /sys/firmware/efi/efivars\\r\\n/dev/mapper/rlm-root   70G   21G   50G  30% /\\r\\n/dev/sda2             960M  349M  612M  37% /boot\\r\\n/dev/sda1             599M  7.1M  592M   2% /boot/efi\\r\\n/dev/mapper/rlm-home  5.2T  1.8T  3.5T  34% /home\\r\\ntmpfs                  26G  8.0K   26G   1% /run/user/0\",\n  \"Listeners\": \"tcp   LISTEN 0      4096   172.16.100.100:2380       0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096   172.16.100.100:2379       0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096        127.0.0.1:45669      0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096        127.0.0.1:2381       0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096        127.0.0.1:2379       0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      6           127.0.0.1:5555       0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096        127.0.0.1:10249      0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096        127.0.0.1:10248      0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096        127.0.0.1:10259      0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096        127.0.0.1:10257      0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096        127.0.0.1:9099       0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      2048          0.0.0.0:8200       0.0.0.0:*    users:((\\\"python\\\",pid=2102309,fd=11))\\r\\ntcp   LISTEN 0      128           0.0.0.0:22         0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096          0.0.0.0:3306       0.0.0.0:*                                        \\r\\ntcp   LISTEN 0      4096                *:10256            *:*                                        \\r\\ntcp   LISTEN 0      4096                *:10250            *:*                                        \\r\\ntcp   LISTEN 0      128              [::]:22            [::]:*                                        \\r\\ntcp   LISTEN 0      4096             [::]:3306          [::]:*                                        \\r\\ntcp   LISTEN 0      4096                *:6443             *:*\",\n  \"Services\": \"UNIT                      LOAD   ACTIVE SUB     DESCRIPTION\\r\\nauditd.service            loaded active running Security Auditing Service\\r\\nchronyd.service           loaded active running NTP client/server\\r\\ncontainerd.service        loaded active running containerd container runtime\\r\\ncrond.service             loaded active running Command Scheduler\\r\\ndbus-broker.service       loaded active running D-Bus System Message Bus\\r\\ndocker.service            loaded active running Docker Application Container Engine\\r\\ngetty@tty1.service        loaded active running Getty on tty1\\r\\ngetty@tty2.service        loaded active running Getty on tty2\\r\\nirqbalance.service        loaded active running irqbalance daemon\\r\\nkubelet.service           loaded active running kubelet: The Kubernetes Node Agent\\r\\nNetworkManager.service    loaded active running Network Manager\\r\\nnvidia-dcgm.service       loaded active running NVIDIA DCGM service\\r\\nrsyslog.service           loaded active running System Logging Service\\r\\nsshd.service              loaded active running OpenSSH server daemon\\r\\nsystemd-hostnamed.service loaded active running Hostname Service\\r\\nsystemd-journald.service  loaded active running Journal Service\\r\\nsystemd-logind.service    loaded active running User Login Management\\r\\nsystemd-udevd.service     loaded active running Rule-based Manager for Device Events and Files\\r\\nuser@0.service            loaded active running User Manager for UID 0\\r\\nuser@1000.service         loaded active running User Manager for UID 1000\\r\\n\\r\\nLOAD   = Reflects whether the unit definition was properly loaded.\\r\\nACTIVE = The high-level unit activation state, i.e. generalization of SUB.\\r\\nSUB    = The low-level unit activation state, values depend on unit type.\\r\\n20 loaded units listed.\",\n  \"Processes\": \"PID USER     %CPU %MEM COMMAND\\r\\n   1830 root      6.1  0.0 containerd\\r\\n   2102 root      3.1  0.0 kubelet\\r\\n   3191 root      2.9  0.1 kube-apiserver\\r\\n   3180 root      1.4  0.0 etcd\\r\\n 321501 root      1.3  1.1 VLLM::EngineCor\\r\\n   3188 root      1.1  0.0 kube-controller\\r\\n   4853 root      1.0  0.0 calico-node\\r\\n 329314 root      0.5  4.9 llama-server\\r\\n    495 root      0.2  0.0 kcompactd0\\r\\n    496 root      0.2  0.0 kcompactd1\\r\\n2102309 koreaf16  0.2  0.3 python\\r\\n4121105 systemd+  0.2  0.1 mysqld\\r\\n   1651 root      0.1  0.0 irqbalance\\r\\n   1652 root      0.1  0.0 nv-hostengine\\r\\n   2100 root      0.1  0.0 dockerd\\r\\n   3198 root      0.1  0.0 kube-scheduler\\r\\n   3581 root      0.1  0.0 containerd-shim\\r\\n   4303 65532     0.1  0.0 coredns\\r\\n   4698 65532     0.1  0.0 coredns\",\n  \"Docker\": \"mysql-latest-server\\tmysql:latest\\tUp 4 days\",\n  \"Errors\": null\n}",
+          "name": "server_inspect",
+          "tool_use_id": "PDApVVcjXrNRuJb4N8Njv5J8CLYz82k9"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "VFtaWMnWYJpciXsiaLcu4HjTfmG1snZa",
+          "name": "bash",
+          "input": {
+            "command": "kubectl get nodes -o wide",
+            "description": "Kubernetes 노드 리스트 확인",
+            "server": "a100-server"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "exit_code: 0\n\nstdout:\nNAME    STATUS   ROLES           AGE   VERSION    INTERNAL-IP      EXTERNAL-IP   OS-IMAGE                      KERNEL-VERSION                 CONTAINER-RUNTIME\naisvr   Ready    control-plane   24d   v1.29.15   172.16.100.100   \u003cnone\u003e        Rocky Linux 9.7 (Blue Onyx)   5.14.0-611.36.1.el9_7.x86_64   containerd://2.2.2",
+          "name": "bash",
+          "tool_use_id": "VFtaWMnWYJpciXsiaLcu4HjTfmG1snZa"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "EcrhctmIlkIlmsOzMpDdscXMdda1JHyR",
+          "name": "bash",
+          "input": {
+            "command": "kubectl get pods --all-namespaces -o wide",
+            "description": "Kubernetes 모든 네임스페이스의 Pod 리스트 확인",
+            "server": "a100-server"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "exit_code: 0\n\nstdout:\nNAMESPACE     NAME                                       READY   STATUS    RESTARTS       AGE     IP                NODE    NOMINATED NODE   READINESS GATES\ndbs           crawl4ai-5cb9c44c69-r7qd5                  1/1     Running   0              2d19h   192.168.208.135   aisvr   \u003cnone\u003e           \u003cnone\u003e\ndbs           llama-cpp-qwen35-122b-7c6b8b48cc-d5hgj     1/1     Running   0              3d17h   192.168.208.133   aisvr   \u003cnone\u003e           \u003cnone\u003e\ndbs           vllm-gemma4-26b-awq-fp8-595cb8cccf-b5zjv   1/1     Running   0              3d17h   192.168.208.190   aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   calico-kube-controllers-658d97c59c-w4np8   1/1     Running   9 (19d ago)    24d     192.168.208.188   aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   calico-node-288tg                          1/1     Running   5 (19d ago)    23d     172.16.100.100    aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   coredns-76f75df574-qz8lr                   1/1     Running   9 (19d ago)    24d     192.168.208.185   aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   coredns-76f75df574-sg9vj                   1/1     Running   9 (19d ago)    24d     192.168.208.187   aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   etcd-aisvr                                 1/1     Running   43 (19d ago)   24d     172.16.100.100    aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   kube-apiserver-aisvr                       1/1     Running   41 (19d ago)   24d     172.16.100.100    aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   kube-controller-manager-aisvr              1/1     Running   45 (19d ago)   24d     172.16.100.100    aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   kube-proxy-stbbj                           1/1     Running   8 (19d ago)    24d     172.16.100.100    aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   kube-scheduler-aisvr                       1/1     Running   42 (19d ago)   24d     172.16.100.100    aisvr   \u003cnone\u003e           \u003cnone\u003e\nkube-system   nvidia-device-plugin-daemonset-8tqsq       1/1     Running   0              10d     192.168.208.162   aisvr   \u003cnone\u003e           \u003cnone\u003e\nsearxng       searxng-866d7c98fb-xv9b9                   1/1     Running   0              12d     192.168.208.149   aisvr   \u003cnone\u003e           \u003cnone\u003e",
+          "name": "bash",
+          "tool_use_id": "EcrhctmIlkIlmsOzMpDdscXMdda1JHyR"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "`a100-server` 의 Kubernetes 클러스터 상태를 확인했습니다. 현재 **단일 노드 (Single Node)** 클러스터로 구성되어 있으며, AI/LLM 관련 서비스들이 활발히 운영 중입니다.\n\n### 1. 🖥️ 노드 (Node) 정보\n클러스터는 **1 대의 노드**로 구성되어 있습니다.\n\n| 이름 (Name) | 상태 (Status) | 역할 (Roles) | 버전 (Version) | 내부 IP | OS |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n| **aisvr** | `Ready` | `control-plane` | v1.29.15 | 172.16.100.100 | Rocky Linux 9.7 |\n\n### 2. 📦 실행 중인 Pod 리스트 (네임스페이스별)\n총 **13 개 Pod**가 실행 중이며, 주요 서비스는 다음과 같습니다.\n\n#### 🔹 `dbs` 네임스페이스 (AI/LLM 서비스)\n가장 중요한 AI 모델 서비스들이 여기서 실행 중입니다.\n| Pod 이름 | 상태 | IP | 설명 |\n| :--- | :--- | :--- | :--- |\n| `vllm-gemma4-26b-awq-fp8` | `Running` | 192.168.208.190 | **Gemma4 26B** 모델 (VLLM 엔진) |\n| `llama-cpp-qwen35-122b` | `Running` | 192.168.208.133 | **Qwen35 122B** 모델 (llama.cpp) |\n| `crawl4ai` | `Running` | 192.168.208.135 | 웹 크롤링 서비스 |\n\n#### 🔹 `searxng` 네임스페이스\n| Pod 이름 | 상태 | IP | 설명 |\n| :--- | :--- | :--- | :--- |\n| `searxng` | `Running` | 192.168.208.149 | 메타 검색 엔진 (SearXNG) |\n\n#### 🔹 `kube-system` 네임스페이스 (시스템 구성 요소)\nKubernetes 핵심 구성 요소 및 GPU 드라이버가 정상 작동 중입니다.\n*   **CoreDNS**: DNS 서비스 (2 개 Pod)\n*   **Calico**: 네트워크 플러그인\n*   **NVIDIA Device Plugin**: **GPU 리소스 관리** (A100 사용 가능)\n*   **etcd, kube-apiserver, scheduler, controller-manager**: 제어 평면 구성 요소\n\n### 3. 💡 요약 및 상태\n*   **클러스터 상태**: ✅ **정상 (Healthy)**\n*   **GPU 지원**: ✅ **활성화됨** (`nvidia-device-plugin-daemonset` 실행 중)\n*   **주요 부하**: `VLLM::EngineCor` 및 `llama-server` 프로세스가 GPU 를 사용하며 실행 중입니다.\n*   **리소스**: 메모리 251GB 중 약 26GB 사용, 디스크 5.2TB 중 34% 사용.\n\n더 구체적인 정보 (예: 특정 Pod 의 로그, GPU 사용량 상세, 이벤트 확인 등) 가 필요하시면 말씀해 주세요!"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "서버 리스트 보자"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "WLwd262HkIsjI778KLp0x82StnvZVgKH",
+          "name": "bash",
+          "input": {
+            "command": "kubectl get nodes -o wide -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.status.conditions[?(@.type==\"Ready\")].status}{\"\\t\"}{.spec.podCIDR}{\"\\t\"}{.status.addresses[?(@.type==\"InternalIP\")].address}{\"\\t\"}{.status.nodeInfo.kubeletVersion}{\"\\n\"}{end}'",
+            "description": "Kubernetes 노드 상세 리스트 확인",
+            "server": "a100-server"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "exit_code: 0\n\nstdout:\naisvr\tTrue\t192.168.0.0/24\t172.16.100.100\tv1.29.15",
+          "name": "bash",
+          "tool_use_id": "WLwd262HkIsjI778KLp0x82StnvZVgKH"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "현재 `a100-server` 에 연결된 Kubernetes 클러스터의 **서버 (노드) 리스트**는 다음과 같습니다.\n\n### 🖥️ Kubernetes 노드 (Server) 리스트\n\n| 노드 이름 (Name) | 상태 (Ready) | Pod CIDR | 내부 IP (InternalIP) | Kubelet 버전 |\n| :--- | :--- | :--- | :--- | :--- |\n| **aisvr** | ✅ `True` | 192.168.0.0/24 | 172.16.100.100 | v1.29.15 |\n\n### 📊 요약\n*   **총 노드 수**: 1 대\n*   **클러스터 구성**: 단일 노드 (Single Node) 클러스터\n*   **상태**: 모든 노드가 `Ready` 상태로 정상 작동 중입니다.\n*   **역할**: `aisvr` 노드가 마스터 (Control Plane) 와 워커 (Worker) 역할을 모두 수행하고 있습니다.\n\n이 클러스터는 현재 **A100 GPU**를 활용하여 `vllm-gemma4-26b`, `llama-cpp-qwen35-122b` 등의 AI 모델을 구동하고 있습니다.\n\n더 자세한 정보 (예: 노드의 리소스 사용량, 레이블, 테인트 등) 가 필요하시면 말씀해 주세요!"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "k8s 서비스 보자"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "ID4lFLswkSey66bMrajJd4G39V0LSBQD",
+          "name": "bash",
+          "input": {
+            "command": "kubectl get services --all-namespaces -o wide",
+            "description": "Kubernetes 모든 네임스페이스의 서비스 리스트 확인",
+            "server": "a100-server"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "exit_code: 0\n\nstdout:\nNAMESPACE     NAME                                    TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                  AGE     SELECTOR\ndbs           crawl4ai                                NodePort    10.104.230.172   \u003cnone\u003e        11235:30090/TCP          2d20h   app=crawl4ai\ndbs           embedding-service                       NodePort    10.101.25.213    \u003cnone\u003e        8081:30436/TCP           7d21h   app=tei-embedding\ndbs           llama-cpp-qwen35-122b-svc               NodePort    10.96.16.99      \u003cnone\u003e        8000:30434/TCP           6d23h   app=llama-cpp-qwen35-122b\ndbs           mysql-service                           NodePort    10.108.224.249   \u003cnone\u003e        3306:30306/TCP           4d      app=mysql\ndbs           nginx-web-service                       NodePort    10.105.234.225   \u003cnone\u003e        80:30555/TCP             4d      app=nginx-web\ndbs           qwen35-27b-service                      NodePort    10.96.199.9      \u003cnone\u003e        80:30447/TCP             10d     app=vllm-qwen35-27b\ndbs           qwen35-35b-service                      NodePort    10.101.77.197    \u003cnone\u003e        80:30446/TCP             7d5h    app=vllm-qwen35-35b\ndbs           qwen36-35b-service                      NodePort    10.100.80.159    \u003cnone\u003e        80:30442/TCP             7d20h   app=sglang-qwen36-35b\ndbs           sglang-gemma4-31b-awq-128k-service      NodePort    10.99.176.69     \u003cnone\u003e        80:30449/TCP             3d19h   app=sglang-gemma4-31b-awq-128k\ndbs           sglang-qwen35-27b-service               NodePort    10.102.49.25     \u003cnone\u003e        8000:30445/TCP           7d6h    app=sglang-qwen35-27b\ndbs           sglang-reranker-service                 NodePort    10.97.189.219    \u003cnone\u003e        80:30437/TCP             7d20h   app=sglang-qwen3-reranker-4b\ndbs           tabbyapi-gemma4-exl3-gpu2-service       NodePort    10.103.97.52     \u003cnone\u003e        8000:30432/TCP           7d19h   app=tabbyapi-gemma4-exl3-gpu2\ndbs           vllm-1-7b-service                       NodePort    10.101.56.110    \u003cnone\u003e        8000:30439/TCP           12d     app=vllm-1-7b\ndbs           vllm-gemma4-26b-awq-fp8-service         NodePort    10.99.50.228     \u003cnone\u003e        80:30435/TCP             7d4h    app=vllm-gemma4-26b-awq-fp8\ndbs           vllm-gemma4-31b-awq-4bit-100k-service   NodePort    10.105.4.202     \u003cnone\u003e        80:30448/TCP             3d19h   app=vllm-gemma4-31b-awq-4bit-100k\ndbs           vllm-gemma4-31b-awq-4bit-32k-service    NodePort    10.101.13.162    \u003cnone\u003e        8000:30443/TCP           7d4h    app=vllm-gemma4-31b-awq-4bit-32k\ndbs           vllm-gemma4-31b-awq-gpu2-service        NodePort    10.107.126.104   \u003cnone\u003e        8000:30438/TCP           7d15h   app=vllm-gemma4-31b-awq-gpu2\ndbs           vllm-gemma4-gpu2-128k-service           NodePort    10.101.139.119   \u003cnone\u003e        8000:30440/TCP           7d15h   app=vllm-gemma4-gpu2-128k\ndbs           vllm-gpt-oss-20b-service                NodePort    10.111.46.98     \u003cnone\u003e        8000:30444/TCP           7d21h   app=vllm-gpt-oss-20b\ndefault       kubernetes                              ClusterIP   10.96.0.1        \u003cnone\u003e        443/TCP                  24d     \u003cnone\u003e\ndefault       nginx-service                           NodePort    10.96.180.233    \u003cnone\u003e        80:30081/TCP             4d3h    app=nginx\nkube-system   kube-dns                                ClusterIP   10.96.0.10       \u003cnone\u003e        53/UDP,53/TCP,9153/TCP   24d     k8s-app=kube-dns\nsearxng       searxng-service                         NodePort    10.109.139.78    \u003cnone\u003e        8080:30080/TCP           12d     app=searxng",
+          "name": "bash",
+          "tool_use_id": "ID4lFLswkSey66bMrajJd4G39V0LSBQD"
+        }
+      ]
+    }
+  ]
+}

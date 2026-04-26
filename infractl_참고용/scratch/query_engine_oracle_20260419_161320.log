@@ -1,0 +1,24 @@
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+[assistant_tool_calls] count=1
+  - id=chatcmpl-tool-b1ee2950dbe92b77 name=oracle_ai26_ai_db.query args={"sql": "SELECT name, open_mode FROM v$pdbs;", "target": "oracle"}
+
+[tool_use_start] id=chatcmpl-tool-b1ee2950dbe92b77 name=oracle_ai26_ai_db.query input={"sql": "SELECT name, open_mode FROM v$pdbs;", "target": "oracle"}
+
+[tool_result] id=chatcmpl-tool-b1ee2950dbe92b77 name=oracle_ai26_ai_db.query status=ok
+NAME																 OPEN_MODE
+PDB$SEED															 READ ONLY
+AI_DB																 READ WRITE
+
+[stream_start] tier=general model=/models/gemma-4-26B-A4B-it-AWQ-4bit
+현재 `oracle` 서버의 PDB 목록은 다음과 같습니다.
+
+- **PDB$SEED**: READ ONLY
+- **AI_DB**: READ WRITE
+[assistant_response]
+현재 `oracle` 서버의 PDB 목록은 다음과 같습니다.
+
+- **PDB$SEED**: READ ONLY
+- **AI_DB**: READ WRITE
+
+[terminal] reason=completed err=<nil>

@@ -1,0 +1,331 @@
+package repl
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/chzyer/readline"
+	"github.com/koreaf16/argus/internal/constants"
+	"github.com/koreaf16/argus/internal/query"
+	"github.com/koreaf16/argus/internal/services/llm"
+	"github.com/koreaf16/argus/internal/state"
+)
+
+type Config struct {
+	Engine    *query.Engine
+	Registry  *llm.Registry
+	State     *state.AppState
+	ModelPath string
+}
+
+func Run(ctx context.Context, cfg Config) error {
+	if cfg.Engine == nil {
+		return errors.New("repl requires query engine")
+	}
+	if cfg.Registry == nil {
+		return errors.New("repl requires model registry")
+	}
+	if cfg.State == nil {
+		cfg.State = state.NewAppState()
+	}
+	if cfg.ModelPath == "" {
+		cfg.ModelPath = constants.ModelsPath()
+	}
+
+	if err := os.MkdirAll(constants.ConfigDir(), 0o755); err != nil {
+		return err
+	}
+
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          buildPrompt(cfg.State),
+		HistoryFile:     constants.HistoryPath(),
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+	})
+	if err != nil {
+		return err
+	}
+	defer rl.Close()
+
+	assistantStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	toolStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	toolResultStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	thinkingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		rl.SetPrompt(buildPrompt(cfg.State))
+		line, err := rl.Readline()
+		if err == readline.ErrInterrupt {
+			if strings.TrimSpace(line) == "" {
+				fmt.Fprintln(rl.Stdout())
+			}
+			continue
+		}
+		if errors.Is(err, io.EOF) {
+			fmt.Fprintln(rl.Stdout())
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		input := strings.TrimSpace(line)
+		if input == "" {
+			continue
+		}
+
+		if strings.HasPrefix(input, "/") {
+			quit, cmdErr := handleSlashCommand(ctx, rl, cfg, input)
+			if cmdErr != nil {
+				fmt.Fprintln(rl.Stderr(), errStyle.Render(cmdErr.Error()))
+			}
+			if quit {
+				return nil
+			}
+			continue
+		}
+
+		stream, err := cfg.Engine.SubmitMessage(ctx, input)
+		if err != nil {
+			fmt.Fprintln(rl.Stderr(), errStyle.Render(err.Error()))
+			continue
+		}
+
+		printedAssistantPrefix := false
+		for evt := range stream {
+			switch evt.Kind {
+			case query.UIEventAssistantDelta:
+				if !printedAssistantPrefix {
+					fmt.Fprint(rl.Stdout(), assistantStyle.Render("assistant> "))
+					printedAssistantPrefix = true
+				}
+				fmt.Fprint(rl.Stdout(), assistantStyle.Render(evt.Delta))
+			case query.UIEventToolUse:
+				if evt.ToolUse != nil {
+					fmt.Fprintf(rl.Stdout(), "\n%s %s\n", toolStyle.Render("tool_use:"), evt.ToolUse.Name)
+				}
+			case query.UIEventToolResult:
+				fmt.Fprintf(rl.Stdout(), "\n%s %s\n", toolResultStyle.Render("tool_result:"), toolResultStyle.Render(evt.ToolResult))
+			case query.UIEventError:
+				if evt.Err != nil {
+					fmt.Fprintln(rl.Stderr(), errStyle.Render(evt.Err.Error()))
+				}
+			case query.UIEventDone:
+				if printedAssistantPrefix {
+					fmt.Fprintln(rl.Stdout())
+				}
+			}
+		}
+		fmt.Fprint(rl.Stdout(), thinkingStyle.Render(""))
+	}
+}
+
+func buildPrompt(app *state.AppState) string {
+	mode := "default"
+	if app != nil && app.InPlanMode() {
+		mode = "plan"
+	}
+	modelName := "unconfigured"
+	if app != nil {
+		_, display := app.ActiveModel()
+		if display != "" {
+			modelName = display
+		}
+	}
+	return fmt.Sprintf("[%s] [%s] > ", mode, modelName)
+}
+
+func handleSlashCommand(ctx context.Context, rl *readline.Instance, cfg Config, line string) (bool, error) {
+	fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "/"))
+	if len(fields) == 0 {
+		return false, nil
+	}
+	cmd := strings.ToLower(fields[0])
+	args := fields[1:]
+
+	switch cmd {
+	case "exit", "quit":
+		return true, nil
+	case "clear":
+		fmt.Fprint(rl.Stdout(), "\x1b[2J\x1b[H")
+		return false, nil
+	case "help":
+		fmt.Fprintln(rl.Stdout(), "Commands: /help /exit /clear /model")
+		fmt.Fprintln(rl.Stdout(), "Model commands: /model, /model <alias|index>, /model show <alias>, /model add, /model rm <alias>")
+		return false, nil
+	case "model":
+		return false, handleModelCommand(ctx, rl, cfg, args)
+	default:
+		return false, fmt.Errorf("unknown command: /%s", cmd)
+	}
+}
+
+func handleModelCommand(ctx context.Context, rl *readline.Instance, cfg Config, args []string) error {
+	if len(args) == 0 {
+		fmt.Fprintln(rl.Stdout(), cfg.Registry.FormatTable())
+		return nil
+	}
+	switch strings.ToLower(args[0]) {
+	case "show":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /model show <alias>")
+		}
+		info, err := cfg.Registry.Show(args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(rl.Stdout(), info)
+		return nil
+	case "rm":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /model rm <alias>")
+		}
+		if err := cfg.Registry.Remove(args[1]); err != nil {
+			return err
+		}
+		if err := cfg.Registry.Save(cfg.ModelPath); err != nil {
+			return err
+		}
+		return refreshEngineLLM(cfg)
+	case "add":
+		entry, err := interactiveAddModel(rl)
+		if err != nil {
+			return err
+		}
+		if err := cfg.Registry.Add(entry); err != nil {
+			return err
+		}
+		if err := cfg.Registry.Save(cfg.ModelPath); err != nil {
+			return err
+		}
+		fmt.Fprintf(rl.Stdout(), "added model alias: %s\n", entry.Alias)
+		return nil
+	default:
+		target := args[0]
+		if _, err := strconv.Atoi(target); err != nil {
+			// ignore parse error and resolve by alias
+		}
+		entry, err := cfg.Registry.ResolveSwitchToken(target)
+		if err != nil {
+			return err
+		}
+		if err := cfg.Registry.SetActive(entry.Alias); err != nil {
+			return err
+		}
+		if err := cfg.Registry.Save(cfg.ModelPath); err != nil {
+			return err
+		}
+		if err := refreshEngineLLM(cfg); err != nil {
+			return err
+		}
+		fmt.Fprintf(rl.Stdout(), "active model: %s (%s)\n", entry.Alias, entry.Display)
+		return nil
+	}
+}
+
+func interactiveAddModel(rl *readline.Instance) (llm.ModelEntry, error) {
+	providerRaw, err := promptLine(rl, "provider (anthropic|gemini|openai-compat)", "openai-compat")
+	if err != nil {
+		return llm.ModelEntry{}, err
+	}
+	provider := llm.Provider(strings.TrimSpace(providerRaw))
+	if provider != llm.ProviderAnthropic && provider != llm.ProviderGemini && provider != llm.ProviderOpenAICompat {
+		return llm.ModelEntry{}, fmt.Errorf("invalid provider: %s", providerRaw)
+	}
+	alias, err := promptLine(rl, "alias", "")
+	if err != nil {
+		return llm.ModelEntry{}, err
+	}
+	modelID, err := promptLine(rl, "model id", "")
+	if err != nil {
+		return llm.ModelEntry{}, err
+	}
+	baseURL := ""
+	if provider == llm.ProviderOpenAICompat {
+		baseURL, err = promptLine(rl, "base url", "https://api.openai.com/v1")
+		if err != nil {
+			return llm.ModelEntry{}, err
+		}
+	}
+	apiEnvDefault := "OPENAI_API_KEY"
+	if provider == llm.ProviderAnthropic {
+		apiEnvDefault = "ANTHROPIC_API_KEY"
+	}
+	if provider == llm.ProviderGemini {
+		apiEnvDefault = "GEMINI_API_KEY"
+	}
+	apiKeyEnv, err := promptLine(rl, "api key env", apiEnvDefault)
+	if err != nil {
+		return llm.ModelEntry{}, err
+	}
+	display, err := promptLine(rl, "display name", modelID)
+	if err != nil {
+		return llm.ModelEntry{}, err
+	}
+
+	ctxWinRaw, err := promptLine(rl, "context window", "0")
+	if err != nil {
+		return llm.ModelEntry{}, err
+	}
+	ctxWin := 0
+	if n, convErr := strconv.Atoi(strings.TrimSpace(ctxWinRaw)); convErr == nil {
+		ctxWin = n
+	}
+
+	caps := llm.Caps{Tools: true, Thinking: provider != llm.ProviderOpenAICompat, Vision: true, WebSearch: provider == llm.ProviderAnthropic}
+	return llm.ModelEntry{
+		Alias:      alias,
+		ModelID:    modelID,
+		Provider:   provider,
+		BaseURL:    baseURL,
+		APIKeyEnv:  apiKeyEnv,
+		Display:    display,
+		ContextWin: ctxWin,
+		Caps:       caps,
+	}, nil
+}
+
+func promptLine(rl *readline.Instance, label, def string) (string, error) {
+	prompt := label
+	if def != "" {
+		prompt += " [" + def + "]"
+	}
+	prompt += ": "
+	rl.SetPrompt(prompt)
+	line, err := rl.Readline()
+	if err != nil {
+		return "", err
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return def, nil
+	}
+	return line, nil
+}
+
+func refreshEngineLLM(cfg Config) error {
+	client, err := cfg.Registry.Build()
+	if err != nil {
+		cfg.Engine.SetLLM(llm.NewErrorLLM("registry", llm.Caps{}, err))
+		return err
+	}
+	cfg.Engine.SetLLM(client)
+	if active, ok := cfg.Registry.ActiveEntry(); ok && cfg.State != nil {
+		cfg.State.SetActiveModel(active.Alias, active.Display)
+	}
+	return nil
+}
+

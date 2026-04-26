@@ -1,0 +1,74 @@
+﻿// Package precheck
+// File: checker_dir_writable.go
+// Description: verifies write permission for a directory or its nearest existing ancestor.
+// Responsibility: fail before archive/copy operations flood the session with permission errors.
+
+package precheck
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/executor"
+)
+
+// DirWritableChecker verifies that the current user can write to a directory.
+type DirWritableChecker struct {
+	dir      string
+	severity Severity
+}
+
+// NewDirWritableChecker constructs a DirWritableChecker for the given remote directory path.
+func NewDirWritableChecker(dir string, sev Severity) *DirWritableChecker {
+	return &DirWritableChecker{dir: dir, severity: sev}
+}
+
+func (c *DirWritableChecker) Kind() CheckKind    { return KindDirWritable }
+func (c *DirWritableChecker) Subject() string    { return c.dir }
+func (c *DirWritableChecker) Severity() Severity { return c.severity }
+
+// Run verifies write access on dir or its nearest existing ancestor.
+func (c *DirWritableChecker) Run(ctx context.Context, exec executor.Executor) CheckResult {
+	dir := strings.TrimSpace(c.dir)
+	if dir == "" {
+		return CheckResult{Kind: c.Kind(), Subject: c.dir, OK: true, Severity: c.severity}
+	}
+
+	resolveCmd := fmt.Sprintf(`d=%s; while [ ! -d "$d" ] && [ "$d" != "/" ]; do d=$(dirname "$d"); done; if [ -d "$d" ]; then printf '%%s' "$d"; else exit 1; fi`, shellQuote(dir))
+	resolveResult, err := exec.Execute(ctx, resolveCmd)
+	if err != nil || resolveResult.ExitCode != 0 {
+		return CheckResult{Kind: c.Kind(), Subject: c.dir, OK: true, Severity: c.severity}
+	}
+	checkedDir := strings.TrimSpace(resolveResult.Stdout)
+	if checkedDir == "" {
+		checkedDir = dir
+	}
+
+	writeCmd := fmt.Sprintf("test -w %s", shellQuote(checkedDir))
+	writeResult, err := exec.Execute(ctx, writeCmd)
+	ok := err == nil && writeResult.ExitCode == 0
+	if ok {
+		return CheckResult{Kind: c.Kind(), Subject: c.dir, OK: true, Severity: c.severity}
+	}
+
+	ownerCmd := fmt.Sprintf("stat -c '%%U' %s 2>/dev/null", shellQuote(checkedDir))
+	ownerResult, _ := exec.Execute(ctx, ownerCmd)
+	owner := strings.TrimSpace(ownerResult.Stdout)
+
+	msg := fmt.Sprintf(
+		"directory %q is not writable by the current user (checked ancestor %q) -- re-run as the directory owner (sudo -u %s ...)",
+		dir, checkedDir, owner,
+	)
+	if owner == "" {
+		msg = fmt.Sprintf("directory %q is not writable by the current user (checked ancestor %q) -- check ownership and permissions", dir, checkedDir)
+	}
+
+	return CheckResult{
+		Kind:     c.Kind(),
+		Subject:  c.dir,
+		OK:       false,
+		Severity: c.severity,
+		Message:  msg,
+	}
+}

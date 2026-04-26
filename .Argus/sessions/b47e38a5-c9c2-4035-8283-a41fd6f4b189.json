@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T13:03:49.0503111Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 만나서 반가워요. 무엇을 도와드릴까요? :)"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "방가"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "반가워요! 😊 오늘 하루는 어떻게 보내고 계신가요? 궁금한 점이 있거나 도움이 필요하면 언제든 말씀해 주세요!"
+        }
+      ]
+    }
+  ]
+}

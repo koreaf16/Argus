@@ -1,0 +1,304 @@
+package tools
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/yourorg/infractl/internal/executor"
+)
+
+func TestLocalPathPlatformMismatchWindowsPathOnLinux(t *testing.T) {
+	got := localPathPlatformMismatchForPlatform(
+		`C:\Users\jhkwa\Downloads\LINUX.X64_193000_db_home.zip`,
+		executor.PlatformLinux,
+	)
+	for _, want := range []string{"Windows-style path", "controller is linux", "local_path"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("message = %q, missing %q", got, want)
+		}
+	}
+}
+
+func TestLocalPathPlatformMismatchWindowsPathOnWindowsAllowed(t *testing.T) {
+	got := localPathPlatformMismatchForPlatform(
+		`C:\Users\jhkwa\Downloads\LINUX.X64_193000_db_home.zip`,
+		executor.PlatformWindows,
+	)
+	if got != "" {
+		t.Fatalf("unexpected mismatch: %s", got)
+	}
+}
+
+func TestLocalPathPlatformMismatchPOSIXPathOnLinuxAllowed(t *testing.T) {
+	got := localPathPlatformMismatchForPlatform(
+		`/home/sandbox/LINUX.X64_193000_db_home.zip`,
+		executor.PlatformLinux,
+	)
+	if got != "" {
+		t.Fatalf("unexpected mismatch: %s", got)
+	}
+}
+
+func TestFileTransferTargetIsOptionalInSchema(t *testing.T) {
+	params := (&FileTransferTool{}).Parameters()
+	required, _ := params["required"].([]string)
+	for _, field := range required {
+		if field == "target" {
+			t.Fatalf("target should be optional when an active server exists")
+		}
+	}
+
+	props, _ := params["properties"].(map[string]interface{})
+	target, _ := props["target"].(map[string]interface{})
+	desc, _ := target["description"].(string)
+	if !strings.Contains(desc, "Omit") || !strings.Contains(desc, "localhost") {
+		t.Fatalf("target description should guide omitted active-server usage, got %q", desc)
+	}
+}
+
+type fileTransferTestExec struct{}
+
+func (fileTransferTestExec) Execute(context.Context, string) (executor.ExecResult, error) {
+	return executor.ExecResult{ExitCode: 0}, nil
+}
+func (fileTransferTestExec) Target() string { return "a100" }
+func (fileTransferTestExec) Host() string   { return "a100" }
+func (fileTransferTestExec) Upload(context.Context, string, string, func(int64, int64)) error {
+	return nil
+}
+func (fileTransferTestExec) Download(context.Context, string, string, func(int64, int64)) error {
+	return nil
+}
+
+type fileTransferUploadTestExec struct {
+	commands []string
+	uploads  []string
+}
+
+func (e *fileTransferUploadTestExec) Execute(_ context.Context, command string) (executor.ExecResult, error) {
+	e.commands = append(e.commands, command)
+	switch {
+	case strings.Contains(command, "df -PT"):
+		return executor.ExecResult{ExitCode: 0, Stdout: ""}, nil
+	case strings.Contains(command, "id -Gn 'oracle'"):
+		return executor.ExecResult{ExitCode: 0, Stdout: "oinstall dba\n"}, nil
+	case strings.Contains(command, "stat -c"):
+		return executor.ExecResult{ExitCode: 0, Stdout: "/home/oracle\toracle\toinstall\t750\n"}, nil
+	case strings.Contains(command, "id 'oracle' >/dev/null 2>&1"):
+		return executor.ExecResult{ExitCode: 0}, nil
+	case strings.Contains(command, "sudo -n -u 'oracle' -v 2>&1"):
+		return executor.ExecResult{ExitCode: 0}, nil
+	case strings.Contains(command, "sudo -n -u 'oracle' -- bash -l -c"):
+		return executor.ExecResult{ExitCode: 0}, nil
+	default:
+		return executor.ExecResult{ExitCode: 0}, nil
+	}
+}
+func (e *fileTransferUploadTestExec) Target() string { return "sandbox" }
+func (e *fileTransferUploadTestExec) Host() string   { return "sandbox" }
+func (e *fileTransferUploadTestExec) Upload(_ context.Context, _ string, remotePath string, _ func(int64, int64)) error {
+	e.uploads = append(e.uploads, remotePath)
+	return nil
+}
+func (e *fileTransferUploadTestExec) Download(context.Context, string, string, func(int64, int64)) error {
+	return nil
+}
+
+type fileTransferPermissionPrecheckExec struct {
+	uploads int
+}
+
+func (e *fileTransferPermissionPrecheckExec) Execute(_ context.Context, command string) (executor.ExecResult, error) {
+	switch {
+	case command == "id -un 2>/dev/null || whoami", command == "whoami":
+		return executor.ExecResult{ExitCode: 0, Stdout: "sandbox\n"}, nil
+	case command == "id -Gn":
+		return executor.ExecResult{ExitCode: 0, Stdout: "sandbox\n"}, nil
+	case strings.Contains(command, "stat -c"):
+		return executor.ExecResult{ExitCode: 0, Stdout: "/home/oracle\toracle\toinstall\t750\n"}, nil
+	default:
+		return executor.ExecResult{ExitCode: 0}, nil
+	}
+}
+func (e *fileTransferPermissionPrecheckExec) Target() string { return "sandbox" }
+func (e *fileTransferPermissionPrecheckExec) Host() string   { return "sandbox" }
+func (e *fileTransferPermissionPrecheckExec) Platform() executor.Platform {
+	return executor.PlatformLinux
+}
+func (e *fileTransferPermissionPrecheckExec) ShellName() string { return "bash" }
+func (e *fileTransferPermissionPrecheckExec) Upload(context.Context, string, string, func(int64, int64)) error {
+	e.uploads++
+	return nil
+}
+func (e *fileTransferPermissionPrecheckExec) Download(context.Context, string, string, func(int64, int64)) error {
+	return nil
+}
+
+type fileTransferFinalizePromptMissingExec struct {
+	uploads          []string
+	commands         []string
+	interactiveCalls int
+}
+
+func (e *fileTransferFinalizePromptMissingExec) Execute(_ context.Context, command string) (executor.ExecResult, error) {
+	e.commands = append(e.commands, command)
+	switch {
+	case strings.Contains(command, "df -PT"):
+		return executor.ExecResult{ExitCode: 0}, nil
+	case strings.Contains(command, "id -Gn 'oracle'"):
+		return executor.ExecResult{ExitCode: 0, Stdout: "oinstall dba\n"}, nil
+	case strings.Contains(command, "stat -c"):
+		return executor.ExecResult{ExitCode: 0, Stdout: "/home/oracle\toracle\toinstall\t750\n"}, nil
+	case strings.Contains(command, "id 'oracle' >/dev/null 2>&1"):
+		return executor.ExecResult{ExitCode: 0}, nil
+	case strings.Contains(command, "sudo -n -u 'oracle' -v 2>&1"):
+		return executor.ExecResult{ExitCode: 1, Stderr: "sudo: a password is required"}, nil
+	default:
+		return executor.ExecResult{ExitCode: 0}, nil
+	}
+}
+func (e *fileTransferFinalizePromptMissingExec) Target() string { return "sandbox" }
+func (e *fileTransferFinalizePromptMissingExec) Host() string   { return "sandbox" }
+func (e *fileTransferFinalizePromptMissingExec) Platform() executor.Platform {
+	return executor.PlatformLinux
+}
+func (e *fileTransferFinalizePromptMissingExec) ShellName() string { return "bash" }
+func (e *fileTransferFinalizePromptMissingExec) Upload(_ context.Context, _ string, remotePath string, _ func(int64, int64)) error {
+	e.uploads = append(e.uploads, remotePath)
+	return nil
+}
+func (e *fileTransferFinalizePromptMissingExec) Download(context.Context, string, string, func(int64, int64)) error {
+	return nil
+}
+func (e *fileTransferFinalizePromptMissingExec) ExecuteInteractive(context.Context, executor.InteractiveSpec, func(string)) (executor.ExecSession, error) {
+	e.interactiveCalls++
+	return &fakeExecSession{result: executor.ExecResult{ExitCode: 0}}, nil
+}
+
+func TestFileTransferDownloadRejectsDirectoryLocalPath(t *testing.T) {
+	tmp := t.TempDir()
+	out, err := (&FileTransferTool{}).Execute(context.Background(), map[string]interface{}{
+		"action":      "download",
+		"local_path":  filepath.Clean(tmp),
+		"remote_path": "report.md",
+	}, fileTransferTestExec{})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Success {
+		t.Fatalf("expected directory local_path to fail")
+	}
+	if !strings.Contains(out.Content, "destination file path") {
+		t.Fatalf("unexpected output: %s", out.Content)
+	}
+}
+
+func TestFileTransferUploadWithBecomeUserPreparesReadableStaging(t *testing.T) {
+	tmp := t.TempDir()
+	localPath := filepath.Join(tmp, "db.zip")
+	if err := os.WriteFile(localPath, []byte{}, 0o644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	exec := &fileTransferUploadTestExec{}
+	out, err := (&FileTransferTool{}).Execute(context.Background(), map[string]interface{}{
+		"action":      "upload",
+		"local_path":  localPath,
+		"remote_path": "/home/oracle/final file.zip",
+		"become_user": "oracle",
+	}, exec)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !out.Success {
+		t.Fatalf("expected success, got: %s", out.Content)
+	}
+	if len(exec.uploads) != 1 {
+		t.Fatalf("expected one upload, got %d", len(exec.uploads))
+	}
+	if !strings.Contains(exec.uploads[0], "/tmp/.infractl/staging/db.zip") {
+		t.Fatalf("unexpected staging upload path: %s", exec.uploads[0])
+	}
+
+	joined := strings.Join(exec.commands, "\n")
+	if !strings.Contains(joined, "chmod 711") || !strings.Contains(joined, "/tmp/.infractl/staging") {
+		t.Fatalf("expected staging dir traversal permission setup, commands:\n%s", joined)
+	}
+	if !strings.Contains(joined, "chmod 644 '/tmp/.infractl/staging/db.zip'") {
+		t.Fatalf("expected staged file readability chmod, commands:\n%s", joined)
+	}
+	if !strings.Contains(joined, "cp --") ||
+		!strings.Contains(joined, "/tmp/.infractl/staging/db.zip") ||
+		!strings.Contains(joined, "/home/oracle/final file.zip") {
+		t.Fatalf("expected quoted cp move command, commands:\n%s", joined)
+	}
+}
+
+func TestFileTransferUploadBlocksOwnerMismatchBeforeSFTP(t *testing.T) {
+	tmp := t.TempDir()
+	localPath := filepath.Join(tmp, "db.zip")
+	if err := os.WriteFile(localPath, []byte("zip"), 0o644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	exec := &fileTransferPermissionPrecheckExec{}
+	out, err := (&FileTransferTool{}).Execute(context.Background(), map[string]interface{}{
+		"action":      "upload",
+		"local_path":  localPath,
+		"remote_path": "/home/oracle/db.zip",
+	}, exec)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Success {
+		t.Fatalf("expected permission precheck failure, got success: %s", out.Content)
+	}
+	if exec.uploads != 0 {
+		t.Fatalf("upload should not start after precheck failure, got %d uploads", exec.uploads)
+	}
+	if !strings.Contains(out.Content, "permission pre-check failed") || !strings.Contains(out.Content, "become_user=\"oracle\"") {
+		t.Fatalf("unexpected output: %s", out.Content)
+	}
+}
+
+func TestFileTransferUploadFinalizeFailureReportsPrivilegeProblemNotMissingLocalFile(t *testing.T) {
+	tmp := t.TempDir()
+	localPath := filepath.Join(tmp, "db.zip")
+	if err := os.WriteFile(localPath, []byte{}, 0o644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	exec := &fileTransferFinalizePromptMissingExec{}
+	out, err := (&FileTransferTool{}).Execute(context.Background(), map[string]interface{}{
+		"action":        "upload",
+		"local_path":    localPath,
+		"remote_path":   "/home/oracle/db.zip",
+		"become_user":   "oracle",
+		"become_method": "sudo",
+		"description":   "db zip upload",
+	}, exec)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Success {
+		t.Fatalf("expected finalize failure, got success: %s", out.Content)
+	}
+	if len(exec.uploads) != 1 || !strings.Contains(exec.uploads[0], "/tmp/.infractl/staging/db.zip") {
+		t.Fatalf("expected upload to staging before finalization failure, uploads=%#v", exec.uploads)
+	}
+	for _, want := range []string{
+		"no privilege prompt handler available",
+		"Local file was verified and uploaded to staging path",
+		"privilege/sudo handling problem, not a missing local file",
+	} {
+		if !strings.Contains(out.Content, want) {
+			t.Fatalf("output missing %q:\n%s", want, out.Content)
+		}
+	}
+	if exec.interactiveCalls != 0 {
+		t.Fatalf("prompt handler failure should stop before interactive execution, got %d calls", exec.interactiveCalls)
+	}
+}

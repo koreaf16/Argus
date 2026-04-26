@@ -1,0 +1,331 @@
+// Package tools
+// File: file_transfer.go
+// Description: SFTP ?뚯씪 ?낅줈???ㅼ슫濡쒕뱶 ?먯씠?꾪듃 ?꾧뎄 ??scp ?泥?
+// Responsibility: ?몄쬆??SSH ?곌껐???ъ궗?⑺븳 SFTP濡??뚯씪???꾩넚?쒕떎 (?⑥뒪?뚮뱶 ?꾨＼?꾪듃 ?놁쓬)
+
+package tools
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/yourorg/infractl/internal/executor"
+	"github.com/yourorg/infractl/internal/privilege"
+)
+
+// FileTransferTool transfers files between the local controller and a remote server via SFTP.
+// Uses the existing authenticated SSH connection ??no password prompt.
+type FileTransferTool struct {
+	PrivilegeCache *privilege.Cache
+	PromptHandler  privilege.PromptHandler
+}
+
+func (t *FileTransferTool) Name() string { return "file_transfer" }
+
+func (t *FileTransferTool) Description() string {
+	return "Upload or download a file between this local controller and a registered SSH server via SFTP.\n" +
+		"ALWAYS use this tool instead of shell_exec + scp for file transfers.\n" +
+		"Reuses the existing authenticated SSH connection ??no password prompt, no PTY required.\n" +
+		"`local_path` is always on the infractl controller OS; `target` is always the remote SSH server.\n" +
+		"action=upload: copies local_path on the controller to remote_path on the target server.\n" +
+		"  - If `become_user` is set or the target path is restricted, it automatically uses /tmp staging + sudo move to ensure correct ownership.\n" +
+		"action=download: copies remote_path on the target server to local_path on the controller.\n" +
+		"When a remote server is already active, omit `target`; do not set target=localhost for transfers.\n" +
+		"Always include 'description' field with a brief Korean explanation."
+}
+
+func (t *FileTransferTool) IsReadOnly() bool { return false }
+func (t *FileTransferTool) IsEnabled() bool  { return true }
+
+func (t *FileTransferTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"action": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"upload", "download"},
+				"description": "Transfer direction: 'upload' sends local_path to remote_path; 'download' fetches remote_path to local_path.",
+			},
+			"local_path": map[string]interface{}{
+				"type":        "string",
+				"description": "Absolute destination file path on the local controller (this PC). For downloads, include the destination filename. IMPORTANT: On Windows controllers, use double backslashes (\\\\) or forward slashes (/). Ensure the parent directory exists.",
+			},
+			"remote_path": map[string]interface{}{
+				"type":        "string",
+				"description": "Path on the remote server. Relative paths are resolved from the remote workspace directory.",
+			},
+			"target": map[string]interface{}{
+				"type":        "string",
+				"description": "Remote server alias where the file is located (for download) or being sent to (for upload). NEVER set target='localhost'; if a remote server is already active, Omit this field.",
+			},
+			"become_user": map[string]interface{}{
+				"type":        "string",
+				"description": "Target user for the file (e.g. 'oracle'). If set, uses sudo move to set ownership. Omit to use the login user.",
+			},
+			"become_method": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"sudo", "su"},
+				"description": "Method to use for privilege escalation when `become_user` is set. Defaults to 'sudo'.",
+			},
+			"description": map[string]interface{}{
+				"type": "string",
+				"description": "사용자 TUI 카드 헤더에 표시될 한국어 의도 설명. 짧게 (예: " +
+					"\"opatch zip 업로드\", \"백업 파일 다운로드\"). " +
+					"파일 경로를 그대로 옮기지 말 것 — 왜 이 전송을 하는가를 표현.",
+			},
+		},
+		"required": []string{"action", "local_path", "remote_path", "description"},
+	}
+}
+
+func (t *FileTransferTool) Execute(ctx context.Context, args map[string]interface{}, exec executor.Executor) (ToolOutcome, error) {
+	action, err := argString(args, "action", true)
+	if err != nil {
+		return ToolOutcome{Content: fmt.Sprintf("Error: %s", err), Success: true}, nil
+	}
+	localPath, err := argString(args, "local_path", true)
+	if err != nil {
+		return ToolOutcome{Content: fmt.Sprintf("Error: %s", err), Success: true}, nil
+	}
+	remotePath, err := argString(args, "remote_path", true)
+	if err != nil {
+		return ToolOutcome{Content: fmt.Sprintf("Error: %s", err), Success: true}, nil
+	}
+	becomeUser, _ := argString(args, "become_user", false)
+	becomeMethod, _ := argString(args, "become_method", false)
+	if becomeMethod == "" && becomeUser != "" {
+		becomeMethod = "sudo"
+	}
+
+	ft, ok := exec.(executor.FileTransferExecutor)
+	if !ok {
+		target := exec.Target()
+		if target == "" || target == "localhost" {
+			return ToolOutcome{Content: "Error: file_transfer requires a REMOTE SSH server as the 'target'. You cannot use 'localhost' as a target for SFTP. Omit the 'target' field to use the current active server, or specify a valid remote server alias.", Success: true}, nil
+		}
+		return ToolOutcome{Content: fmt.Sprintf(
+			"Error: target server %q does not support SFTP file transfer. Only registered SSH servers (like a100, oracle) support this tool. If you are trying to download from a remote server, set its name as the target.",
+			target), Success: true}, nil
+	}
+	var lastPct int64
+	onProgress := func(transferred, total int64) {
+		if total == 0 {
+			return
+		}
+		pct := transferred * 100 / total
+		if pct-lastPct >= 10 {
+			lastPct = pct
+			EmitOutput(ctx, fmt.Sprintf("%d%% (%s / %s)", pct, formatBytes(transferred), formatBytes(total)))
+		}
+	}
+
+	switch action {
+	case "upload":
+		if msg := localPathPlatformMismatch(localPath); msg != "" {
+			return ToolOutcome{Content: "Error: " + msg, Success: false, ExitCode: 2, ErrorMessage: msg}, nil
+		}
+
+		// [개선] 윈도우 로컬 경로 정규화 및 존재 확인 보강
+		normalizedLocal := filepath.Clean(localPath)
+		localStat, statErr := os.Stat(normalizedLocal)
+
+		if statErr != nil && runtime.GOOS == "windows" {
+			// 대소문자 무시 매칭 시도
+			dir := filepath.Dir(normalizedLocal)
+			base := strings.ToLower(filepath.Base(normalizedLocal))
+
+			if entries, err := os.ReadDir(dir); err == nil {
+				var suggestions []string
+				for _, entry := range entries {
+					if strings.ToLower(entry.Name()) == base {
+						normalizedLocal = filepath.Join(dir, entry.Name())
+						localStat, statErr = os.Stat(normalizedLocal)
+						break
+					}
+					if len(suggestions) < 5 {
+						suggestions = append(suggestions, entry.Name())
+					}
+				}
+
+				if statErr != nil {
+					msg := fmt.Sprintf("Error: cannot find local file %q. Did you mean one of these?\n- %s",
+						localPath, strings.Join(suggestions, "\n- "))
+					return ToolOutcome{Content: msg, Success: false, ExitCode: 2, ErrorMessage: msg}, nil
+				}
+			} else {
+				msg := fmt.Sprintf("Error: cannot read local file %q: %s", localPath, statErr)
+				return ToolOutcome{Content: msg, Success: false, ExitCode: 2, ErrorMessage: msg}, nil
+			}
+		} else if statErr != nil {
+			msg := fmt.Sprintf("Error: cannot read local file %q: %s", localPath, statErr)
+			return ToolOutcome{Content: msg, Success: false, ExitCode: 2, ErrorMessage: msg}, nil
+		}
+
+		localPath = normalizedLocal // 보정된 경로 사용
+
+		needsStaging := (becomeUser != "")
+		accessMethod := ""
+		accessUser := ""
+		if needsStaging {
+			accessMethod = becomeMethod
+			accessUser = becomeUser
+		}
+		if err := ValidateMutationPathAccess(ctx, exec, MutationPathPreflight{
+			Operation:    "file upload",
+			Paths:        []string{remotePath},
+			BecomeMethod: accessMethod,
+			BecomeUser:   accessUser,
+		}); err != nil {
+			msg := fmt.Sprintf("Remote pre-flight check failed: %s", err)
+			return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+		}
+		if !needsStaging {
+			// Remote Pre-flight: check disk space and writable (nearest ancestor)
+			if err := RunPreflightChecks(ctx, exec, remotePath, localStat.Size()); err != nil {
+				if strings.Contains(err.Error(), "no write permission") {
+					msg := fmt.Sprintf("Error: %s. Try providing 'become_user=root' or 'become_user=oracle' to use automated staging.", err)
+					return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+				}
+				msg := fmt.Sprintf("Remote pre-flight check failed: %s", err)
+				return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+			}
+		} else {
+			// become_user is set. We need to check space/filesystem but skip writable check for target path
+			if err := RunFilesystemOnlyChecks(ctx, exec, remotePath, localStat.Size()); err != nil {
+				msg := fmt.Sprintf("Remote pre-flight check failed: %s", err)
+				return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+			}
+		}
+
+		uploadPath := remotePath
+		stagingPath := ""
+		if needsStaging {
+			stagingDir := "/tmp/.infractl/staging"
+			qStagingDir := executor.QuotePOSIX(stagingDir)
+			// Staging files are uploaded by the login user, then finalized via become_user.
+			// Use 711 so become_user can traverse to the known staged file path.
+			_, _ = exec.Execute(ctx, fmt.Sprintf("mkdir -p %s && chmod 711 %s", qStagingDir, qStagingDir))
+			// Use local file name for staging to handle cases where remote_path might be a directory
+			stagingPath = path.Join(stagingDir, filepath.Base(localPath))
+			uploadPath = stagingPath
+		}
+
+		var uploadMsg string
+		if warning, _ := CheckCriticalPath(remotePath); warning != "" {
+			uploadMsg = warning + "\n"
+		}
+		EmitOutput(ctx, fmt.Sprintf("Uploading %s ??%s:%s", localPath, exec.Target(), uploadPath))
+		if err := ft.Upload(ctx, localPath, uploadPath, onProgress); err != nil {
+			hint := ""
+			if (strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "Permission denied")) && !needsStaging {
+				hint = "\n권한 거부로 업로드 실패. 'become_user' 인자를 사용하여 sudo 업로드를 시도하세요."
+			}
+			msg := fmt.Sprintf("Upload failed: %s%s", err, hint)
+			return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+		}
+
+		if needsStaging {
+			EmitOutput(ctx, fmt.Sprintf("Finalizing upload: moving to %s as user %s", remotePath, becomeUser))
+			qStagingPath := executor.QuotePOSIX(stagingPath)
+			qRemotePath := executor.QuotePOSIX(remotePath)
+			// Ensure staged payload is readable by become_user before copy.
+			_, _ = exec.Execute(ctx, fmt.Sprintf("chmod 644 %s", qStagingPath))
+			// Use cp then rm to handle cross-device move if needed, and ensures ownership matches the 'becomeUser'
+			moveCmd := fmt.Sprintf("cp -- %s %s", qStagingPath, qRemotePath)
+			becomeRes, acquired := executeWithAcquiredPrivilege(ctx, exec, moveCmd, becomeUser)
+			var err error
+			if !acquired {
+				becomeRes, _, err = executeWithBecome(ctx, exec, moveCmd, becomeMethod, becomeUser, t.PrivilegeCache, t.PromptHandler)
+			}
+			if err != nil || becomeRes.ExitCode != 0 {
+				errMsg := fmt.Sprintf("Failed to move file to final destination via %s (exit=%d)", becomeMethod, becomeRes.ExitCode)
+				if err != nil {
+					errMsg += fmt.Sprintf(": %v", err)
+				}
+				if stderr := strings.TrimSpace(becomeRes.Stderr); stderr != "" {
+					errMsg += "\n" + stderr
+				} else if stdout := strings.TrimSpace(becomeRes.Stdout); stdout != "" {
+					errMsg += "\n" + stdout
+				}
+				errMsg += fmt.Sprintf("\nLocal file was verified and uploaded to staging path %s; only the privileged final copy to %s failed. This is a privilege/sudo handling problem, not a missing local file.", stagingPath, remotePath)
+				return ToolOutcome{Content: errMsg, Success: false, ExitCode: 1, ErrorMessage: errMsg}, nil
+			}
+			_, _ = exec.Execute(ctx, fmt.Sprintf("rm -f %s", qStagingPath))
+		}
+
+		return ToolOutcome{Content: uploadMsg + fmt.Sprintf("Upload complete: %s ??%s:%s", localPath, exec.Target(), remotePath), Success: true}, nil
+
+	case "download":
+		if msg := localPathPlatformMismatch(localPath); msg != "" {
+			return ToolOutcome{Content: "Error: " + msg, Success: false, ExitCode: 2, ErrorMessage: msg}, nil
+		}
+
+		// Pre-flight: verify the local destination directory exists.
+		localDir := filepath.Dir(localPath)
+		if _, statErr := os.Stat(localDir); statErr != nil {
+			msg := fmt.Sprintf("Pre-flight check failed: local destination directory %q does not exist: %s", localDir, statErr)
+			return ToolOutcome{Content: msg, Success: false, ExitCode: 2, ErrorMessage: msg}, nil
+		}
+		if localStat, statErr := os.Stat(localPath); statErr == nil && localStat.IsDir() {
+			msg := fmt.Sprintf("Pre-flight check failed: local_path %q is a directory; provide a destination file path including the filename.", localPath)
+			return ToolOutcome{Content: msg, Success: false, ExitCode: 2, ErrorMessage: msg}, nil
+		}
+
+		// Remote Pre-flight: check readability
+		if err := RunReadPreflightChecks(ctx, exec, remotePath); err != nil {
+			msg := fmt.Sprintf("Remote pre-flight check failed: %s", err)
+			return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+		}
+
+		EmitOutput(ctx, fmt.Sprintf("Downloading %s:%s ??%s", exec.Target(), remotePath, localPath))
+		if err := ft.Download(ctx, remotePath, localPath, onProgress); err != nil {
+			msg := fmt.Sprintf("Download failed: %s", err)
+			return ToolOutcome{Content: msg, Success: false, ExitCode: 1, ErrorMessage: msg}, nil
+		}
+		return ToolOutcome{Content: fmt.Sprintf("Download complete: %s:%s ??%s", exec.Target(), remotePath, localPath), Success: true}, nil
+
+	default:
+		return ToolOutcome{Content: fmt.Sprintf("Error: unknown action %q, must be 'upload' or 'download'", action), Success: true}, nil
+	}
+}
+
+func localPathPlatformMismatch(localPath string) string {
+	return localPathPlatformMismatchForPlatform(localPath, executor.NormalizePlatform(runtime.GOOS))
+}
+
+func localPathPlatformMismatchForPlatform(localPath string, platform executor.Platform) string {
+	if pathSample, ok := executor.FirstWindowsPath(localPath); ok && platform != executor.PlatformWindows {
+		return fmt.Sprintf(
+			"local_path %q contains Windows-style path %q, but the infractl controller is %s. local_path must be readable from the controller OS; use a Windows controller/server or move the file to this controller first.",
+			localPath,
+			pathSample,
+			toolPlatformLabel(platform),
+		)
+	}
+	return ""
+}
+
+func toolPlatformLabel(platform executor.Platform) string {
+	if platform == "" || platform == executor.PlatformUnknown {
+		return "unknown"
+	}
+	return string(platform)
+}
+
+func formatBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}

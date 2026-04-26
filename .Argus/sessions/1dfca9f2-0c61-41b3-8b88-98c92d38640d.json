@@ -1,0 +1,114 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T13:08:30.0711383Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 만나서 반가워요. 무엇을 도와드릴까요? :)"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "아아"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "네, 말씀하세요! 듣고 있습니다. 😊 궁금한 점이나 도움이 필요한 일이 있다면 편하게 말씀해 주세요."
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 다시 인사해주셔서 반가워요. 😊 \n\n오늘 어떤 이야기를 나눠볼까요? 궁금한 게 있으시거나 도움이 필요하시면 언제든 말씀해 주세요!"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "gkdl"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "\"gkdl\"을 한글 자판으로 치면 **\"하이\"**가 되네요! 😊\n\n다시 한번 반갑게 인사해주신 거 맞죠? 오늘도 즐거운 하루 보내고 계신가요? 무엇을 도와드릴까요?"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "하이"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "안녕하세요! 반가워요! 😊 \n\n계속해서 인사해 주시니 저도 기분이 좋아지네요! 혹시 제가 도와드릴 일이 있거나, 같이 이야기 나누고 싶은 주제가 있으신가요? 무엇이든 말씀해 주세요! ✨"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "ㅇ"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "네! 😊 (네/응/오케이의 의미로 이해했어요!)\n\n무슨 생각을 하고 계신가요? 혹은 제가 도와드릴 일이 있을까요? 편하게 말씀해 주세요! ✨"
+        }
+      ]
+    }
+  ]
+}

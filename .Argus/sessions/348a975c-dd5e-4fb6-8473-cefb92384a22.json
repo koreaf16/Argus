@@ -1,0 +1,82 @@
+{
+  "version": 2,
+  "saved_at": "2026-04-23T11:24:43.7849058Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "최근 hugging face에서 gemma4 벤치 순위?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "chatcmpl-tool-8e229be8c60cd940",
+          "name": "web_search",
+          "input": {
+            "query": "hugging face gemma 4 benchmark ranking"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "{\"query\":\"hugging face gemma 4 benchmark ranking\",\"results\":[\"Found 10 result(s). Use the webfetch tool with a selected URL and extraction prompt to read page content.\",{\"content\":[{\"title\":\"Welcome Gemma 4: Frontier multimodal intelligence on device - Hugging Face\",\"url\":\"https://huggingface.co/blog/gemma4\",\"snippet\":\"Gemma 4 builds on advances from previous families and makes them click together. In our tests with pre-release checkpoints we have been impressed by their capabilities, to the extent that we struggled to find good fine-tuning examples because they are so good out of the box.\"},{\"title\":\"r/LocalLLaMA on Reddit: Gemma 4 just casually destroyed every model on our leaderboard except Opus 4.6 and GPT-5.2. 31B params, $0.20/run\",\"url\":\"https://www.reddit.com/r/LocalLLaMA/comments/1sdcotc/gemma_4_just_casually_destroyed_every_model_on/\",\"snippet\":\"OP: Looks like you don't have an inference cost column on your results page at all? Seems like it would be useful. reddit.com에서 자세히 보기\"},{\"title\":\"[LLM] Google Gemma 4 공개 - 프론티어 모델에 가장 근접한 오픈 ...\",\"url\":\"https://mz-moonzoo.tistory.com/144\",\"snippet\":\"2026. 4. 3. · 4. 벤치마크 결과 ... Arena AI 텍스트 리더보드 기준으로 31B 모델은 오픈 모델 중 세계 3위, 26B MoE 모델은 6위에 랭크되어 20배 큰 모델들을 상회하는 ...\"},{\"title\":\"한국전자거래학회|\",\"url\":\"http://calsec.or.kr/databank/proceeding/2025fc_paper.pdf\",\"snippet\":\"2025년 한국전자거래학회 추계학술대회에 참여주신 모든 분들께 진심으로 감사드립니다. 이번 학술대회는 경기도 수원 광교테크노밸리에 위치한 차세대융합기술연구원에서 “디지털 산업을 위한 AI 전환 : 혁신, 도전, 그리고 미래”의 주제로 개최됩니다. 30년 전부터 CALS/EC를 시작으로 e-비즈니스와 ...\"},{\"title\":\"Gemma 4 Comparison: Benchmarks, Rankings \\u0026 Model Matchups\",\"url\":\"https://gemmai4.com/compare/\",\"snippet\":\"See how Gemma 4 stacks up with side-by-side benchmarks, capability radar charts, and use-case rankings across GPT-4o, Claude 3.5 Sonnet, Llama 4, Qwen 3.5, Mistral Small 4, and more.\"},{\"title\":\"Google Gemma 4: 31B 오픈웨이트 모델이 세계 3위에 오른 기술적 배경\",\"url\":\"https://rupijun.tistory.com/entry/Google-Gemma-4-31B-%EC%98%A4%ED%94%88%EC%9B%A8%EC%9D%B4%ED%8A%B8-%EB%AA%A8%EB%8D%B8%EC%9D%B4-%EC%84%B8%EA%B3%84-3%EC%9C%84%EC%97%90-%EC%98%A4%EB%A5%B8-%EA%B8%B0%EC%88%A0%EC%A0%81-%EB%B0%B0%EA%B2%BD\",\"snippet\":\"2026. 4. 8. · Gemma 4 31B의 벤치마크 성능은 전 세대 대비 극적인 향상을 보여준다. ... Arena AI 리더보드에서 추정 LMArena 점수 1452를 기록하며 오픈 모델 세계 3위 ...\"},{\"title\":\"언어 모델을 로컬에 설치하고 테스트하는 방법 (Gemma 3 4B IT)\",\"url\":\"https://iothingsmaker.com/%EC%96%B8%EC%96%B4-%EB%AA%A8%EB%8D%B8%EC%9D%84-%EB%A1%9C%EC%BB%AC%EC%97%90-%EC%84%A4%EC%B9%98%ED%95%98%EA%B3%A0-%ED%85%8C%EC%8A%A4%ED%8A%B8%ED%95%98%EB%8A%94-%EB%B0%A9%EB%B2%95-gemma-3-4b-it/\",\"snippet\":\"Mar 23, 2025 · 이번 글에서는 Google이 공개한 언어모델 google/gemma-3-4b-it을 기준으로, Hugging Face에서 모델을 다운로드하고 로컬에서 직접 테스트하는 방법을 단계별로 소개 해드리겠습니다.\"},{\"title\":\"Gemma 4 Benchmarks: MMLU 87.1%, HumanEval 82.7% (2026)\",\"url\":\"https://gemma4-ai.com/blog/gemma4-benchmark\",\"snippet\":\"Gemma 4 models consistently rank in the top tier of open models. Here's the executive summary: MMLU tests knowledge across 57 subjects from STEM to humanities. Gemma 4's scores: Subject breakdown (31B model): Mathematical reasoning on word problems: Python coding challenges (164 problems): Scientific reasoning questions: Common sense reasoning:\"},{\"title\":\"Google Gemma 4 완전 가이드 — Apache 2.0 오픈 모델의 새로운 기준 ...\",\"url\":\"https://www.manoit.co.kr/forum/view/1451329\",\"snippet\":\"2일 전 · 이 글에서는 Gemma 4의 아키텍처 혁신(PLE, MoE, 교대 어텐션), 모델별 스펙과 벤치마크 비교, Llama 4 · Qwen 3.5와의 경쟁 구도, Ollama/vLLM을 활용한 ...\"},{\"title\":\"nvidia/Gemma-4-31B-IT-NVFP4 · Hugging Face\",\"url\":\"https://huggingface.co/nvidia/Gemma-4-31B-IT-NVFP4\",\"snippet\":\"Data Collection Method by dataset: Hybrid: Human, Automated Labeling Method by dataset: Hybrid: Human, Automated Properties: We evaluated the model on benchmarks including GPQA, which is a dataset of 448 multiple-choice questions written by domain experts in biology, physics, and chemistry. ... This model was obtained by quantizing the weights and activations of Gemma-4-31B-IT-NVFP4 to NVFP4 data type, ready for inference with vLLM.\"}],\"tool_use_id\":\"searxng-202253\"}],\"durationSeconds\":1.9787601000000001}",
+          "name": "web_search",
+          "tool_use_id": "chatcmpl-tool-8e229be8c60cd940"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Do not finalize your answer yet.\n1) Select the best URL from the existing web_search results.\n2) Prefer official sources when available.\nPreferred official domains: ai.google.dev, deepmind.google, blog.google, developers.googleblog.com, developer.android.com, huggingface.co, cloud.google.com\n3) Call webfetch on one selected URL.\n4) Extract publication/update date, key facts, and what changed.\n5) Then provide the final answer with absolute dates and a Sources section.\nIf webfetch cannot be completed due to permission denial, explicitly say verification is incomplete."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "chatcmpl-tool-88061d4d84cc04b6",
+          "name": "webfetch",
+          "input": {
+            "prompt": "Extract the publication/update date, key facts about Gemma 4's benchmark rankings, and what has changed compared to previous models.",
+            "url": "https://huggingface.co/blog/gemma4"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "text": "{\"bytes\":76857,\"code\":200,\"codeText\":\"OK\",\"result\":\"Based on the provided Markdown content, here is the extracted information:\\n\\n**Publication Date**\\n* April 2, 2026\\n\\n**Key Facts About Gemma 4's Benchmark Rankings**\\n* **Pareto Frontier:** The models are described as having \\\"high quality with pareto frontier arena scores,\\\" meaning they offer an optimal balance of performance relative to their size.\\n* **LMArena Scores:** The 31B dense model achieves an estimated LMArena score (text only) of 1452, while the 26B MoE (Mixture-of-Experts) reaches 1441 using only 4B active parameters.\\n* **Performance vs. Previous Models:** In several reasoning and coding benchmarks, Gemma 4 significantly outperforms the previous Gemma 3 27B model. For example:\\n    * **AIME 2026:** Gemma 4 31B scored 89.2% compared to Gemma 3's 20.8%.\\n    * **LiveCodeBench v6:** Gemma 4 31B scored 80.0% compared to Gemma 3's 29.1%.\\n    * **MMLU Pro:** Gemma 4 31B scored 85.2% compared to Gemma 3's 67.6%.\\n\\n**What Has Changed Compared to Previous Models**\\n* **Multimodal Capabilities:** Unlike previous versions, Gemma 4 supports image, text, and audio inputs (with small variants E2B and E4B supporting audio) and generates text responses. It also supports video understanding.\\n* **Image Encoder Improvements:** The image encoder features two crucial improvements over Gemma 3: variable aspect ratios and a configurable number of image token inputs to balance speed, memory, and quality.\\n* **Architecture Enhancements:**\\n    * **Per-Layer Embeddings (PLE):** A new feature (introduced in Gemma-3n but refined here) that adds a parallel, lower-dimensional conditioning pathway to every decoder layer for better token-specific information.\\n    * **Shared KV Cache:** An efficiency optimization where the last layers reuse key-value states from earlier layers to reduce compute and memory during inference.\\n    * **Attention Layers:** Uses alternating local sliding-window and global full-context attention layers.\\n* **Context Windows:** Offers support for long context windows (up to 256K for larger models).\",\"durationMs\":11605,\"url\":\"https://huggingface.co/blog/gemma4\"}",
+          "name": "webfetch",
+          "tool_use_id": "chatcmpl-tool-88061d4d84cc04b6"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "2026년 4월 2일 Hugging Face 공식 블로그를 통해 공개된 정보에 따르면, **Gemma 4**는 이전 세대인 Gemma 3를 압도하는 성능을 보여주며 오픈 모델 분야에서 최상위권 벤치마크 순위를 기록하고 있습니다.\n\n주요 벤치마크 결과 및 특징은 다음과 같습니다.\n\n### 1. 주요 벤치마크 성능 (Gemma 4 31B 모델 기준)\nGemma 4 31B 모델은 이전 모델인 Gemma 3 27B와 비교했을 때 추론 및 코딩 능력에서 비약적인 발전을 이루었습니다.\n\n| 벤치마크 항목 | Gemma 4 31B 점수 | Gemma 3 27B 점수 | 비고 |\n| :--- | :---: | :---: | :--- |\n| **AIME 2026** (수학적 추론) | **89.2%** | 20.8% | 약 4.3배 향상 |\n| **LiveCodeBench v6** (코딩) | **80.0%** | 29.1% | 약 2.7배 향상 |\n| **MMLU Pro** (종합 지식) | **85.2%** | 67.6% | 상당한 성능 향상 |\n| **LMArena Score** (텍스트) | **1452** | - | 26B MoE 모델은 1441 기록 |\n\n### 2. 주요 변화 및 혁신 사항\n* **멀티모달 능력 강화:** 이전 버전과 달리 텍스트뿐만 아니라 **이미지, 오디오, 비디오** 입력을 지원하며 텍스트로 응답을 생성합니다.\n* **아키텍처 개선:**\n    * **PLE (Per-Layer Embeddings):** 각 디코더 레이어에 병렬 경로를 추가하여 토큰별 정보를 더 정밀하게 처리합니다.\n    * **Shared KV Cache:** 추론 시 메모리와 연산 효율을 높이기 위해 이전 레이어의 KV 상태를 재사용합니다.\n    * **교대 어텐션(Alternating Attention):** 로컬 슬라이딩 윈도우 어텐션과 글로벌 풀 컨텍스트 어텐션을 교대로 사용하여 효율성을 극대화했습니다.\n* **이미지 처리 개선:** 가변 종횡비(Variable aspect ratios) 지원 및 이미지 토큰 입력 수 조절이 가능해져 속도와 품질의 균형을 맞췄습니다.\n* **긴 컨텍스트 지원:** 대형 모델의 경우 최대 **256K**의 긴 컨텍스트 창을 지원합니다.\n\n**Sources:**\n* [Hugging Face Blog: Welcome Gemma 4: Frontier multimodal intelligence on device (Published: April 2, 2026)](https://huggingface.co/blog/gemma4)"
+        }
+      ]
+    }
+  ]
+}

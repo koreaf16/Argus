@@ -1,0 +1,4 @@
+/server connect sandbox-server
+Welcome1!@#$
+sandbox-server에서 아래 명령어들을 bash 도구 (server="sandbox-server")로 순서대로 실행해줘. 명령어를 절대 수정하지 말고 정확히 그대로 실행해:
+Step1: echo 'Welcome1!@#$' | sudo -S rpm -ivh /tmp/oracle-database-preinstall-19c-1.0-1.el9.x86_64.rpm

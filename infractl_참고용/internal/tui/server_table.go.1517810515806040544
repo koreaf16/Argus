@@ -1,0 +1,96 @@
+﻿package tui
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/yourorg/infractl/internal/store"
+)
+
+// buildServerTable renders registered workspaces. The server naming is kept in
+// code for storage compatibility; user-facing output uses workspace language.
+func buildServerTable(servers []store.Server, active *store.Server) string {
+	type tableRow struct {
+		name, host, port, user, os, dir string
+		isActive                         bool
+	}
+
+	rows := []tableRow{{name: "local", host: "(current machine)", port: "-", user: "-", dir: "current directory"}}
+	for _, s := range servers {
+		rows = append(rows, tableRow{
+			name:     s.Name,
+			host:     s.Host,
+			port:     strconv.Itoa(s.Port),
+			user:     s.User,
+			os:       s.OS,
+			dir:      s.WorkspaceDir,
+			isActive: active != nil && strings.EqualFold(s.Name, active.Name),
+		})
+	}
+
+	widths := map[string]int{
+		"workspace": len("WORKSPACE"),
+		"host":      len("HOST"),
+		"port":      len("PORT"),
+		"user":      len("USER"),
+		"dir":       len("DIR"),
+		"os":        len("OS"),
+	}
+	showOS := false
+	for _, r := range rows {
+		widths["workspace"] = max(widths["workspace"], len(r.name)+2)
+		widths["host"] = max(widths["host"], len(r.host))
+		widths["port"] = max(widths["port"], len(r.port))
+		widths["user"] = max(widths["user"], len(r.user))
+		widths["dir"] = max(widths["dir"], len(r.dir))
+		if r.os != "" {
+			showOS = true
+			widths["os"] = max(widths["os"], len(r.os))
+		}
+	}
+
+	pad := func(s string, w int) string {
+		if len(s) >= w {
+			return s
+		}
+		return s + strings.Repeat(" ", w-len(s))
+	}
+
+	var sb strings.Builder
+	if showOS {
+		sb.WriteString(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s\n",
+			widths["workspace"], "WORKSPACE", widths["host"], "HOST", widths["port"], "PORT",
+			widths["user"], "USER", widths["dir"], "DIR", widths["os"], "OS"))
+	} else {
+		sb.WriteString(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s\n",
+			widths["workspace"], "WORKSPACE", widths["host"], "HOST", widths["port"], "PORT",
+			widths["user"], "USER", widths["dir"], "DIR"))
+	}
+	lineLen := widths["workspace"] + widths["host"] + widths["port"] + widths["user"] + widths["dir"] + 8
+	if showOS {
+		lineLen += widths["os"] + 2
+	}
+	sb.WriteString(strings.Repeat("-", lineLen) + "\n")
+
+	activeDot := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("*")
+	for _, r := range rows {
+		name := r.name
+		if r.isActive {
+			name = activeDot + " " + r.name
+		} else {
+			name = "  " + r.name
+		}
+		if showOS {
+			sb.WriteString(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s\n",
+				widths["workspace"], pad(name, widths["workspace"]), widths["host"], r.host, widths["port"], r.port,
+				widths["user"], r.user, widths["dir"], r.dir, widths["os"], r.os))
+		} else {
+			sb.WriteString(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s\n",
+				widths["workspace"], pad(name, widths["workspace"]), widths["host"], r.host, widths["port"], r.port,
+				widths["user"], r.user, widths["dir"], r.dir))
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}

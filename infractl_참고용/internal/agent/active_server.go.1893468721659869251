@@ -1,0 +1,128 @@
+﻿package agent
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"unicode"
+
+	"github.com/yourorg/infractl/internal/store"
+)
+
+var serverDirectiveKeyword = regexp.MustCompile(`(?i)\b(ssh|server|host|workspace)\b|워크스페이스|서버|접속|로그인`)
+
+func (a *Agent) applyActiveServer(next *store.Server) {
+	if sameActiveServer(a.activeServer, next) {
+		return
+	}
+
+	if a.sessionSummary != nil && a.activeServer != nil && next != nil {
+		a.sessionSummary.MarkServerTransition(a.activeServer.Name, next.Name)
+	}
+
+	if next == nil {
+		a.activeServer = nil
+	} else {
+		cp := *next
+		a.activeServer = &cp
+	}
+	if a.promptCache != nil {
+		a.promptCache.Clear()
+	}
+
+	if a.activeServerNotify != nil {
+		a.activeServerNotify(a.activeServer)
+	}
+}
+
+func sameActiveServer(cur, next *store.Server) bool {
+	if cur == nil || next == nil {
+		return cur == nil && next == nil
+	}
+	return strings.EqualFold(strings.TrimSpace(cur.Name), strings.TrimSpace(next.Name))
+}
+
+func (a *Agent) ActiveServerSnapshot() *store.Server {
+	if a.activeServer == nil {
+		return nil
+	}
+	cp := *a.activeServer
+	return &cp
+}
+
+func resolveServerAliasFromInput(userInput string, servers []store.Server) (store.Server, bool) {
+	input := strings.TrimSpace(userInput)
+	if input == "" || len(servers) == 0 {
+		return store.Server{}, false
+	}
+
+	matches := make([]store.Server, 0, 2)
+	for _, srv := range servers {
+		if mentionsAlias(input, srv.Name) {
+			matches = append(matches, srv)
+		}
+	}
+	if len(matches) != 1 {
+		return store.Server{}, false
+	}
+
+	if !hasServerDirectiveSignal(input, matches[0].Name) {
+		return store.Server{}, false
+	}
+
+	return matches[0], true
+}
+
+func hasServerDirectiveSignal(input, alias string) bool {
+	if serverDirectiveKeyword.MatchString(input) {
+		return true
+	}
+
+	lowerInput := strings.ToLower(input)
+	lowerAlias := strings.ToLower(strings.TrimSpace(alias))
+	if lowerAlias == "" {
+		return false
+	}
+
+	patterns := []string{
+		lowerAlias + "에서",
+		lowerAlias + " 에서",
+		lowerAlias + "로",
+		lowerAlias + " 로",
+		"workspace " + lowerAlias,
+		"workspace=" + lowerAlias,
+	}
+	for _, p := range patterns {
+		if strings.Contains(lowerInput, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func mentionsAlias(input, alias string) bool {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return false
+	}
+
+	if isASCIIAlias(alias) {
+		pat := fmt.Sprintf(`(?i)(^|[^a-z0-9_-])%s([^a-z0-9_-]|$)`, regexp.QuoteMeta(alias))
+		return regexp.MustCompile(pat).MatchString(input)
+	}
+
+	return strings.Contains(strings.ToLower(input), strings.ToLower(alias))
+}
+
+func isASCIIAlias(s string) bool {
+	for _, r := range s {
+		if r > unicode.MaxASCII {
+			return false
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}

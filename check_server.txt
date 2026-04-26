@@ -1,0 +1,3 @@
+/server connect sandbox-server
+Welcome1!@#$
+sandbox-server에서 다음을 확인해줘: (1) ls -la /tmp/*.zip /tmp/*.rpm /tmp/*.rsp 2>/dev/null - 복사된 파일 목록, (2) ls -la /u01/app/oracle/product/ 2>/dev/null - ORACLE_HOME 여부, (3) getent passwd oracle - oracle 계정 존재 여부, (4) df -h /tmp - /tmp 여유 공간. bash 도구로 직접 실행해줘.
