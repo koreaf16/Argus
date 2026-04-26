@@ -1,8 +1,0 @@
-./artifact.go
-./compact.go
-./distiller.go
-./graph.go
-./node.go
-./normalize.go
-./renderer.go
-./token_estimator.go

@@ -1,3 +1,0 @@
-./dpapi.go
-./dpapi_windows.go
-./dpapi_windows_test.go

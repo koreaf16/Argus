@@ -1,8 +1,0 @@
-./help.go
-./init.go
-./init_menu.go
-./init_prompt.go
-./main.go
-./repl_stub.go
-./run_print.go
-./version.go

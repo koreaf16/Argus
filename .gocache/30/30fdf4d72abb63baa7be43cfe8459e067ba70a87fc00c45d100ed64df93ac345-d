@@ -1,7 +1,0 @@
-./base_text_input.go
-./footer.go
-./footer_suggestions.go
-./input_box.go
-./prompt_input.go
-./text_input.go
-./theme.go

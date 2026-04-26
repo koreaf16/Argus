@@ -1,5 +1,0 @@
-./constants.go
-./exitplanmode.go
-./prompt.go
-./ui.go
-./exitplanmode_test.go

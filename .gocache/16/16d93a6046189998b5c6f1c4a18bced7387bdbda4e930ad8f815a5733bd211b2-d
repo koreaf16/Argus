@@ -1,8 +1,0 @@
-./credentials.go
-./helpers.go
-./manager.go
-./registry.go
-./ssh_session.go
-./types.go
-./credentials_test.go
-./ssh_session_test.go

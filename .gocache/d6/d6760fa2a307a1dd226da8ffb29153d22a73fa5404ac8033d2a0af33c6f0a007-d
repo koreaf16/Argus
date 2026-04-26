@@ -1,6 +1,0 @@
-./context.go
-./path_guard.go
-./path_resolvers.go
-./permission_policy.go
-./registry.go
-./tool.go

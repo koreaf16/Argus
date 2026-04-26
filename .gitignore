@@ -6,7 +6,7 @@ Argus.exe
 
 # Reference directories
 claude_cli_참고용/
-gemini_참고용/
+gemini_cli_참고용/
 infractl_참고용/
 
 # Go related
