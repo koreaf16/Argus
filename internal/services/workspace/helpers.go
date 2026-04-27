@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -21,12 +22,18 @@ func (m *Manager) startLocalExecStreaming(ctx context.Context, command string) (
 		cmd = exec.CommandContext(ctx, "bash", "-lc", command)
 	}
 
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("local exec stdin pipe: %w", err)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		stdin.Close()
 		return nil, fmt.Errorf("local exec stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		stdin.Close()
 		stdout.Close()
 		return nil, fmt.Errorf("local exec stderr pipe: %w", err)
 	}
@@ -83,8 +90,11 @@ func (m *Manager) startLocalExecStreaming(ctx context.Context, command string) (
 	return &ExecHandle{
 		Stream: stream,
 		Result: result,
-		Write:  func(string) error { return fmt.Errorf("stdin not supported for local exec") },
-		Kill:   func() { _ = cmd.Process.Kill() },
+		Write: func(s string) error {
+			_, err := io.WriteString(stdin, s)
+			return err
+		},
+		Kill: func() { _ = cmd.Process.Kill() },
 	}, nil
 }
 

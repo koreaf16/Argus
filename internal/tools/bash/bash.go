@@ -4,17 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/koreaf16/argus/internal/services/workspace"
 	tool "github.com/koreaf16/argus/internal/tools"
+	"github.com/koreaf16/argus/internal/tools/shellsignal"
 	"github.com/koreaf16/argus/internal/types"
 	"github.com/koreaf16/argus/internal/utils"
 	ibash "github.com/koreaf16/argus/internal/utils/bash"
 	"github.com/koreaf16/argus/internal/utils/shell"
 )
+
+// replPromptRe: 대표적인 인터랙티브 REPL 프롬프트 패턴 (줄 끝에 위치)
+var replPromptRe = regexp.MustCompile(`(?m)(SQL>\s*$|mysql>\s*$|MariaDB\s*\[.*?\]>\s*$|sqlite>\s*$|postgres[=#>]+\s*$|>>>\s*$|>\s+$)`)
 
 type BashTool struct {
 	provider     shell.ShellProvider
@@ -76,11 +81,33 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 
 	go func() {
 		defer close(events)
-		targetAlias, _ := tool.ResolveValidatedWorkspaceAlias(ctx, req.Server)
+		targetAlias, aliasErr := tool.ResolveValidatedWorkspaceAlias(ctx, req.Server)
+		if aliasErr != nil {
+			events <- tool.NewErrorEvent(aliasErr)
+			return
+		}
+
+		// OS 인식 기반 셸 호환성 검증. 대상이 Windows이면서 bash가 설치되어 있지 않은 경우
+		// 무지성으로 bash로 실행하면 명령이 알 수 없는 방식으로 실패하므로 사전에 차단한다.
+		targetInfo, infoErr := tool.ResolveShellTargetInfo(ctx, req.Server, true)
+		if infoErr != nil {
+			events <- tool.NewErrorEvent(infoErr)
+			return
+		}
+		if err := tool.ValidateShellCompatibility("bash", targetInfo); err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
 
 		if req.Password != "" && ctx.Workspace != nil {
 			ctx.Workspace.SetPassword(targetAlias, "ssh", req.Password)
 			ctx.Workspace.SetPassword(targetAlias, "sudo", req.Password)
+		}
+
+		// Windows + Git Bash 같은 케이스를 위해 ExecOptions.Shell을 환경에 맞게 선택한다.
+		shellKind := "bash"
+		if targetInfo.Platform == workspace.PlatformWindows && targetInfo.BashAvailable {
+			shellKind = "git-bash"
 		}
 
 		finalCommand := req.Command
@@ -89,11 +116,15 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 			finalCommand = fmt.Sprintf("{ (%s); echo $? > /tmp/argus_%d.exit; } > /tmp/argus_%d.log 2>&1 & echo \"[PID] $! [EXIT] /tmp/argus_%d.exit\"", req.Command, jobID, jobID, jobID)
 		}
 
-		handle, err := ctx.Workspace.StartExecWithOptions(ctx.Context, targetAlias, finalCommand, workspace.ExecOptions{Shell: "bash"}, nil)
+		handle, err := ctx.Workspace.StartExecWithOptions(ctx.Context, targetAlias, finalCommand, workspace.ExecOptions{Shell: shellKind}, nil)
 		if err != nil {
 			events <- tool.NewErrorEvent(err)
 			return
 		}
+
+		// UI 패널과 stdin을 연결하는 채널을 즉시 생성해 전달
+		inputCh := make(chan string, 64)
+		events <- tool.ToolEvent{Kind: tool.ToolEventChunk, Output: "", InputResponse: inputCh}
 
 		var (
 			outputBuffer    string
@@ -109,6 +140,12 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 			select {
 			case <-ctx.Context.Done():
 				return
+			case input := <-inputCh:
+				if shellsignal.IsBackgroundRequest(input) {
+					handle.Kill()
+				} else {
+					_ = handle.Write(input)
+				}
 			case chunk, ok := <-handle.Stream:
 				if !ok {
 					goto FINISH
@@ -129,6 +166,14 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 
 					// 빠른 경로: LLM 없이 일반적인 패스워드/프롬프트 패턴 감지
 					tailLower := strings.ToLower(currentTail)
+
+					// REPL 프롬프트 감지: SQL>, mysql>, >>> 등 → exit 자동 전송
+					if replPromptRe.MatchString(currentTail) {
+						_ = handle.Write("exit\n")
+						idleTimer.Reset(idleDuration)
+						continue
+					}
+
 					isPasswordPrompt := strings.Contains(tailLower, "password:") ||
 						strings.Contains(tailLower, "암호:") ||
 						strings.Contains(tailLower, "[sudo]") ||
@@ -233,5 +278,15 @@ func analyzeInteractionSituation(ctx tool.Context, tail string) (kind, prompt st
 }
 
 func (t *BashTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
+	rawServer := tool.ExtractStringInput(input, "server")
+	targetInfo, err := tool.ResolveShellTargetInfo(ctx, rawServer, false)
+	if err != nil {
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+	}
+	if targetInfo.Platform != workspace.PlatformUnknown {
+		if err := tool.ValidateShellCompatibility("bash", targetInfo); err != nil {
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+		}
+	}
 	return types.PermissionResult{Behavior: types.BehaviorAllow}, nil
 }

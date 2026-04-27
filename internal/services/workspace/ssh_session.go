@@ -98,7 +98,19 @@ func newSSHSession(entry ServerEntry, managerPrompt PasswordRequestFunc) (*sshSe
 	client, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
 		closeAll(authClosers)
-		return nil, fmt.Errorf("ssh dial failed: %w", err)
+		errStr := err.Error()
+		if strings.Contains(errStr, "unable to authenticate") && strings.Contains(errStr, "password") {
+			return nil, fmt.Errorf("authentication failed: incorrect password or password auth disabled")
+		} else if strings.Contains(errStr, "unable to authenticate") && strings.Contains(errStr, "publickey") {
+			return nil, fmt.Errorf("authentication failed: invalid SSH key or key rejected by server")
+		} else if strings.Contains(errStr, "connection refused") {
+			return nil, fmt.Errorf("connection refused: check if host/port (%s) is correct and SSH is running", addr)
+		} else if strings.Contains(errStr, "no such host") {
+			return nil, fmt.Errorf("host not found: invalid address %q", entry.Host)
+		} else if strings.Contains(errStr, "i/o timeout") {
+			return nil, fmt.Errorf("connection timeout: server is unreachable")
+		}
+		return nil, fmt.Errorf("ssh dial failed: %v", err)
 	}
 
 	initialCWD := strings.TrimSpace(entry.DefaultCWD)
@@ -149,9 +161,6 @@ func buildAuthMethods(entry ServerEntry, managerPrompt PasswordRequestFunc) ([]s
 	if entry.Auth.AllowPassword && managerPrompt != nil {
 		methods = append(methods, ssh.PasswordCallback(func() (string, error) {
 			pw, err := managerPrompt(entry.Alias, "ssh", "SSH password:")
-			if err == nil {
-				fmt.Printf("[DEBUG] Using SSH password for %s: %s\n", entry.Alias, pw)
-			}
 			return pw, err
 		}))
 		methods = append(methods, ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {

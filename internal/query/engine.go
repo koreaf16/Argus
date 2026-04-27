@@ -356,6 +356,10 @@ func (e *Engine) TokenSnapshot() (input, output int) {
 	return e.budget.Snapshot()
 }
 
+func (e *Engine) CumulativeTokenSnapshot() (input, output int) {
+	return e.budget.CumulativeSnapshot()
+}
+
 func (e *Engine) ResetBudget() {
 	e.budget.Reset()
 }

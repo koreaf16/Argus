@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/koreaf16/argus/internal/connector"
 	"github.com/koreaf16/argus/internal/constants"
 	"github.com/koreaf16/argus/internal/memdir"
 	"github.com/koreaf16/argus/internal/presentation"
@@ -39,14 +40,17 @@ type Config struct {
 	SettingsPath string
 	WorkDir      string
 	Memory       *memdir.Store
+	Connector    *connector.Manager
 	MCP          *mcp.Manager
 	LSP          *lsp.Manager
 	Workspace    *workspace.Manager
 	ShellJobs    *shelljobs.Manager
 	Skills       *skills.Registry
 	Credentials  *workspace.CredentialStore
-	MCPReload    func() error
-	Theme        string
+	MCPReload              func() error
+	ConnectorSearchPrompt  func(ctx context.Context, query string, results []connector.ConnectorSpec) (*connector.ConnectorSpec, error)
+	ConnectorInstallPrompt func(ctx context.Context, spec connector.ConnectorSpec) (map[string]string, bool, error)
+	Theme                  string
 	UI           UISettings
 	AIDebug      bool
 	AutoApprove  bool
@@ -316,6 +320,105 @@ func (a *app) runSubmit(input string) {
 		return
 	}
 
+	if a.cfg.Connector != nil {
+		installed, _ := a.cfg.Connector.Installer.ListInstalled()
+		var installedNames []string
+		for _, c := range installed {
+			installedNames = append(installedNames, c.Spec.Name)
+		}
+
+		// 기존 워크스페이스 별칭과 겹치는지 확인
+		isWorkspaceAlias := false
+		if a.cfg.Workspace != nil {
+			for _, entry := range a.cfg.Workspace.Registry().List() {
+				if strings.EqualFold(entry.Alias, trimmed) {
+					isWorkspaceAlias = true
+					break
+				}
+			}
+		}
+
+		if !isWorkspaceAlias {
+			if hint := connector.Detect(trimmed, installedNames); hint != nil {
+				question := tool.AskUserQuestion{
+					Question: fmt.Sprintf("It looks like you want to use %s. Would you like to install the '%s' connector?", hint.Name, hint.Name),
+					Type:     "yesno",
+				}
+				resp := a.promptAskUser(submitCtx, "connector_suggest", &question)
+				if !resp.Canceled && (strings.EqualFold(resp.Value, "yes") || strings.EqualFold(resp.Value, "y")) {
+					spec, err := a.cfg.Connector.Aggregator.Info(submitCtx, hint.Name)
+					if err != nil {
+						a.send(presentationEventMsg{
+							Event: presentation.Event{
+								Kind: presentation.EventError,
+								Text: fmt.Sprintf("Failed to get connector info for %s: %v", hint.Name, err),
+							},
+						})
+					} else {
+						envAnswers := make(map[string]string)
+						canceled := false
+						if len(spec.EnvPrompts) > 0 {
+							var questions []tool.AskUserQuestion
+							for _, ep := range spec.EnvPrompts {
+								qType := "text"
+								if ep.Secret {
+									qType = "password"
+								}
+								questions = append(questions, tool.AskUserQuestion{
+									ID:          ep.Key,
+									Question:    fmt.Sprintf("Configure %s: %s", spec.Name, ep.Description),
+									Type:        qType,
+									Placeholder: ep.Key,
+								})
+							}
+							batchResp := a.promptAskUserBatch(submitCtx, "connector_suggest", questions)
+							if batchResp.Canceled {
+								canceled = true
+							} else {
+								envAnswers = batchResp.AnswersByID
+							}
+						}
+
+						if canceled {
+							a.send(presentationEventMsg{
+								Event: presentation.Event{
+									Kind: presentation.EventNotice,
+									Text: fmt.Sprintf("Installation of %s canceled.", hint.Name),
+								},
+							})
+						} else {
+							a.send(presentationEventMsg{
+								Event: presentation.Event{
+									Kind: presentation.EventNotice,
+									Text: fmt.Sprintf("Installing %s (runtime: %s)...", hint.Name, spec.Runtime),
+								},
+							})
+							errInstall := a.cfg.Connector.Installer.Install(submitCtx, *spec, envAnswers)
+							if errInstall == nil {
+								if a.cfg.MCPReload != nil {
+									_ = a.cfg.MCPReload()
+								}
+								a.send(presentationEventMsg{
+									Event: presentation.Event{
+										Kind: presentation.EventNotice,
+										Text: fmt.Sprintf("Successfully installed %s. You can now use its tools.", hint.Name),
+									},
+								})
+							} else {
+								a.send(presentationEventMsg{
+									Event: presentation.Event{
+										Kind: presentation.EventError,
+										Text: fmt.Sprintf("Failed to install %s: %v", hint.Name, errInstall),
+									},
+								})
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	a.send(presentationEventMsg{
 		Event: presentation.Event{
 			Kind: presentation.EventUser,
@@ -408,9 +511,13 @@ func (a *app) buildFooterMsg() footerStateMsg {
 			cwd = snap.CWD
 		}
 	}
-	return footerStateMsg{
-		Footer: presentation.BuildFooterState(a.cfg.State, cwd),
+	footer := presentation.BuildFooterState(a.cfg.State, cwd)
+	if a.cfg.Engine != nil {
+		in, out := a.cfg.Engine.CumulativeTokenSnapshot()
+		footer.TokensUsed = in + out
 	}
+	footer.DiffAdded, footer.DiffRemoved = gitDiffStat(cwd)
+	return footerStateMsg{Footer: footer}
 }
 
 func (a *app) emitFooter() {
@@ -502,6 +609,28 @@ func (a *app) promptPassword(ctx context.Context, prompt string) (string, error)
 	}
 }
 
+func (a *app) promptConnectorSearch(ctx context.Context, query string, results []connector.ConnectorSpec) (*connector.ConnectorSpec, error) {
+	respCh := make(chan connectorSearchResult, 1)
+	a.send(connectorSearchRequestMsg{Query: query, Results: results, Response: respCh})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case resp := <-respCh:
+		return resp.Spec, nil
+	}
+}
+
+func (a *app) promptConnectorInstall(ctx context.Context, spec connector.ConnectorSpec) (map[string]string, bool, error) {
+	respCh := make(chan connectorInstallResult, 1)
+	a.send(connectorInstallRequestMsg{Spec: spec, Response: respCh})
+	select {
+	case <-ctx.Done():
+		return nil, true, ctx.Err()
+	case resp := <-respCh:
+		return resp.EnvAnswers, resp.Cancelled, nil
+	}
+}
+
 func (a *app) promptServerForm(ctx context.Context, req commands.ServerFormRequest) (commands.ServerFormResult, error) {
 	respCh := make(chan serverFormResult, 1)
 	a.send(serverFormRequestMsg{EditAlias: req.EditAlias, Response: respCh})
@@ -524,6 +653,17 @@ func (a *app) promptServerList(ctx context.Context) (commands.ServerListResult, 
 			Action:    resp.Action,
 			EditAlias: resp.EditAlias,
 		}, resp.Err
+	}
+}
+
+func (a *app) promptModelList(ctx context.Context) (string, error) {
+	respCh := make(chan modelListResult, 1)
+	a.send(modelListRequestMsg{Response: respCh})
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case resp := <-respCh:
+		return resp.Alias, resp.Err
 	}
 }
 
@@ -689,11 +829,14 @@ func (a *app) handleSlashCommand(ctx context.Context, line string) (quit bool, l
 		LSP:              a.cfg.LSP,
 		Workspace:        a.cfg.Workspace,
 		Skills:           a.cfg.Skills,
+		Connector:        a.cfg.Connector,
 		Credentials:      a.cfg.Credentials,
 		MCPReload:        a.cfg.MCPReload,
 		ModelHandler:     a.handleModelCommand,
-		ServerFormPrompt: a.promptServerForm,
-		ServerListPrompt: a.promptServerList,
+		ServerFormPrompt:       a.promptServerForm,
+		ServerListPrompt:       a.promptServerList,
+		ConnectorSearchPrompt:  a.promptConnectorSearch,
+		ConnectorInstallPrompt: a.promptConnectorInstall,
 	}
 	quit, err = commands.Dispatch(line, cmdCtx)
 	sink.Flush()
@@ -706,13 +849,27 @@ func (a *app) handleSlashCommand(ctx context.Context, line string) (quit bool, l
 
 func (a *app) handleModelCommand(args []string) error {
 	if len(args) == 0 {
-		theme := resolveUITheme(a.cfg.Theme, a.cfg.AIDebug)
-		a.send(presentationEventMsg{
-			Event: presentation.Event{
-				Kind: presentation.EventSystem,
-				Text: formatModelTable(a.cfg.Registry, theme),
-			},
-		})
+		alias, err := a.promptModelList(a.ctx)
+		if err != nil {
+			return err
+		}
+		if alias != "" {
+			if err := a.cfg.Registry.SetActive(alias); err != nil {
+				return err
+			}
+			if err := a.cfg.Registry.Save(a.cfg.ModelPath); err != nil {
+				return err
+			}
+			if err := a.refreshEngineLLM(); err != nil {
+				return err
+			}
+			a.send(presentationEventMsg{
+				Event: presentation.Event{
+					Kind: presentation.EventSystem,
+					Text: fmt.Sprintf("active model switched to: %s", alias),
+				},
+			})
+		}
 		return nil
 	}
 	switch strings.ToLower(args[0]) {

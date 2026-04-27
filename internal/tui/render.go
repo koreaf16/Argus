@@ -128,10 +128,16 @@ func (m uiModel) renderTranscriptEntryAt(idx int, e transcriptEntry) string {
 		return ""
 	}
 
-	// 모든 출력 앞에 기본 패딩 제거 (왼쪽으로 2칸 이동 효과)
-	const indent = ""
+	// Interactive 박스(bash/powershell)는 자체 테두리를 그리므로 아이콘을 박스 안쪽에
+	// 끼우면 외곽선과 충돌한다. 들여쓰기 2칸만 균일하게 적용하고 아이콘은 생략한다.
+	if e.Interactive != nil {
+		lines := strings.Split(rendered, "\n")
+		for i, line := range lines {
+			lines[i] = "  " + line
+		}
+		return strings.Join(lines, "\n")
+	}
 
-	// 아이콘 영역 패딩 초기화 (0칸)
 	padding := ""
 
 	if idx >= 0 {
@@ -143,8 +149,8 @@ func (m uiModel) renderTranscriptEntryAt(idx int, e transcriptEntry) string {
 			icon = IconError
 			iconColor = m.theme.ErrorTitleColor
 		case "thinking":
-			icon = IconThinking
-			iconColor = m.theme.ThinkingTitleColor
+			icon = "∴"
+			iconColor = m.theme.MutedColor
 		case "tool_use":
 			if e.IsActive {
 				icon = IconExecuting
@@ -183,14 +189,9 @@ func (m uiModel) renderTranscriptEntryAt(idx int, e transcriptEntry) string {
 }
 
 func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThinking, streamingTool, stalled bool) string {
-	// 동적 상호작용 모델이 있으면 그 View()를 우선 사용 (앞에 2칸 패딩 추가)
+	// 동적 상호작용 모델은 View()를 그대로 반환한다. 들여쓰기는 renderTranscriptEntryAt가 일괄 적용한다.
 	if e.Interactive != nil {
-		rendered := e.Interactive.View()
-		lines := strings.Split(rendered, "\n")
-		for i, line := range lines {
-			lines[i] = "  " + line
-		}
-		return strings.Join(lines, "\n")
+		return e.Interactive.View()
 	}
 
 	var rendered string
@@ -238,7 +239,7 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 				}
 			}
 		}
-		renderedMarkdown := markdown.Render(source, termW, m.themeToPalette())
+		renderedMarkdown := strings.TrimLeft(markdown.Render(source, termW, m.themeToPalette()), "\n")
 		if renderedMarkdown == "" && streamingAssistant {
 			return ""
 		}
@@ -251,25 +252,23 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 			title = "Thinking"
 		}
 
-		borderStyle := m.theme.AccentBarStyle
-
-		titleView := m.theme.style(m.theme.ThinkingTitleColor).Bold(true).Italic(true).Render("⦿ " + title)
-		bodyStyle := m.theme.style(m.theme.BodyColor).Italic(true)
+		dimStyle := m.theme.style(m.theme.MutedColor).Italic(true)
+		titleView := dimStyle.Render(title + "…")
 
 		var content string
 		if streamingThinking && !m.theme.DisableANSI {
 			content = m.renderGlimmerText(body, stalled)
 		} else {
-			content = bodyStyle.Render(trimmedBody)
+			wrappedContent := wordwrap.String(trimmedBody, termW-2)
+			contentLines := strings.Split(wrappedContent, "\n")
+			indented := make([]string, len(contentLines))
+			for idx, l := range contentLines {
+				indented[idx] = "  " + l
+			}
+			content = dimStyle.Render(strings.Join(indented, "\n"))
 		}
 
-		var inner string
-		if titleView == "" {
-			inner = borderStyle.Render(wordwrap.String(content, termW-2))
-		} else {
-			inner = borderStyle.Render(titleView + "\n" + wordwrap.String(content, termW-2))
-		}
-		rendered = m.padMultiline(inner)
+		rendered = m.padMultiline(titleView + "\n" + content)
 
 	default:
 		// 도구 전용 렌더러가 있으면 AIDebug 여부와 관계없이 항상 우선 적용
@@ -483,13 +482,7 @@ func (m uiModel) renderUserEntry(body string, termW int) string {
 		formatted = append(formatted, res)
 	}
 
-	topStyle := lipgloss.NewStyle().Foreground(bg)
-	bottomStyle := lipgloss.NewStyle().Foreground(bg)
-
-	topBorder := topStyle.Render(strings.Repeat("▄", width))
-	bottomBorder := bottomStyle.Render(strings.Repeat("▀", width))
-
-	return strings.Join([]string{topBorder, strings.Join(formatted, "\n"), bottomBorder}, "\n")
+	return "\n" + strings.Join(formatted, "\n")
 }
 
 var ansiRegex = regexp.MustCompile("[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-7,A-ORZcf-nqry=><]")
@@ -502,24 +495,14 @@ func (m uiModel) renderAssistantEntry(body string, termW int) string {
 	if m.theme.DisableANSI {
 		return body
 	}
-	marker := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(m.theme.AssistantMarkerColor)).
-		Render("✦ ")
 	lines := strings.Split(body, "\n")
 	out := make([]string, len(lines))
+	width := termW
+	if width <= 0 {
+		width = 80
+	}
 	for i, line := range lines {
-		var content string
-		if i == 0 {
-			content = marker + line
-		} else {
-			content = "  " + line
-		}
-
-		// Pad to termW to clear any residual text
-		width := termW
-		if width <= 0 {
-			width = 80
-		}
+		content := line
 		currentWidth := lipgloss.Width(content)
 		if currentWidth < width {
 			content += strings.Repeat(" ", width-currentWidth)
@@ -706,7 +689,12 @@ func (m uiModel) renderThinkingRow() string {
 		verb = "Thinking"
 	}
 
-	leftText := fmt.Sprintf("%s %s... (%ds)", rainbowFrame, verb, sec)
+	elapsed := formatElapsed(sec)
+	tokenPart := ""
+	if m.tokenOutputSnap > 0 {
+		tokenPart = fmt.Sprintf(" · ↓ %s tokens", formatTokenCount(m.tokenOutputSnap))
+	}
+	leftText := fmt.Sprintf("%s %s… (%s%s)", rainbowFrame, verb, elapsed, tokenPart)
 	rightText := "? for shortcuts"
 
 	// 델타가 오랫동안 없더라도 'Thinking'은 유지하여 멈춘 느낌 방지
@@ -1181,6 +1169,17 @@ func (m uiModel) renderModal() string {
 		return m.renderServerForm(titleStyle, accentStyle, mutedStyle, borderStyle)
 	case modalServerList:
 		return m.renderServerList(titleStyle, accentStyle, mutedStyle, borderStyle)
+	case modalModelList:
+		inner := []string{
+			titleStyle.Render("⦿ " + m.modal.Title),
+			"",
+			m.renderModelList(),
+		}
+		return borderStyle.Render(strings.Join(inner, "\n"))
+	case modalConnectorSearch:
+		return m.renderConnectorSearch(titleStyle, mutedStyle, borderStyle)
+	case modalConnectorInstall:
+		return m.renderConnectorInstall(titleStyle, mutedStyle, borderStyle)
 	default:
 		return ""
 	}
@@ -1191,6 +1190,23 @@ func formatDiff(added, removed int) string {
 		return "-"
 	}
 	return fmt.Sprintf("+%d -%d", added, removed)
+}
+
+func formatElapsed(sec int) string {
+	if sec >= 60 {
+		return fmt.Sprintf("%dm %ds", sec/60, sec%60)
+	}
+	return fmt.Sprintf("%ds", sec)
+}
+
+func formatTokenCount(n int) string {
+	if n >= 1_000_000 {
+		return fmt.Sprintf("%.1fm", float64(n)/1_000_000)
+	}
+	if n >= 1_000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 func formatTokens(n int) string {

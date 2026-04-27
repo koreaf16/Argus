@@ -135,8 +135,11 @@ func (c *mcpClient) call(ctx context.Context, method string, params any) (json.R
 		}
 		line = res.line
 	case <-timer.C:
-		return nil, fmt.Errorf("mcp call %q timed out after %s", method, deadline)
+		// 타임아웃 발생 시 프로세스 종료를 유도하여 블로킹된 고루틴 해제
+		_ = c.cmd.Process.Kill()
+		return nil, fmt.Errorf("mcp call %q timed out after %s (process killed to unblock)", method, deadline)
 	case <-ctx.Done():
+		_ = c.cmd.Process.Kill()
 		return nil, ctx.Err()
 	}
 

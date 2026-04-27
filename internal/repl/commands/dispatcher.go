@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/koreaf16/argus/internal/connector"
 	"github.com/koreaf16/argus/internal/constants"
 	"github.com/koreaf16/argus/internal/services/llm"
 	"github.com/koreaf16/argus/internal/services/workspace"
@@ -34,9 +35,10 @@ func Dispatch(line string, ctx CommandContext) (bool, error) {
 		return false, nil
 	case "help":
 		fmt.Fprintln(ctx.Stdout, "Commands:")
-		fmt.Fprintln(ctx.Stdout, "/help /exit /clear /model /status /session /plan /memory /mcp /server /skills /commit /diff /review /init /config /keybindings")
+		fmt.Fprintln(ctx.Stdout, "/help /exit /clear /model /status /session /plan /memory /mcp /server /skills /commit /diff /review /init /config /keybindings /connector")
 		fmt.Fprintln(ctx.Stdout, "Hints:")
 		fmt.Fprintln(ctx.Stdout, "/session save|load|list  /memory add|list|search  /mcp list|reload|tools|resources|read  /server list|add|connect|use|copy|ls|metrics|tunnel")
+		fmt.Fprintln(ctx.Stdout, "/connector search|install|list|remove|info")
 		return false, nil
 	case "model":
 		if ctx.ModelHandler == nil {
@@ -104,6 +106,8 @@ func Dispatch(line string, ctx CommandContext) (bool, error) {
 		return false, handleMemory(args, ctx)
 	case "mcp":
 		return false, handleMCP(args, ctx)
+	case "connector":
+		return false, handleConnector(args, ctx)
 	case "server":
 		return false, handleServer(args, ctx)
 	case "skills":
@@ -318,6 +322,151 @@ func handleMCP(args []string, ctx CommandContext) error {
 	default:
 		return fmt.Errorf("usage: /mcp [list|reload|tools <server>|resources <server>|read <server> <uri>]")
 	}
+}
+
+func handleConnector(args []string, ctx CommandContext) error {
+	if ctx.Connector == nil {
+		return fmt.Errorf("connector manager is unavailable")
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("usage: /connector <search|install|list|remove|info>")
+	}
+	switch strings.ToLower(args[0]) {
+	case "search":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /connector search <query>")
+		}
+		query := strings.Join(args[1:], " ")
+		fmt.Fprintf(ctx.Stdout, "Searching for %q...\n", query)
+		results, err := ctx.Connector.Aggregator.Search(ctx.Context, query)
+		if err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			fmt.Fprintln(ctx.Stdout, "No connectors found.")
+			return nil
+		}
+		if ctx.ConnectorSearchPrompt != nil {
+			// TUI: 모달로 검색 결과 표시, 선택 시 설치 모달 오픈
+			spec, err := ctx.ConnectorSearchPrompt(ctx.Context, query, results)
+			if err != nil {
+				return err
+			}
+			if spec == nil {
+				return nil // 사용자가 Esc로 취소
+			}
+			return connectorInstallSpec(ctx, *spec, nil)
+		}
+		// Non-TUI fallback: 텍스트 출력
+		for _, r := range results {
+			fmt.Fprintf(ctx.Stdout, "- %s (%s) [%s]\n  %s\n", r.Name, r.Runtime, r.Source, r.Description)
+		}
+		return nil
+	case "install":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /connector install <name> [KEY=VALUE ...]")
+		}
+		name := args[1]
+		spec, err := ctx.Connector.Aggregator.Info(ctx.Context, name)
+		if err != nil {
+			return err
+		}
+		// CLI key=value 인자 파싱 (non-TUI fallback용)
+		cliEnv := make(map[string]string)
+		for _, arg := range args[2:] {
+			if idx := strings.IndexByte(arg, '='); idx > 0 {
+				cliEnv[arg[:idx]] = arg[idx+1:]
+			}
+		}
+		return connectorInstallSpec(ctx, *spec, cliEnv)
+	case "list":
+		installed, err := ctx.Connector.Installer.ListInstalled()
+		if err != nil {
+			return err
+		}
+		if len(installed) == 0 {
+			fmt.Fprintln(ctx.Stdout, "No connectors installed.")
+			return nil
+		}
+		for _, c := range installed {
+			fmt.Fprintf(ctx.Stdout, "- %s (%s)\n", c.Spec.Name, c.Spec.Command)
+		}
+		return nil
+	case "remove":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /connector remove <name>")
+		}
+		name := args[1]
+		if err := ctx.Connector.Installer.Remove(name); err != nil {
+			return err
+		}
+		if ctx.MCPReload != nil {
+			_ = ctx.MCPReload()
+		}
+		fmt.Fprintf(ctx.Stdout, "Successfully removed %s.\n", name)
+		return nil
+	case "info":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /connector info <name>")
+		}
+		name := args[1]
+		spec, err := ctx.Connector.Aggregator.Info(ctx.Context, name)
+		if err != nil {
+			return err
+		}
+		b, _ := json.MarshalIndent(spec, "", "  ")
+		fmt.Fprintln(ctx.Stdout, string(b))
+		return nil
+	default:
+		return fmt.Errorf("usage: /connector <search|install|list|remove|info>")
+	}
+}
+
+// connectorInstallSpec installs a connector spec, using TUI prompts when available.
+// cliEnv contains key=value pairs parsed from CLI args (used when TUI is unavailable).
+func connectorInstallSpec(ctx CommandContext, spec connector.ConnectorSpec, cliEnv map[string]string) error {
+	envAnswers := cliEnv
+	if envAnswers == nil {
+		envAnswers = make(map[string]string)
+	}
+
+	if len(spec.EnvPrompts) > 0 {
+		if ctx.ConnectorInstallPrompt != nil {
+			answers, cancelled, err := ctx.ConnectorInstallPrompt(ctx.Context, spec)
+			if err != nil {
+				return err
+			}
+			if cancelled {
+				return nil
+			}
+			envAnswers = answers
+		} else {
+			// Non-TUI: 필수 환경변수 누락 검사
+			var missing []string
+			for _, ep := range spec.EnvPrompts {
+				if ep.Required {
+					if _, ok := envAnswers[ep.Key]; !ok {
+						missing = append(missing, ep.Key)
+					}
+				}
+			}
+			if len(missing) > 0 {
+				fmt.Fprintf(ctx.Stdout, "Required: %s\n", strings.Join(missing, ", "))
+				fmt.Fprintf(ctx.Stdout, "Usage: /connector install %s KEY=VALUE ...\n", spec.Name)
+				return fmt.Errorf("missing required environment variables")
+			}
+		}
+	}
+
+	fmt.Fprintf(ctx.Stdout, "Installing %s...\n", spec.Name)
+	if err := ctx.Connector.Installer.Install(ctx.Context, spec, envAnswers); err != nil {
+		return err
+	}
+	if ctx.MCPReload != nil {
+		_ = ctx.MCPReload()
+	}
+	fmt.Fprintf(ctx.Stdout, "✓ %s 설치 완료\n", spec.Name)
+	return nil
 }
 
 func handleServer(args []string, ctx CommandContext) error {

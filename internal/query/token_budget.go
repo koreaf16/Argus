@@ -3,9 +3,11 @@ package query
 import "sync"
 
 type TokenBudget struct {
-	mu     sync.Mutex
-	Input  int
-	Output int
+	mu              sync.Mutex
+	Input           int
+	Output          int
+	CumulativeInput  int
+	CumulativeOutput int
 }
 
 func NewTokenBudget() *TokenBudget {
@@ -18,6 +20,7 @@ func (b *TokenBudget) AddInput(n int) {
 	}
 	b.mu.Lock()
 	b.Input += n
+	b.CumulativeInput += n
 	b.mu.Unlock()
 }
 
@@ -27,6 +30,7 @@ func (b *TokenBudget) AddOutput(n int) {
 	}
 	b.mu.Lock()
 	b.Output += n
+	b.CumulativeOutput += n
 	b.mu.Unlock()
 }
 
@@ -34,6 +38,12 @@ func (b *TokenBudget) Snapshot() (input, output int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.Input, b.Output
+}
+
+func (b *TokenBudget) CumulativeSnapshot() (input, output int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.CumulativeInput, b.CumulativeOutput
 }
 
 func (b *TokenBudget) Reset() {

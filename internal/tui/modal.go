@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/koreaf16/argus/internal/connector"
 	"github.com/koreaf16/argus/internal/services/workspace"
 	tool "github.com/koreaf16/argus/internal/tools"
 )
@@ -21,7 +22,24 @@ const (
 	modalAskUserBatch
 	modalServerForm
 	modalServerList
+	modalModelList
+	modalConnectorSearch
+	modalConnectorInstall
 )
+
+type modelListEntry struct {
+	Alias    string
+	Provider string
+	ModelID  string
+	Status   string
+	Active   bool
+}
+
+type modelListState struct {
+	Entries       []modelListEntry
+	Cursor        int
+	SelectedAlias string
+}
 
 // serverFormAuthMode controls which auth-specific fields are shown.
 type serverFormAuthMode int
@@ -94,6 +112,47 @@ type serverListState struct {
 	ErrorMsg      string
 }
 
+// connectorSearchState holds mutable state for the connector search result list modal.
+type connectorSearchState struct {
+	Query   string
+	Results []connector.ConnectorSpec
+	Cursor  int
+	ErrMsg  string
+}
+
+// connectorInstallState holds mutable state for the connector env-var install form modal.
+type connectorInstallState struct {
+	Spec       connector.ConnectorSpec
+	FocusIdx   int      // 0..len(EnvPrompts) → last index is Submit button
+	EnvValues  []string // parallel to Spec.EnvPrompts
+	Installing bool
+	ErrMsg     string
+}
+
+// connectorSearchResult is sent on ConnectorSearchC when the panel closes.
+type connectorSearchResult struct {
+	Spec *connector.ConnectorSpec // nil when cancelled
+}
+
+// connectorInstallResult is sent on ConnectorInstallC when the form closes.
+type connectorInstallResult struct {
+	EnvAnswers map[string]string
+	Cancelled  bool
+}
+
+// connectorSearchRequestMsg triggers opening the connector search result panel.
+type connectorSearchRequestMsg struct {
+	Query   string
+	Results []connector.ConnectorSpec
+	Response chan connectorSearchResult
+}
+
+// connectorInstallRequestMsg triggers opening the connector install form panel.
+type connectorInstallRequestMsg struct {
+	Spec     connector.ConnectorSpec
+	Response chan connectorInstallResult
+}
+
 // serverListResult is the value sent on ServerListC when the panel closes.
 type serverListResult struct {
 	Action    string // "closed", "add", "edit"
@@ -110,6 +169,10 @@ type serverListRequestMsg struct {
 // re-snapshot workspace status into the open server list panel.
 type serverListRefreshMsg struct {
 	ErrorMsg string
+}
+
+type modelListRequestMsg struct {
+	Response chan modelListResult
 }
 
 type modalState struct {
@@ -148,6 +211,20 @@ type modalState struct {
 
 	ServerList  *serverListState
 	ServerListC chan serverListResult
+
+	ModelList  *modelListState
+	ModelListC chan modelListResult
+
+	ConnectorSearch  *connectorSearchState
+	ConnectorSearchC chan connectorSearchResult
+
+	ConnectorInstall  *connectorInstallState
+	ConnectorInstallC chan connectorInstallResult
+}
+
+type modelListResult struct {
+	Alias string
+	Err   error
 }
 
 func (m *uiModel) enqueueModal(md modalState) {
@@ -186,6 +263,12 @@ func (m *uiModel) handleModalKey(msg tea.KeyMsg) {
 		m.handleServerFormKey(msg)
 	case modalServerList:
 		m.handleServerListKey(msg)
+	case modalModelList:
+		m.handleModelListKey(msg)
+	case modalConnectorSearch:
+		m.handleConnectorSearchKey(msg)
+	case modalConnectorInstall:
+		m.handleConnectorInstallKey(msg)
 	}
 }
 

@@ -327,7 +327,8 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case submitFinishedMsg:
 		m.busy = false
 		m.busyStartedAt = time.Time{}
-		return m, nil
+		footerCmd := func() tea.Msg { return m.app.buildFooterMsg() }
+		return m, footerCmd
 	case queryEventMsg:
 		if evt, ok := presentation.FromUIEvent(v.Event); ok {
 			prevIdx := m.assistantStreamIdx
@@ -456,6 +457,57 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ServerListC: v.Response,
 		})
 		return m, nil
+	case modelListRequestMsg:
+		var entries []modelListEntry
+		active := ""
+		if m.app.cfg.Registry != nil {
+			list := m.app.cfg.Registry.List()
+			active = m.app.cfg.Registry.ActiveAlias()
+			for _, e := range list {
+				entries = append(entries, modelListEntry{
+					Alias:    e.Alias,
+					Provider: string(e.Provider),
+					ModelID:  e.ModelID,
+					Status:   m.app.cfg.Registry.EntryStatus(e),
+					Active:   e.Alias == active,
+				})
+			}
+		}
+		cursor := 0
+		for i, e := range entries {
+			if e.Active {
+				cursor = i
+				break
+			}
+		}
+		m.enqueueModal(modalState{
+			Kind:       modalModelList,
+			Title:      "Model Selection",
+			ModelList:  &modelListState{Entries: entries, Cursor: cursor},
+			ModelListC: v.Response,
+		})
+		return m, nil
+	case connectorSearchRequestMsg:
+		m.enqueueModal(modalState{
+			Kind: modalConnectorSearch,
+			ConnectorSearch: &connectorSearchState{
+				Query:   v.Query,
+				Results: v.Results,
+			},
+			ConnectorSearchC: v.Response,
+		})
+		return m, nil
+	case connectorInstallRequestMsg:
+		envValues := make([]string, len(v.Spec.EnvPrompts))
+		m.enqueueModal(modalState{
+			Kind: modalConnectorInstall,
+			ConnectorInstall: &connectorInstallState{
+				Spec:      v.Spec,
+				EnvValues: envValues,
+			},
+			ConnectorInstallC: v.Response,
+		})
+		return m, nil
 	case serverListRefreshMsg:
 		if m.modal.Kind == modalServerList {
 			m.modal.ServerList.ErrorMsg = v.ErrorMsg
@@ -471,7 +523,7 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ????袁ㅻ쇀????????? ??????뀀땽 ??β뼯援????????袁ㅻ쇀???源낅츐????????????밸븶???
 		if m.toolFocused && m.activeTool != nil {
 			switch v.String() {
-			case "tab":
+			case "tab", "esc":
 				m.toolFocused = false
 				m.activeTool.SetFocus(false)
 				m.input.Focus()
@@ -663,13 +715,25 @@ func (m *uiModel) scrollbackCmd(evt presentation.Event, prevStreamIdx int) tea.C
 	case presentation.EventAssistantDone:
 		return m.finalizeAssistantStream(prevStreamIdx)
 	case presentation.EventToolResult:
-		// ????袁ㅻ쇀????????딅? ?????밸븶?????轅붽틓????彛??쒓랜??????⑤뜪癲ル슢?뤺キ???????⑤뜪????????????덉땃?????
+		// tool_use(박스) → tool_result 순으로 스크롤백에 출력
 		if m.lastPrintedIdx < len(m.entries) {
-			lastEntry := m.entries[len(m.entries)-1]
-			cmds := []tea.Cmd{tea.Println("\n" + m.renderTranscriptEntryAt(-1, lastEntry))}
+			var cmds []tea.Cmd
+			for i := m.lastPrintedIdx; i < len(m.entries); i++ {
+				rendered := m.renderTranscriptEntryAt(-1, m.entries[i])
+				if rendered != "" {
+					cmds = append(cmds, tea.Println("\n"+rendered))
+				}
+			}
 			m.lastPrintedIdx = len(m.entries)
 			m.refreshViewport(true)
-			return tea.Batch(cmds...)
+			switch len(cmds) {
+			case 0:
+				return nil
+			case 1:
+				return cmds[0]
+			default:
+				return tea.Sequence(cmds...)
+			}
 		}
 		m.refreshViewport(true)
 		return nil
@@ -680,15 +744,20 @@ func (m *uiModel) scrollbackCmd(evt presentation.Event, prevStreamIdx int) tea.C
 		}
 
 		if m.lastPrintedIdx < len(m.entries) {
+			newLastPrinted := m.lastPrintedIdx
 			for i := m.lastPrintedIdx; i < len(m.entries); i++ {
 				entry := m.entries[i]
-				// notice나 tool_use는 개별 출력을 생략하거나 요약할 수 있음 (기존 정책 유지)
+				// 스트리밍 중인 shell tool_use는 결과가 올 때까지 라이브 뷰에 유지
+				if entry.Kind == "tool_use" && m.toolUseOpen && m.toolUseStreamIdx == i {
+					break
+				}
 				skip := entry.Kind == "notice" || entry.Kind == "tool_use"
 				if !skip {
 					cmds = append(cmds, tea.Println("\n"+m.renderTranscriptEntryAt(-1, entry)))
 				}
+				newLastPrinted = i + 1
 			}
-			m.lastPrintedIdx = len(m.entries)
+			m.lastPrintedIdx = newLastPrinted
 		}
 
 		m.refreshViewport(true)
@@ -821,9 +890,8 @@ func (m uiModel) renderFrame() renderedView {
 		modalPartIndex = len(bottomParts)
 		bottomParts = append(bottomParts, modalView)
 	} else {
-		bottomParts = append(bottomParts, modeStatus)
+		bottomParts = append(bottomParts, modeStatus, inputView, footerView)
 	}
-	bottomParts = append(bottomParts, inputView, footerView)
 
 	// Dynamic Inline Rendering: 이미 스크롤백에 tea.Println으로 인쇄된 엔트리
 	// (m.lastPrintedIdx 미만)는 다시 그리지 않는다. 미인쇄 엔트리만 anchor 위에
@@ -965,64 +1033,10 @@ func passwordModalCursorPosition(modal string) (line, col int, ok bool) {
 }
 
 func (m uiModel) updateCursorTarget() {
-	if m.app.parker == nil {
+	if m.app == nil || m.app.parker == nil {
 		return
 	}
-
-	footerH := lipgloss.Height(m.renderFooter())
-
-	// --- 1. ??逆곷틳源울쭪??????轅붽틓??熬곥끇釉??????????轅붽틓??影?뽧걤??---
-	if m.modal.Kind == modalPassword {
-		inputH := lipgloss.Height(m.renderInput())
-		modeH := lipgloss.Height(m.renderModeRow())
-		thinkingH := lipgloss.Height(m.renderThinkingRow())
-		linesUp := footerH + inputH + modeH + thinkingH + 3
-		visualCol := 4 + len(m.modal.Password) // "  " + password + "??
-		m.app.parker.SetTarget(linesUp, visualCol+1, true)
-		return
-	}
-
-	// ?????遊붋??轅붽틓??熬곥끇釉???????濚밸Ŧ寃㎩쳞?????壤굿??뚯돩?????
-	if m.modal.Kind != modalNone {
-		m.app.parker.SetTarget(0, 0, false)
-		return
-	}
-
-	// --- 2. ????????堉??????밸븶?????袁ｋ쨨營????壤굿??뚯돩????壤굿?????---
-	// absoluteBottom (1) + footer (footerH) + input_bottom_border (1)
-	linesUp := 1 + footerH + 1
-
-	// Current line within the textarea content (0-indexed)
-	textareaRow := m.input.Line()
-
-	// Total content lines in input box (excluding top/bottom borders)
-	contentLinesCount := m.input.Height()
-	if contentLinesCount < 1 {
-		contentLinesCount = 1
-	}
-
-	// Add lines that are below the current cursor line in the input box
-	if textareaRow < contentLinesCount {
-		linesUp += (contentLinesCount - 1 - textareaRow)
-	}
-
-	// Calculate column (horizontal distance from left)
-	prefixWidth := 2
-	lineVal := m.input.Value()
-	lines := strings.Split(lineVal, "\n")
-	visualCol := prefixWidth
-
-	if textareaRow < len(lines) {
-		rowText := lines[textareaRow]
-		colIdx := m.input.LineInfo().CharOffset
-		runes := []rune(rowText)
-		if colIdx > len(runes) {
-			colIdx = len(runes)
-		}
-		visualCol += runewidth.StringWidth(string(runes[:colIdx]))
-	}
-
-	m.app.parker.SetTarget(linesUp, visualCol+1, true)
+	m.updateCursorTargetForRendered(m.renderFrame())
 }
 
 func (m *uiModel) flushStreamingLines(entryIdx int, flushedCount *int) tea.Cmd {
@@ -1033,6 +1047,10 @@ func (m *uiModel) flushStreamingLines(entryIdx int, flushedCount *int) tea.Cmd {
 	body := e.Body
 	if e.Kind == "assistant" {
 		body = stableStreamingMarkdownSource(body)
+		// 진행 중인 마크다운 표/코드블록은 새 줄이 추가될수록 렌더된 라인 인덱스가
+		// 밀리기 때문에(예: 표 하단 경계선이 아래로 이동), 라인 차분 기반 flush가
+		// 같은 경계선을 반복 출력하게 된다. 해당 블록이 끝날 때까지 본문에서 제외한다.
+		body = markdown.StableStreamingPrefix(body)
 	}
 	lines := strings.Split(body, "\n")
 	if len(lines) <= 1 {

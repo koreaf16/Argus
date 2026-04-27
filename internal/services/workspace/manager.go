@@ -504,13 +504,30 @@ func (m *Manager) MetricsSnapshot(ctx context.Context, alias string) (MetricsSna
 func (m *Manager) Status() []StatusEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	
+	entries := m.reg.List()
 	var res []StatusEntry
-	for alias, session := range m.sessions {
+	
+	// Add local workspace first
+	res = append(res, StatusEntry{
+		Alias:     LocalAlias,
+		Kind:      ServerKindLocal,
+		Connected: true,
+		User:      os.Getenv("USERNAME"),
+	})
+
+	for _, e := range entries {
+		session, connected := m.sessions[e.Alias]
+		user := e.User
+		if connected && session.entry.User != "" {
+			user = session.entry.User
+		}
+		
 		res = append(res, StatusEntry{
-			Alias:     alias,
-			Kind:      ServerKindSSH,
-			Connected: true,
-			User:      session.entry.User,
+			Alias:     e.Alias,
+			Kind:      e.Kind,
+			Connected: connected,
+			User:      user,
 		})
 	}
 	return res

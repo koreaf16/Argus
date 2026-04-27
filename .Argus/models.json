@@ -6,6 +6,12 @@
       "provider": "openai-compat",
       "display": "gemma4-26b",
       "base_url": "http://192.168.0.3:11435/v1"
+    },
+    {
+      "alias": "qwen3.6-27b",
+      "provider": "openai-compat",
+      "display": "qwen3.6-27b",
+      "base_url": "http://192.168.0.3:11434/v1"
     }
   ],
   "userModels": [
@@ -23,6 +29,21 @@
         "web_search": true
       },
       "server_alias": "gemma4-26b"
+    },
+    {
+      "alias": "models-qwen3-6-27b-awq-int4",
+      "model_id": "/models/Qwen3.6-27B-AWQ-INT4",
+      "provider": "openai-compat",
+      "base_url": "http://192.168.0.3:11434/v1",
+      "display": "/models/Qwen3.6-27B-AWQ-INT4",
+      "context_win": 131072,
+      "caps": {
+        "tools": true,
+        "thinking": false,
+        "vision": true,
+        "web_search": true
+      },
+      "server_alias": "qwen3.6-27b"
     }
   ]
 }

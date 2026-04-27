@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -368,40 +369,161 @@ func toOpenAIMessages(msgs []Message, thinkingEnabled bool) []map[string]any {
 	return out
 }
 
-// channelTokenFilter는 Gemma 4 등 모델의 채널 구분 특수 토큰을 줄 단위로 필터링합니다.
-// <|channel>thought, <channel|> 같은 줄을 제거하고 나머지 텍스트만 통과시킵니다.
+// channelTokenFilter는 OpenAI Harmony / Gemma 등 일부 모델이 응답 본문에 흘려보내는
+// 채널/메시지 특수 토큰을 제거합니다. 인라인 토큰과 표준 단독-라벨 라인 모두 처리하며,
+// chunk 경계에서 토큰이 잘리는 경우 lookahead 버퍼로 다음 chunk와 합쳐 처리합니다.
 type channelTokenFilter struct {
-	pending string
+	pendingToken string // chunk 경계에서 잘린 미완성 토큰 (예: "<|chan")
+	pendingLine  string // 단독-라벨 판별을 위한 줄 단위 버퍼 (개행 전)
+}
+
+// harmonyInlineRe: 한 번에 제거할 수 있는 인라인 토큰들.
+//
+// 1) <|channel|>(analysis|commentary|final|thought) — 채널 토큰 + 라벨까지 한꺼번에 소거
+// 2) <|channel>...\n — 좌측 단일 파이프 변형: 해당 라인 전체를 소거
+// 3) <channel|> — 우측 단일 파이프 변형
+// 4) <|(channel|message|end|return|start|stop|done|assistant|user|system|developer|tool)|> — 기타 토큰
+var harmonyInlineRe = regexp.MustCompile(
+	`<\|channel\|>(?:analysis|commentary|final|thought)` +
+		`|<\|channel>[^\n]*\n?` +
+		`|<channel\|>` +
+		`|<\|(?:channel|message|end|return|start|stop|done|assistant|user|system|developer|tool)\|>`,
+)
+
+// 단독으로 한 줄에 등장하면 제거할 Harmony 채널 라벨.
+var harmonyStandaloneLabel = map[string]bool{
+	"analysis":   true,
+	"thought":    true,
+	"commentary": true,
+	"final":      true,
+}
+
+// chunk 경계에서 부분 토큰일 가능성이 있는지 판단할 때 사용하는 알려진 키워드 목록.
+var harmonyTokenKeywords = []string{
+	"channel", "message", "end", "return", "start", "stop", "done",
+	"assistant", "user", "system", "developer", "tool",
 }
 
 func (f *channelTokenFilter) feed(delta string) string {
-	f.pending += delta
-	lines := strings.Split(f.pending, "\n")
-	if len(lines) <= 1 {
+	text := f.pendingToken + delta
+	f.pendingToken = ""
+
+	safe, held := splitAtPotentialToken(text)
+	f.pendingToken = held
+
+	// 인라인 토큰 제거.
+	safe = harmonyInlineRe.ReplaceAllString(safe, "")
+
+	// 단독 라벨 판별을 위해 줄 단위로 잘라 처리.
+	combined := f.pendingLine + safe
+	f.pendingLine = ""
+
+	lastNL := strings.LastIndex(combined, "\n")
+	if lastNL == -1 {
+		f.pendingLine = combined
 		return ""
 	}
-	f.pending = lines[len(lines)-1]
-	var out strings.Builder
-	for _, line := range lines[:len(lines)-1] {
-		if !isChannelTokenLine(line) {
-			out.WriteString(line + "\n")
-		}
-	}
-	return out.String()
+	complete := combined[:lastNL+1]
+	f.pendingLine = combined[lastNL+1:]
+
+	return removeStandaloneLabelLines(complete)
 }
 
 func (f *channelTokenFilter) flush() string {
-	line := f.pending
-	f.pending = ""
-	if isChannelTokenLine(line) {
+	// 미완성 토큰은 폐기 (어차피 사용자에게 노출되면 안 되는 garbage).
+	f.pendingToken = ""
+
+	line := f.pendingLine
+	f.pendingLine = ""
+	if line == "" {
+		return ""
+	}
+	line = harmonyInlineRe.ReplaceAllString(line, "")
+	if harmonyStandaloneLabel[strings.TrimSpace(line)] {
 		return ""
 	}
 	return line
 }
 
-func isChannelTokenLine(line string) bool {
-	t := strings.TrimSpace(line)
-	return strings.HasPrefix(t, "<|channel>") || t == "<channel|>"
+// applyHarmonyFilter는 한 번에 들어온 전체 문자열에 대해 동일한 필터링을 적용합니다.
+func applyHarmonyFilter(s string) string {
+	if s == "" {
+		return ""
+	}
+	s = harmonyInlineRe.ReplaceAllString(s, "")
+	return removeStandaloneLabelLines(s)
+}
+
+// splitAtPotentialToken은 chunk 끝 부분이 미완성 Harmony 토큰처럼 보일 경우
+// 해당 부분을 held로 분리해 다음 chunk와 합쳐 재처리하도록 합니다.
+func splitAtPotentialToken(text string) (safe, held string) {
+	if text == "" {
+		return "", ""
+	}
+	lastLT := strings.LastIndex(text, "<")
+	if lastLT == -1 {
+		return text, ""
+	}
+	suffix := text[lastLT:]
+	if strings.Contains(suffix, ">") {
+		return text, ""
+	}
+	if isPartialHarmonyToken(suffix) {
+		return text[:lastLT], suffix
+	}
+	return text, ""
+}
+
+func isPartialHarmonyToken(s string) bool {
+	if len(s) == 0 || s[0] != '<' {
+		return false
+	}
+	if len(s) == 1 {
+		return true
+	}
+	rest := s[1:]
+	if rest[0] == '|' {
+		rest = rest[1:]
+	}
+	if rest == "" {
+		return true
+	}
+	rest = strings.TrimRight(rest, "|")
+	if rest == "" {
+		return true
+	}
+	for _, r := range rest {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	for _, kw := range harmonyTokenKeywords {
+		if strings.HasPrefix(kw, rest) {
+			return true
+		}
+	}
+	return false
+}
+
+func removeStandaloneLabelLines(s string) string {
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i == len(s) || s[i] == '\n' {
+			line := s[start:i]
+			if !harmonyStandaloneLabel[strings.TrimSpace(line)] {
+				b.WriteString(line)
+				if i < len(s) {
+					b.WriteByte('\n')
+				}
+			}
+			start = i + 1
+		}
+	}
+	return b.String()
 }
 
 func toOpenAITools(specs []ToolSpec) []map[string]any {

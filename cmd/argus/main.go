@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/koreaf16/argus/internal/aidebug"
+	"github.com/koreaf16/argus/internal/connector"
 	"github.com/koreaf16/argus/internal/constants"
 	"github.com/koreaf16/argus/internal/hooks"
 	"github.com/koreaf16/argus/internal/memdir"
@@ -34,6 +36,7 @@ import (
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/tools/askuser"
 	"github.com/koreaf16/argus/internal/tools/bash"
+	"github.com/koreaf16/argus/internal/tools/connectortool"
 	"github.com/koreaf16/argus/internal/tools/enterplanmode"
 	"github.com/koreaf16/argus/internal/tools/enterworktree"
 	"github.com/koreaf16/argus/internal/tools/exitplanmode"
@@ -224,15 +227,20 @@ func runAIDebug(flags *parsedFlags, config *bootstrapConfig, engine *query.Engin
 			ctx := commands.CommandContext{
 				Context:      ctx,
 				Stdout:       os.Stdout,
-				Workspace:    config.Workspace,
+				Registry:     reg,
 				Engine:       engine,
 				State:        config.State,
+				ModelPath:    constants.ModelsPath(),
+				SettingsPath: constants.SettingsPath(),
+				WorkDir:      config.WorkDir,
+				Memory:       config.Memory,
+				Connector:    config.Connector,
 				MCP:          config.MCP,
 				LSP:          config.LSP,
+				Workspace:    config.Workspace,
 				Skills:       config.Skills,
+				Credentials:  config.Credentials,
 				MCPReload:    config.MCPReload,
-				Memory:       config.Memory,
-				SettingsPath: constants.SettingsPath(),
 			}
 			_, err := commands.Dispatch(input, ctx)
 			return err
@@ -451,6 +459,7 @@ func runTUI(flags *parsedFlags) error {
 		MCP:          config.MCP,
 		LSP:          config.LSP,
 		Workspace:    config.Workspace,
+		Connector:    config.Connector,
 		ShellJobs:    config.ShellJobs,
 		Credentials:  config.Credentials,
 		Skills:       config.Skills,
@@ -475,6 +484,7 @@ type bootstrapConfig struct {
 	WorkDir     string
 	Memory      *memdir.Store
 	DebugSink   *aidebug.Sink
+	Connector   *connector.Manager
 	MCP         *mcp.Manager
 	LSP         *lsp.Manager
 	Workspace   *workspace.Manager
@@ -568,6 +578,8 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 	}
 	appState.SetActiveMCPServers(mcpManager.ServerNames())
 
+	connectorManager := connector.NewManager(mcpManager, filepath.Join(constants.ConfigDir(), "cache"))
+
 	lspManager := lsp.NewManager()
 	lsptool.SetManager(lspManager)
 	skillRegistry := skills.NewRegistry()
@@ -602,10 +614,14 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		skilltool.NewSkillTool(skillRegistry),
 		&snitptool.SnipTool{},
 		task.NewTaskCreateTool(),
+		task.NewTaskListTool(),
+		task.NewTaskUpdateTool(),
+		task.NewTaskDeleteTool(),
 		askuser.NewAskUserQuestionTool(),
 		enterworktree.NewEnterWorktreeTool(),
 		exitworktree.NewExitWorktreeTool(),
 		todoread.NewTodoReadTool(),
+		connectortool.New(connectorManager),
 	} {
 		if err := toolRegistry.Register(t); err != nil {
 			return nil, nil, nil, fmt.Errorf("register %s tool: %w", t.Name(), err)
@@ -677,6 +693,7 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		WorkDir:     workDir,
 		Memory:      memStore,
 		DebugSink:   debugSink,
+		Connector:   connectorManager,
 		MCP:         mcpManager,
 		LSP:         lspManager,
 		Workspace:   workspaceManager,

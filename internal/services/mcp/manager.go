@@ -167,3 +167,74 @@ func (m *Manager) Execute(ctx context.Context, server, toolName string, args map
 
 	return client.CallTool(ctx, toolName, args)
 }
+
+func (m *Manager) AddServer(cfg ServerConfig) error {
+	m.servers[cfg.Name] = cfg
+	return m.Save()
+}
+
+func (m *Manager) RemoveServer(name string) error {
+	if _, ok := m.servers[name]; !ok {
+		return fmt.Errorf("server %q not found", name)
+	}
+	delete(m.servers, name)
+	return m.Save()
+}
+
+func (m *Manager) Save() error {
+	if m.path == "" {
+		return fmt.Errorf("manager path is empty")
+	}
+	var cfg Config
+	names := m.ServerNames()
+	cfg.Servers = make([]ServerConfig, 0, len(names))
+	for _, name := range names {
+		cfg.Servers = append(cfg.Servers, m.servers[name])
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(m.path, b, 0644)
+}
+
+func (m *Manager) GetServer(name string) (ServerConfig, bool) {
+	srv, ok := m.servers[name]
+	return srv, ok
+}
+
+func (m *Manager) DiscoverTools(ctx context.Context, cfg ServerConfig) ([]ToolConfig, error) {
+	client, err := newMCPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
+	if err := client.Initialize(ctx); err != nil {
+		return nil, err
+	}
+
+	raw, err := client.call(ctx, "tools/list", map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+
+	var tools []ToolConfig
+	for _, t := range result.Tools {
+		tools = append(tools, ToolConfig{
+			Name:        t.Name,
+			Description: t.Description,
+		})
+	}
+	return tools, nil
+}

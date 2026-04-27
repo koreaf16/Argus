@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -51,31 +52,36 @@ func (m *BashInteractiveModel) Init() tea.Cmd {
 func (m *BashInteractiveModel) Update(msg tea.Msg) (toolui.InteractiveModel, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.KeyMsg:
-		if m.inputChan != nil && !m.isFinished {
+		if m.isFocused && m.inputChan != nil && !m.isFinished {
+			// 포커스 상태: 키를 프로세스 stdin으로 포워딩
 			s := v.String()
-			if s == "ctrl+d" && !m.isBackground {
+			switch s {
+			case "enter":
+				s = "\n"
+			case "ctrl+d":
+				s = "\x04" // EOF — sqlplus/python 등 정상 종료
+			case "ctrl+c":
+				s = "\x03" // SIGINT — 프로세스 중단
+			default:
+				if len(s) != 1 {
+					return m, nil // F1, 방향키 등 특수키 무시
+				}
+			}
+			select {
+			case m.inputChan <- s:
+			default:
+			}
+			return m, nil
+		}
+		// 비포커스 상태: Ctrl+D → Kill 요청
+		if !m.isFocused && m.inputChan != nil && !m.isFinished && !m.isBackground {
+			if v.String() == "ctrl+d" {
 				select {
 				case m.inputChan <- shellsignal.BackgroundRequest:
 				default:
 				}
 				return m, nil
 			}
-		}
-		if m.isFocused && m.inputChan != nil && !m.isFinished {
-			s := v.String()
-			if s == "enter" {
-				s = "\n"
-			} else if len(s) == 1 {
-				// OK
-			} else {
-				return m, nil
-			}
-			// Non-blocking send or separate goroutine recommended in production
-			select {
-			case m.inputChan <- s:
-			default:
-			}
-			return m, nil
 		}
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -86,7 +92,9 @@ func (m *BashInteractiveModel) Update(msg tea.Msg) (toolui.InteractiveModel, tea
 }
 
 func (m *BashInteractiveModel) View() string {
-	boxW := m.theme.Width() - 4 // ?몃뜶??怨좊젮
+	// theme.Width()는 이미 아이콘 영역(3칸)을 제외한 가용 너비를 반환한다.
+	// render.go가 박스 전체에 2칸 들여쓰기를 다시 추가하므로 그만큼만 더 빼준다.
+	boxW := m.theme.Width() - 2
 	if boxW < 40 {
 		boxW = 40
 	}
@@ -125,8 +133,8 @@ func (m *BashInteractiveModel) View() string {
 	showBox := hasOutput || m.isExpanded || m.isFocused
 
 	if !showBox {
-		displayLine := truncateToWidth(headerText, boxW-2)
-		return "  " + displayLine
+		// 패딩과 아이콘은 render.go(renderTranscriptEntryAt)가 통일적으로 추가한다.
+		return truncateToWidth(headerText, boxW-2)
 	}
 
 	// 박스 헤더 구성
@@ -160,7 +168,9 @@ func (m *BashInteractiveModel) View() string {
 
 		if len(lines) > maxLines && !m.isExpanded {
 			hidden := len(lines) - maxLines
-			sb.WriteString(mutedStyle.Render(fmt.Sprintf("   ... %d lines hidden (Ctrl+O to show) ...\n", hidden)))
+			// 줄바꿈을 Render 밖으로 빼야 lipgloss가 다음 라인을 빈 스타일 잔재 없이 정상 렌더링한다.
+			sb.WriteString(mutedStyle.Render(fmt.Sprintf("   ... %d lines hidden (Ctrl+O to show) ...", hidden)))
+			sb.WriteString("\n")
 			lines = lines[len(lines)-maxLines:]
 		}
 
@@ -179,16 +189,13 @@ func (m *BashInteractiveModel) View() string {
 
 	if m.isFocused {
 		sb.WriteString("\n")
-		footer := "   [TAB to defocus] [PTY Input Active]"
-		if !m.isBackground && !m.isFinished {
-			footer = "   [TAB to defocus] [Ctrl+D background] [PTY Input Active]"
-		}
+		footer := "   [TAB/ESC to defocus] [Ctrl+D=EOF] [Ctrl+C=INT]"
 		sb.WriteString(m.theme.Style(m.theme.StatusWarningColor()).Bold(true).Render(footer))
 	} else if !m.isFinished {
 		sb.WriteString("\n")
 		footer := "   [TAB to focus]"
 		if !m.isBackground {
-			footer = "   [TAB to focus] [Ctrl+D background]"
+			footer = "   [TAB to focus] [Ctrl+D to kill]"
 		}
 		sb.WriteString(mutedStyle.Render(footer))
 	}
@@ -328,31 +335,98 @@ func (r *BashRenderer) RenderToolResult(resultText string, durationMs int64, the
 		Stderr string `json:"Stderr"`
 		Code   int    `json:"Code"`
 	}
-	
-	// 성공 시 RenderToolUse에서 이미 ✓ 또는 박스를 표시하므로, 
-	// 추가 결과 텍스트를 숨겨서 UI를 깔끔하게 유지 (gemini-cli 방식)
-	if err := json.Unmarshal([]byte(resultText), &execResult); err == nil && execResult.Code == 0 {
-		return ""
-	} else if err == nil && execResult.Code != 0 {
-		label := fmt.Sprintf("✗ [error] exit code %d", execResult.Code)
-		color := theme.StatusErrorColor()
-		msg := label
-		if durationMs > 0 {
-			msg += fmt.Sprintf(" in %dms", durationMs)
+
+	// 성공: RenderToolUse(InteractiveModel)에서 이미 ✓ 박스를 표시하므로 추가 출력 없음 (gemini-cli 방식).
+	if err := json.Unmarshal([]byte(resultText), &execResult); err == nil {
+		if execResult.Code == 0 {
+			return ""
 		}
-		return theme.Style(color).Render("  " + msg)
+		// 비정상 종료: exit code + stderr 첫 줄만 짧게 표시
+		errStyle := theme.Style(theme.StatusErrorColor())
+		label := fmt.Sprintf("✗ exit %d", execResult.Code)
+		if durationMs > 0 {
+			label += fmt.Sprintf(" (%dms)", durationMs)
+		}
+		stderrLine := firstNonEmptyLine(stripANSI(execResult.Stderr))
+		if stderrLine != "" {
+			label += " — " + truncateToWidth(stderrLine, theme.Width()-len(label)-6)
+		}
+		return errStyle.Render("  " + label)
 	}
 
-	// JSON 파싱 실패 = 도구가 에러 이벤트를 반환한 경우
-	errMsg := strings.TrimSpace(resultText)
-	if errMsg == "" {
+	// 엔진 distiller가 JSON을 "exit_code: <N>\n\nstdout:..." 형태로 정규화한 경우를 처리.
+	// 이 형식이 그대로 UI에 도달하면 fallback 경로가 "exit_code: 0"을 에러처럼 출력하는 문제가 있다.
+	if code, ok := parseNormalizedExitCode(resultText); ok {
+		if code == 0 {
+			return ""
+		}
+		errStyle := theme.Style(theme.StatusErrorColor())
+		label := fmt.Sprintf("✗ exit %d", code)
+		if durationMs > 0 {
+			label += fmt.Sprintf(" (%dms)", durationMs)
+		}
+		if stderrLine := firstNormalizedSection(resultText, "stderr"); stderrLine != "" {
+			label += " — " + truncateToWidth(stderrLine, theme.Width()-len(label)-6)
+		}
+		return errStyle.Render("  " + label)
+	}
+
+	// JSON 파싱 실패: tool 자체가 NewErrorEvent를 발행한 케이스. resultText는
+	// 사람이 읽을 수 있는 에러 문자열일 수도, raw JSON 잔해일 수도 있다.
+	// 후자가 사용자 화면에 그대로 노출되지 않도록 한 줄로만 잘라 표시.
+	errMsg := firstNonEmptyLine(strings.TrimSpace(resultText))
+	if errMsg == "" || strings.HasPrefix(errMsg, "{") {
 		errMsg = "execution failed"
 	}
-	label := "✗ [error] " + errMsg
+	label := "✗ " + truncateToWidth(errMsg, theme.Width()-6)
 	if durationMs > 0 {
-		label += fmt.Sprintf(" in %dms", durationMs)
+		label += fmt.Sprintf(" (%dms)", durationMs)
 	}
 	return theme.Style(theme.StatusErrorColor()).Render("  " + label)
+}
+
+// parseNormalizedExitCode 는 "exit_code: <N>" 형태로 시작하는 distiller 정규화 텍스트에서
+// 종료 코드를 추출한다. 매칭되지 않으면 ok=false.
+func parseNormalizedExitCode(text string) (int, bool) {
+	trimmed := strings.TrimSpace(text)
+	const prefix = "exit_code:"
+	if !strings.HasPrefix(trimmed, prefix) {
+		return 0, false
+	}
+	rest := strings.TrimSpace(trimmed[len(prefix):])
+	if nl := strings.IndexAny(rest, "\r\n"); nl >= 0 {
+		rest = rest[:nl]
+	}
+	rest = strings.TrimSpace(rest)
+	code, err := strconv.Atoi(rest)
+	if err != nil {
+		return 0, false
+	}
+	return code, true
+}
+
+// firstNormalizedSection 은 distiller 정규화 텍스트에서 "<name>:\n..." 섹션의 첫 비-공백 줄을 반환한다.
+func firstNormalizedSection(text, name string) string {
+	marker := name + ":"
+	idx := strings.Index(text, "\n"+marker)
+	if idx < 0 {
+		if strings.HasPrefix(strings.TrimSpace(text), marker) {
+			idx = strings.Index(text, marker) - 1
+		} else {
+			return ""
+		}
+	}
+	body := text[idx+1+len(marker):]
+	return firstNonEmptyLine(stripANSI(body))
+}
+
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 func resolveTargetAlias(args map[string]any) string {

@@ -18,6 +18,7 @@ var slashSuggestionCatalog = []slashSuggestion{
 	{Command: "mcp", Description: "MCP list/reload/tools/resources/read"},
 	{Command: "server", Description: "원격 워크스페이스 관리"},
 	{Command: "skills", Description: "스킬 list/run"},
+	{Command: "connector", Description: "MCP 커넥터 search/install/list/remove"},
 	{Command: "config", Description: "설정 show/get/set"},
 	{Command: "diff", Description: "git diff 보기"},
 	{Command: "review", Description: "변경 리뷰 요약"},

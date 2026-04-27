@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/koreaf16/argus/internal/connector"
 	"github.com/koreaf16/argus/internal/memdir"
 	"github.com/koreaf16/argus/internal/query"
 	"github.com/koreaf16/argus/internal/services/llm"
@@ -43,6 +44,7 @@ type CommandContext struct {
 	SettingsPath string
 	WorkDir      string
 	Memory       *memdir.Store
+	Connector    *connector.Manager
 	MCP          *mcp.Manager
 	LSP          *lsp.Manager
 	Workspace    *workspace.Manager
@@ -56,4 +58,10 @@ type CommandContext struct {
 	// ServerListPrompt opens the interactive server list panel.
 	// Nil in non-TUI contexts; callers should fall back to text list output.
 	ServerListPrompt func(ctx context.Context) (ServerListResult, error)
+	// ConnectorSearchPrompt opens the interactive connector search result panel.
+	// Nil in non-TUI contexts; callers should fall back to text output.
+	ConnectorSearchPrompt func(ctx context.Context, query string, results []connector.ConnectorSpec) (*connector.ConnectorSpec, error)
+	// ConnectorInstallPrompt opens the interactive connector env-var install form.
+	// Nil in non-TUI contexts; callers should fall back to CLI key=value args.
+	ConnectorInstallPrompt func(ctx context.Context, spec connector.ConnectorSpec) (map[string]string, bool, error)
 }
