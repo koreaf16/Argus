@@ -85,7 +85,12 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string) string {
 
 		sb.WriteString("\nBehavior rules:\n")
 		if runtime.GOOS == "windows" {
-			sb.WriteString("  - Active OS is Windows. Do NOT issue Linux-only commands (e.g. apt, yum, systemctl). Use PowerShell or the shell listed above.\n")
+			sb.WriteString("  - Active OS is Windows. You MUST use the 'powershell' tool for all system operations.\n")
+			sb.WriteString("  - Do NOT attempt to use 'bash' as it is hidden and unavailable on this target.\n")
+			sb.WriteString("  - Do NOT issue Linux-only commands (e.g. apt, yum, systemctl).\n")
+		} else {
+			sb.WriteString("  - Active OS is Unix-like. You MUST use the 'bash' tool for all system operations.\n")
+			sb.WriteString("  - Do NOT attempt to use 'powershell' as it is hidden and unavailable on this target.\n")
 		}
 		sb.WriteString("  - Shell tools execute on the LOCAL machine unless you specify a `server` parameter.\n")
 		return sb.String()
@@ -136,6 +141,13 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string) string {
 	}
 
 	sb.WriteString("\nBehavior rules:\n")
+	if strings.Contains(strings.ToLower(snap.OS), "windows") {
+		sb.WriteString("  - Active OS is Windows. You MUST use the 'powershell' tool for all system operations.\n")
+		sb.WriteString("  - Do NOT attempt to use 'bash' as it is hidden and unavailable on this target.\n")
+	} else {
+		sb.WriteString("  - Active OS is Unix-like. You MUST use the 'bash' tool for all system operations.\n")
+		sb.WriteString("  - Do NOT attempt to use 'powershell' as it is hidden and unavailable on this target.\n")
+	}
 	sb.WriteString("  - Shell tools execute on the REMOTE server by default (no `server` param needed).\n")
 	sb.WriteString("  - Use sudo/su for privilege escalation as appropriate for the remote OS.\n")
 

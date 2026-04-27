@@ -9,8 +9,8 @@ import (
 const (
 	ansiHideCursor = "\x1b[?25l"
 	ansiShowCursor = "\x1b[?25h"
-	ansiSaveCursor = "\x1b[s" // CSI SCP - Save Cursor Position
-	ansiLoadCursor = "\x1b[u" // CSI RCP - Restore Cursor Position
+	ansiSaveCursor = "\x1b7" // DEC Save Cursor
+	ansiLoadCursor = "\x1b8" // DEC Restore Cursor
 )
 
 // CursorParkWriter forwards Bubble Tea output while re-parking the terminal

@@ -71,6 +71,12 @@ type ToolEvent struct {
 
 type PermissionResult = types.PermissionResult
 
+// VisibleFilter 는 도구가 특정 컨텍스트(예: 타겟 OS)에서 LLM에게 노출될지 여부를 결정하는 인터페이스입니다.
+// 이 인터페이스를 구현하지 않는 도구는 기본적으로 항상 노출됩니다.
+type VisibleFilter interface {
+	IsVisible(ctx Context) bool
+}
+
 type Tool interface {
 	Name() string
 	Description(ctx Context) string

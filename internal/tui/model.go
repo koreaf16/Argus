@@ -902,6 +902,8 @@ func (m uiModel) renderFrame() renderedView {
 		if rendered == "" {
 			continue
 		}
+		// 스크롤백(tea.Println("\n"+rendered))과 일치시키기 위해 각 엔트리 앞에 빈 줄 추가
+		streamLines = append(streamLines, "")
 		streamLines = append(streamLines, strings.Split(rendered, "\n")...)
 	}
 

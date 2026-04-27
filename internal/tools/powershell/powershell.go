@@ -42,6 +42,14 @@ func (t *PowerShellTool) Name() string {
 	return "powershell"
 }
 
+func (t *PowerShellTool) IsVisible(ctx tool.Context) bool {
+	targetInfo, err := tool.ResolveShellTargetInfo(ctx, "", false)
+	if err != nil {
+		return true
+	}
+	return targetInfo.Platform == workspace.PlatformWindows
+}
+
 func (t *PowerShellTool) Description(ctx tool.Context) string {
 	return "Execute PowerShell commands"
 }

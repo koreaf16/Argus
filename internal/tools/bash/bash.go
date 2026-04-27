@@ -1,12 +1,10 @@
-package bash
+﻿package bash
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/koreaf16/argus/internal/services/workspace"
@@ -15,83 +13,137 @@ import (
 	"github.com/koreaf16/argus/internal/types"
 	"github.com/koreaf16/argus/internal/utils"
 	ibash "github.com/koreaf16/argus/internal/utils/bash"
+	"github.com/koreaf16/argus/internal/utils/permissions"
 	"github.com/koreaf16/argus/internal/utils/shell"
 )
 
-// replPromptRe: 대표적인 인터랙티브 REPL 프롬프트 패턴 (줄 끝에 위치)
-var replPromptRe = regexp.MustCompile(`(?m)(SQL>\s*$|mysql>\s*$|MariaDB\s*\[.*?\]>\s*$|sqlite>\s*$|postgres[=#>]+\s*$|>>>\s*$|>\s+$)`)
-
 type BashTool struct {
-	provider     shell.ShellProvider
-	providerOnce sync.Once
-	providerErr  error
+	provider shell.ShellProvider
 }
 
 func NewBashTool() *BashTool {
 	return &BashTool{}
 }
 
-func (t *BashTool) ensureProvider(ctx context.Context) error {
-	t.providerOnce.Do(func() {
-		shellPath, err := utils.FindSuitableShell()
-		if err != nil {
-			t.providerErr = err
-			return
-		}
-		p, err := shell.CreateBashShellProvider(ctx, shellPath, ibash.CreateAndSaveSnapshot)
-		if err != nil {
-			t.providerErr = err
-			return
-		}
-		t.provider = p
-	})
-	return t.providerErr
+func (t *BashTool) Name() string {
+	return "bash"
 }
 
-func (t *BashTool) Name() string { return "bash" }
-func (t *BashTool) Description(ctx tool.Context) string { return "Execute bash shell commands" }
+func (t *BashTool) IsVisible(ctx tool.Context) bool {
+	targetInfo, err := tool.ResolveShellTargetInfo(ctx, "", false)
+	if err != nil {
+		return true
+	}
+	return targetInfo.Platform != workspace.PlatformWindows
+}
+
+func (t *BashTool) Description(ctx tool.Context) string {
+	return "Execute bash shell commands"
+}
+
 func (t *BashTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"command":    map[string]any{"type": "string"},
-			"server":     map[string]any{"type": "string"},
-			"password":   map[string]any{"type": "string"},
-			"background": map[string]any{"type": "boolean"},
+			"command": map[string]any{
+				"type":        "string",
+				"description": "The bash command to execute",
+			},
+			"timeout_ms": map[string]any{
+				"type":        "integer",
+				"description": "Optional timeout in milliseconds",
+			},
+			"workdir": map[string]any{
+				"type":        "string",
+				"description": "Optional working directory (must be inside allowed roots)",
+			},
+			"description": map[string]any{
+				"type":        "string",
+				"description": "Optional short summary of the command",
+			},
+			"server": map[string]any{
+				"type":        "string",
+				"description": "Optional workspace alias. Defaults to active workspace.",
+			},
+			"password": map[string]any{
+				"type":        "string",
+				"description": "Optional password for remote server SSH authentication.",
+			},
+			"root_password": map[string]any{
+				"type":        "string",
+				"description": "Optional password for privilege escalation (sudo or su). If provided, it will be used when a password prompt is detected during command execution.",
+			},
+			"background": map[string]any{
+				"type":        "boolean",
+				"description": "Run as a background job. Omit to auto-background after a few seconds for long-running commands.",
+			},
 		},
 		"required": []string{"command"},
 	}
 }
 
-func (t *BashTool) IsReadOnly() bool               { return false }
-func (t *BashTool) MaxResultSizeChars() int        { return 100000 }
-func (t *BashTool) IsConcurrencySafe(json.RawMessage) bool { return false }
+func (t *BashTool) IsReadOnly() bool {
+	return false
+}
+
+// IsConcurrencySafe allows orchestration to run independent read-only shell
+// commands in parallel while keeping mutating commands serialized.
+func (t *BashTool) IsConcurrencySafe(input json.RawMessage) bool {
+	command := tool.ExtractStringInput(input, "command")
+	return tool.IsReadOnlyShellCommand(command, "bash")
+}
+
+func (t *BashTool) MaxResultSizeChars() int {
+	return 100000
+}
 
 func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
 	events := make(chan tool.ToolEvent, 2)
+
 	var req struct {
-		Command    string `json:"command"`
-		Server     string `json:"server"`
-		Password   string `json:"password"`
-		Background bool   `json:"background"`
+		Command      string `json:"command"`
+		TimeoutMS    int    `json:"timeout_ms"`
+		WorkDir      string `json:"workdir"`
+		Server       string `json:"server"`
+		Password     string `json:"password"`
+		RootPassword string `json:"root_password"`
+		Background   *bool  `json:"background"`
 	}
 	if err := json.Unmarshal(input, &req); err != nil {
 		return nil, err
 	}
 
+	if t.provider == nil {
+		shellPath, err := utils.FindSuitableShell()
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(shellPath) == "" {
+			return nil, fmt.Errorf("bash shell not found")
+		}
+		p, err := shell.CreateBashShellProvider(ctx.Context, shellPath, ibash.CreateAndSaveSnapshot)
+		if err != nil {
+			return nil, err
+		}
+		t.provider = p
+	}
+
 	go func() {
 		defer close(events)
-		targetAlias, aliasErr := tool.ResolveValidatedWorkspaceAlias(ctx, req.Server)
-		if aliasErr != nil {
-			events <- tool.NewErrorEvent(aliasErr)
+		command := strings.TrimSpace(req.Command)
+		if command == "" {
+			events <- tool.NewErrorEvent(fmt.Errorf("command cannot be empty"))
 			return
 		}
 
-		// OS 인식 기반 셸 호환성 검증. 대상이 Windows이면서 bash가 설치되어 있지 않은 경우
-		// 무지성으로 bash로 실행하면 명령이 알 수 없는 방식으로 실패하므로 사전에 차단한다.
-		targetInfo, infoErr := tool.ResolveShellTargetInfo(ctx, req.Server, true)
-		if infoErr != nil {
-			events <- tool.NewErrorEvent(infoErr)
+		targetAlias, err := tool.ResolveValidatedWorkspaceAlias(ctx, req.Server)
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
+		targetInfo, err := tool.ResolveShellTargetInfo(ctx, req.Server, true)
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
 			return
 		}
 		if err := tool.ValidateShellCompatibility("bash", targetInfo); err != nil {
@@ -99,158 +151,631 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 			return
 		}
 
-		if req.Password != "" && ctx.Workspace != nil {
-			ctx.Workspace.SetPassword(targetAlias, "ssh", req.Password)
-			ctx.Workspace.SetPassword(targetAlias, "sudo", req.Password)
+		// ??쑬?甕곕뜇?뉐첎? ??볥궗??野껋럩????곌쾿??쎈읂??곷뮞 筌?Ŋ????源낆쨯
+		if ctx.Workspace != nil {
+			if req.Password != "" {
+				ctx.Workspace.SetPassword(targetAlias, "ssh", req.Password)
+			}
+			if req.RootPassword != "" {
+				ctx.Workspace.SetPassword(targetAlias, "sudo", req.RootPassword)
+				ctx.Workspace.SetPassword(targetAlias, "su", req.RootPassword)
+			} else if req.Password != "" {
+				ctx.Workspace.SetPassword(targetAlias, "sudo", req.Password)
+				ctx.Workspace.SetPassword(targetAlias, "su", req.Password)
+			}
 		}
 
-		// Windows + Git Bash 같은 케이스를 위해 ExecOptions.Shell을 환경에 맞게 선택한다.
-		shellKind := "bash"
-		if targetInfo.Platform == workspace.PlatformWindows && targetInfo.BashAvailable {
-			shellKind = "git-bash"
+		finalCommand := command
+		// 亦낅슦釉??怨몃뱟 筌뤿굝議???癒?짗 ?????(Smart Rewriter)
+		if ctx.Workspace != nil && tool.IsRemoteWorkspace(ctx, targetAlias) {
+			currentUser := strings.TrimSpace(ctx.Workspace.CurrentUser(targetAlias))
+			pw := req.RootPassword
+			if pw == "" {
+				pw = req.Password
+			}
+
+			trimmedCmd := strings.TrimSpace(command)
+			normalizedCmd := stripRedundantPrivilegeWrapper(trimmedCmd, currentUser)
+			if normalizedCmd != trimmedCmd {
+				finalCommand = normalizedCmd
+			}
+			trimmedCmd = normalizedCmd
+
+			if pw != "" {
+				if strings.HasPrefix(trimmedCmd, "sudo ") {
+					// sudo -> sudo -S (Stdin 獄쎻뫗??
+					cmdBody := strings.TrimPrefix(trimmedCmd, "sudo ")
+					finalCommand = fmt.Sprintf("printf \"%%s\\n\" %s | sudo -S %s", tool.POSIXShellQuote(pw), cmdBody)
+				} else if strings.HasPrefix(trimmedCmd, "su ") {
+					// su -> su -c with Heredoc (HPUX/Solaris/AIX 등 구형 Unix 호환성)
+					targetUser, cmdBody := parseTargetUser(trimmedCmd)
+					if targetUser == "" {
+						targetUser = "root"
+					}
+					if strings.TrimSpace(cmdBody) != "" {
+						finalCommand = fmt.Sprintf("su - %s -c %s <<'ARGUS_SU_PW'\n%s\nARGUS_SU_PW", targetUser, tool.POSIXShellQuote(cmdBody), pw)
+					}
+				}
+			}
 		}
 
-		finalCommand := req.Command
-		if req.Background && tool.IsRemoteWorkspace(ctx, targetAlias) {
-			jobID := time.Now().Unix()
-			finalCommand = fmt.Sprintf("{ (%s); echo $? > /tmp/argus_%d.exit; } > /tmp/argus_%d.log 2>&1 & echo \"[PID] $! [EXIT] /tmp/argus_%d.exit\"", req.Command, jobID, jobID, jobID)
+		if tool.IsRemoteWorkspace(ctx, targetAlias) {
+			remoteCommand := finalCommand
+			if strings.TrimSpace(req.WorkDir) != "" {
+				remoteCommand = fmt.Sprintf("cd %s && %s", tool.POSIXShellQuote(req.WorkDir), finalCommand)
+			}
+			forceBackground := req.Background != nil && *req.Background
+			allowAutoBackground := req.Background == nil
+			result, err := executeRemoteCommand(
+				ctx,
+				targetAlias,
+				remoteCommand,
+				req.TimeoutMS,
+				events,
+				forceBackground,
+				allowAutoBackground,
+			)
+			if err != nil {
+				events <- tool.NewErrorEvent(err)
+				return
+			}
+			resJSON, _ := json.Marshal(result)
+			events <- tool.NewOutputEvent(string(resJSON))
+			events <- tool.NewDoneEvent()
+			return
 		}
 
-		handle, err := ctx.Workspace.StartExecWithOptions(ctx.Context, targetAlias, finalCommand, workspace.ExecOptions{Shell: shellKind}, nil)
+		workDir, err := tool.ResolveWorkingDirectory(ctx, req.WorkDir)
 		if err != nil {
 			events <- tool.NewErrorEvent(err)
 			return
 		}
 
-		// UI 패널과 stdin을 연결하는 채널을 즉시 생성해 전달
-		inputCh := make(chan string, 64)
-		events <- tool.ToolEvent{Kind: tool.ToolEventChunk, Output: "", InputResponse: inputCh}
+		opts := shell.ExecCommandOpts{
+			ID: fmt.Sprintf("%d", time.Now().UnixNano()),
+		}
+		res, err := t.provider.BuildExecCommand(ctx.Context, command, opts)
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
 
-		var (
-			outputBuffer    string
-			lastAnalyzedPos int
-			idleDuration    = 600 * time.Millisecond // 출력 중단 대기 시간
-			idleTimer       = time.NewTimer(idleDuration)
+		forceBackground := req.Background != nil && *req.Background
+		allowAutoBackground := req.Background == nil
+		result, err := executeCommand(
+			ctx,
+			res.CommandString,
+			req.TimeoutMS,
+			workDir,
+			events,
+			targetAlias,
+			forceBackground,
+			allowAutoBackground,
 		)
-		if !idleTimer.Stop() {
-			<-idleTimer.C
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
 		}
 
-		for {
-			select {
-			case <-ctx.Context.Done():
-				return
-			case input := <-inputCh:
-				if shellsignal.IsBackgroundRequest(input) {
-					handle.Kill()
-				} else {
-					_ = handle.Write(input)
-				}
-			case chunk, ok := <-handle.Stream:
-				if !ok {
-					goto FINISH
-				}
-				outputBuffer += chunk
-				events <- tool.NewChunkEvent(chunk)
-				idleTimer.Stop()
-				idleTimer.Reset(idleDuration)
-
-			case <-idleTimer.C:
-				// [지능형 분석 로직 작동] 출력이 멈췄을 때 상황 분석
-				if len(outputBuffer) > lastAnalyzedPos {
-					currentTail := outputBuffer[lastAnalyzedPos:]
-					if len(currentTail) > 1000 {
-						currentTail = currentTail[len(currentTail)-1000:]
-					}
-					lastAnalyzedPos = len(outputBuffer)
-
-					// 빠른 경로: LLM 없이 일반적인 패스워드/프롬프트 패턴 감지
-					tailLower := strings.ToLower(currentTail)
-
-					// REPL 프롬프트 감지: SQL>, mysql>, >>> 등 → exit 자동 전송
-					if replPromptRe.MatchString(currentTail) {
-						_ = handle.Write("exit\n")
-						idleTimer.Reset(idleDuration)
-						continue
-					}
-
-					isPasswordPrompt := strings.Contains(tailLower, "password:") ||
-						strings.Contains(tailLower, "암호:") ||
-						strings.Contains(tailLower, "[sudo]") ||
-						strings.Contains(tailLower, "passphrase") ||
-						strings.Contains(tailLower, "enter password")
-					isChoicePrompt := strings.Contains(tailLower, "replace?") ||
-						strings.Contains(tailLower, "[y]es") ||
-						strings.Contains(tailLower, "[y/n]") ||
-						strings.Contains(tailLower, "[a]ll")
-
-					if isPasswordPrompt {
-						pw := ctx.Workspace.GetPassword(targetAlias, "ssh")
-						if pw != "" {
-							_ = handle.Write(pw + "\n")
-							idleTimer.Reset(idleDuration)
-							continue
-						}
-					} else if isChoicePrompt {
-						if strings.Contains(tailLower, "[a]ll") {
-							_ = handle.Write("A\n")
-						} else {
-							_ = handle.Write("y\n")
-						}
-						idleTimer.Reset(idleDuration)
-						continue
-					}
-
-					// 느린 경로: LLM으로 복잡한 상황 분석
-					kind, prompt, ok := analyzeInteractionSituation(ctx, currentTail)
-					if ok {
-						kindUpper := strings.ToUpper(strings.TrimSpace(kind))
-
-						if kindUpper == "PASSWORD" || kindUpper == "SUDO" || kindUpper == "SSH" {
-							pw := ctx.Workspace.GetPassword(targetAlias, "ssh")
-							if pw != "" {
-								_ = handle.Write(pw + "\n")
-								idleTimer.Reset(idleDuration)
-							}
-						} else if kindUpper == "CHOICE" || kindUpper == "YES_NO" || kindUpper == "TEXT" {
-							if strings.Contains(strings.ToLower(prompt), "replace") || strings.Contains(strings.ToLower(prompt), "[y/n]") {
-								if strings.Contains(strings.ToLower(prompt), "[a]ll") {
-									_ = handle.Write("A\n")
-								} else {
-									_ = handle.Write("y\n")
-								}
-								idleTimer.Reset(idleDuration)
-							}
-						}
-					}
-				}
-
-			case res, ok := <-handle.Result:
-				idleTimer.Stop()
-				if !ok {
-					events <- tool.NewErrorEvent(fmt.Errorf("remote channel closed unexpectedly"))
-					return
-				}
-				resJSON, _ := json.Marshal(res)
-				events <- tool.NewOutputEvent(string(resJSON))
-				return
-			}
-		}
-	FINISH:
+		resJSON, _ := json.Marshal(result)
+		events <- tool.NewOutputEvent(string(resJSON))
 		events <- tool.NewDoneEvent()
 	}()
 
 	return events, nil
 }
 
-func analyzeInteractionSituation(ctx tool.Context, tail string) (kind, prompt string, ok bool) {
-	if ctx.ExecuteSubQuery == nil {
-		return "", "", false
+func (t *BashTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
+	rawServer := tool.ExtractStringInput(input, "server")
+	alias, err := tool.ResolveValidatedWorkspaceAlias(ctx, rawServer)
+	if err != nil {
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
 	}
 
-	systemPrompt := `Analyze terminal output. If waiting for user input, respond JSON: {"is_waiting":true, "type":"PASSWORD|YES_NO|CHOICE", "prompt_label":"..."}. Else: {"is_waiting":false}.`
-	userPrompt := fmt.Sprintf("Output:\n---\n%s\n---", tail)
-	
+	targetInfo, err := tool.ResolveShellTargetInfo(ctx, rawServer, false)
+	if err != nil {
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+	}
+	if targetInfo.Platform != workspace.PlatformUnknown {
+		if err := tool.ValidateShellCompatibility("bash", targetInfo); err != nil {
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+		}
+	}
+
+	normalizedInput := input
+	if ctx.Workspace != nil && tool.IsRemoteWorkspace(ctx, alias) {
+		currentUser := strings.TrimSpace(ctx.Workspace.CurrentUser(alias))
+		if currentUser != "" {
+			var req map[string]any
+			if err := json.Unmarshal(input, &req); err == nil {
+				if rawCmd, ok := req["command"].(string); ok {
+					normalizedCmd := stripRedundantPrivilegeWrapper(rawCmd, currentUser)
+					if normalizedCmd != strings.TrimSpace(rawCmd) {
+						req["command"] = normalizedCmd
+						if b, err := json.Marshal(req); err == nil {
+							normalizedInput = b
+						}
+					}
+				}
+			}
+		}
+	}
+
+	permCtx := permissions.NewDefaultPermissionContext()
+	if ctx.State != nil {
+		permCtx.Mode = ctx.State.GetPermissionMode()
+	}
+	return CheckBashPermissions(ctx, permCtx, normalizedInput)
+}
+
+const (
+	shellAutoBackgroundAfter = 3 * time.Second
+	maxShellTailChars        = 128 * 1024
+)
+
+func executeCommand(
+	ctx tool.Context,
+	command string,
+	timeoutMS int,
+	workDir string,
+	events chan<- tool.ToolEvent,
+	targetAlias string,
+	forceBackground bool,
+	allowAutoBackground bool,
+) (utils.ExecResult, error) {
+	shellPath, err := utils.FindSuitableShell()
+	if err != nil {
+		return utils.ExecResult{}, fmt.Errorf("find shell: %w", err)
+	}
+	if strings.TrimSpace(shellPath) == "" {
+		return utils.ExecResult{}, fmt.Errorf("bash shell not found")
+	}
+
+	timeout := clampShellTimeout(timeoutMS)
+
+	runCtx := ctx.Context
+	runTimeout := timeout
+	if ctx.ShellJobs != nil {
+		// Keep detached jobs alive even after the foreground request context ends.
+		runCtx = context.Background()
+		runTimeout = 0
+	}
+
+	cmd := utils.RunCommand(runCtx, shellPath, []string{"-c", command}, map[string]string{
+		"PAGER":         "cat",
+		"SYSTEMD_PAGER": "cat",
+	}, workDir, runTimeout, utils.SupportsPTY())
+
+	inputChan := make(chan string, 16)
+	events <- tool.ToolEvent{
+		Kind:          tool.ToolEventChunk,
+		InputResponse: inputChan,
+	}
+
+	var (
+		outputBuffer    string
+		lastAnalyzedPos int
+		idleDuration    = 400 * time.Millisecond
+		idleTimer       = time.NewTimer(idleDuration)
+	)
+	if !idleTimer.Stop() {
+		<-idleTimer.C
+	}
+
+	if forceBackground {
+		if result, ok := startLocalBackgroundJob(ctx, cmd, targetAlias, command, outputBuffer, true); ok {
+			idleTimer.Stop()
+			return result, nil
+		}
+	}
+
+	var (
+		timeoutCh <-chan time.Time
+		timeoutT  *time.Timer
+	)
+	if timeout > 0 {
+		timeoutT = time.NewTimer(timeout)
+		timeoutCh = timeoutT.C
+		defer timeoutT.Stop()
+	}
+
+	var (
+		autoBgCh <-chan time.Time
+		autoBgT  *time.Timer
+	)
+	if allowAutoBackground && ctx.ShellJobs != nil {
+		autoBgT = time.NewTimer(shellAutoBackgroundAfter)
+		autoBgCh = autoBgT.C
+		defer autoBgT.Stop()
+	}
+
+	streamCh := cmd.Stream
+	resultCh := cmd.Result
+
+	for {
+		select {
+		case <-ctx.Context.Done():
+			cmd.Kill()
+			return utils.ExecResult{Interrupted: true, Code: 1}, ctx.Context.Err()
+
+		case input := <-inputChan:
+			if shellsignal.IsBackgroundRequest(input) {
+				if result, ok := startLocalBackgroundJob(ctx, cmd, targetAlias, command, outputBuffer, true); ok {
+					idleTimer.Stop()
+					return result, nil
+				}
+				continue
+			}
+			if cmd.Stdin != nil {
+				_, _ = cmd.Stdin.Write([]byte(input))
+			}
+
+		case chunk, ok := <-streamCh:
+			if !ok {
+				streamCh = nil
+				idleTimer.Stop()
+				continue
+			}
+			outputBuffer = appendShellTail(outputBuffer, chunk, maxShellTailChars)
+			events <- tool.NewChunkEvent(chunk)
+			idleTimer.Stop()
+			idleTimer.Reset(idleDuration)
+
+		case <-idleTimer.C:
+			if len(outputBuffer) > lastAnalyzedPos {
+				currentTail := outputBuffer[lastAnalyzedPos:]
+				if len(currentTail) > 1000 {
+					currentTail = currentTail[len(currentTail)-1000:]
+				}
+
+				kind, prompt, ok := analyzeInteractionSituation(ctx, currentTail)
+				if ok {
+					lastAnalyzedPos = len(outputBuffer)
+					trimmedPrompt := strings.TrimSpace(prompt)
+					if trimmedPrompt == "" {
+						trimmedPrompt = "Input:"
+					}
+					kindUpper := strings.ToUpper(strings.TrimSpace(kind))
+					switch kindUpper {
+					case "PASSWORD", "SUDO", "SU", "SSH":
+						pwChan := make(chan string)
+						events <- tool.ToolEvent{
+							Kind:             tool.ToolEventPasswordPrompt,
+							Prompt:           trimmedPrompt,
+							PasswordResponse: pwChan,
+						}
+
+						select {
+						case <-ctx.Context.Done():
+							cmd.Kill()
+							return utils.ExecResult{Interrupted: true, Code: 1}, ctx.Context.Err()
+						case response := <-pwChan:
+							if cmd.Stdin != nil {
+								_, _ = cmd.Stdin.Write([]byte(response + "\n"))
+							}
+							idleTimer.Reset(idleDuration)
+						}
+					default:
+						askChan := make(chan tool.AskUserResponse)
+						question := &tool.AskUserQuestion{
+							Question: trimmedPrompt,
+							Type:     "text",
+						}
+						if kindUpper == "YES_NO" {
+							question.Type = "yesno"
+							question.Options = []tool.AskUserOption{{Value: "yes", Label: "Yes"}, {Value: "no", Label: "No"}}
+							question.Default = "no"
+						}
+						events <- tool.ToolEvent{
+							Kind:            tool.ToolEventAskUserPrompt,
+							Question:        question,
+							AskUserResponse: askChan,
+						}
+
+						select {
+						case <-ctx.Context.Done():
+							cmd.Kill()
+							return utils.ExecResult{Interrupted: true, Code: 1}, ctx.Context.Err()
+						case response := <-askChan:
+							value := strings.TrimSpace(response.Value)
+							if value == "" && kindUpper == "YES_NO" {
+								value = "no"
+							}
+							if cmd.Stdin != nil {
+								_, _ = cmd.Stdin.Write([]byte(value + "\n"))
+							}
+							idleTimer.Reset(idleDuration)
+						}
+					}
+				} else {
+					lastAnalyzedPos = len(outputBuffer)
+				}
+			}
+
+		case res := <-resultCh:
+			idleTimer.Stop()
+			return res, nil
+
+		case <-autoBgCh:
+			if result, ok := startLocalBackgroundJob(ctx, cmd, targetAlias, command, outputBuffer, false); ok {
+				idleTimer.Stop()
+				return result, nil
+			}
+
+		case <-timeoutCh:
+			cmd.Kill()
+			return utils.ExecResult{Code: 1, Stderr: "command timed out"}, fmt.Errorf("timeout")
+		}
+	}
+}
+
+func executeRemoteCommand(
+	ctx tool.Context,
+	targetAlias string,
+	command string,
+	timeoutMS int,
+	events chan<- tool.ToolEvent,
+	forceBackground bool,
+	allowAutoBackground bool,
+) (utils.ExecResult, error) {
+	if ctx.Workspace == nil {
+		return utils.ExecResult{}, fmt.Errorf("workspace manager is unavailable")
+	}
+
+	timeout := clampShellTimeout(timeoutMS)
+
+	runCtx := ctx.Context
+	if ctx.ShellJobs != nil {
+		runCtx = context.Background()
+	}
+
+	handle, err := ctx.Workspace.StartExecWithOptions(
+		runCtx,
+		targetAlias,
+		command,
+		workspace.ExecOptions{Shell: "bash"},
+		func(c context.Context, sys, user string) (string, error) {
+			return ctx.ExecuteSubQuery(c, sys, user)
+		},
+	)
+	if err != nil {
+		return utils.ExecResult{}, err
+	}
+
+	inputChan := make(chan string, 16)
+	events <- tool.ToolEvent{
+		Kind:          tool.ToolEventChunk,
+		InputResponse: inputChan,
+	}
+
+	var outputBuffer string
+	streamCh := handle.Stream
+	resultCh := handle.Result
+
+	if forceBackground {
+		if result, ok := startRemoteBackgroundJob(ctx, handle, streamCh, resultCh, targetAlias, command, outputBuffer, true); ok {
+			return result, nil
+		}
+	}
+
+	var (
+		timeoutCh <-chan time.Time
+		timeoutT  *time.Timer
+	)
+	if timeout > 0 {
+		timeoutT = time.NewTimer(timeout)
+		timeoutCh = timeoutT.C
+		defer timeoutT.Stop()
+	}
+
+	var (
+		autoBgCh <-chan time.Time
+		autoBgT  *time.Timer
+	)
+	if allowAutoBackground && ctx.ShellJobs != nil {
+		autoBgT = time.NewTimer(shellAutoBackgroundAfter)
+		autoBgCh = autoBgT.C
+		defer autoBgT.Stop()
+	}
+
+	for {
+		select {
+		case <-ctx.Context.Done():
+			if handle.Kill != nil {
+				handle.Kill()
+			}
+			return utils.ExecResult{Interrupted: true, Code: 1}, ctx.Context.Err()
+
+		case input := <-inputChan:
+			if shellsignal.IsBackgroundRequest(input) {
+				if result, ok := startRemoteBackgroundJob(ctx, handle, streamCh, resultCh, targetAlias, command, outputBuffer, true); ok {
+					return result, nil
+				}
+				continue
+			}
+			if handle.Write != nil {
+				_ = handle.Write(input)
+			}
+
+		case chunk, ok := <-streamCh:
+			if !ok {
+				streamCh = nil
+				continue
+			}
+			outputBuffer = appendShellTail(outputBuffer, chunk, maxShellTailChars)
+			events <- tool.NewChunkEvent(chunk)
+
+		case res, ok := <-resultCh:
+			if !ok {
+				return utils.ExecResult{Code: 1, Stderr: "remote command ended unexpectedly"}, fmt.Errorf("remote command ended unexpectedly")
+			}
+			return utils.ExecResult{Stdout: res.Stdout, Stderr: res.Stderr, Code: res.Code}, nil
+
+		case <-autoBgCh:
+			if result, ok := startRemoteBackgroundJob(ctx, handle, streamCh, resultCh, targetAlias, command, outputBuffer, false); ok {
+				return result, nil
+			}
+
+		case <-timeoutCh:
+			if handle.Kill != nil {
+				handle.Kill()
+			}
+			return utils.ExecResult{Code: 1, Stderr: "command timed out"}, fmt.Errorf("timeout")
+		}
+	}
+}
+
+func startLocalBackgroundJob(
+	ctx tool.Context,
+	cmd *utils.ShellCommand,
+	targetAlias string,
+	command string,
+	initialOutput string,
+	byUser bool,
+) (utils.ExecResult, bool) {
+	if ctx.ShellJobs == nil || cmd == nil {
+		return utils.ExecResult{}, false
+	}
+
+	var writeFn func(string) error
+	if cmd.Stdin != nil {
+		writeFn = cmd.Write
+	}
+	killFn := func() {
+		if cmd.Kill != nil {
+			cmd.Kill()
+		}
+	}
+	snap := ctx.ShellJobs.StartJob("bash", targetAlias, command, writeFn, killFn, initialOutput)
+	jobID := snap.ID
+
+	streamCh := cmd.Stream
+	resultCh := cmd.Result
+	go func() {
+		for {
+			select {
+			case chunk, ok := <-streamCh:
+				if !ok {
+					streamCh = nil
+					continue
+				}
+				ctx.ShellJobs.AppendOutput(jobID, chunk)
+			case res := <-resultCh:
+				errText := strings.TrimSpace(res.Stderr)
+				if strings.TrimSpace(res.PreSpawnError) != "" {
+					errText = strings.TrimSpace(res.PreSpawnError)
+				}
+				if res.Interrupted && errText == "" {
+					errText = "interrupted"
+				}
+				ctx.ShellJobs.Complete(jobID, res.Code, errText)
+				return
+			}
+		}
+	}()
+
+	return utils.ExecResult{
+		Code:                      0,
+		BackgroundTaskID:          jobID,
+		OutputTaskID:              jobID,
+		BackgroundedByUser:        byUser,
+		AssistantAutoBackgrounded: !byUser,
+	}, true
+}
+
+func startRemoteBackgroundJob(
+	ctx tool.Context,
+	handle *workspace.ExecHandle,
+	streamCh <-chan string,
+	resultCh <-chan workspace.ExecResult,
+	targetAlias string,
+	command string,
+	initialOutput string,
+	byUser bool,
+) (utils.ExecResult, bool) {
+	if ctx.ShellJobs == nil || handle == nil {
+		return utils.ExecResult{}, false
+	}
+
+	var writeFn func(string) error
+	if handle.Write != nil {
+		writeFn = handle.Write
+	}
+	killFn := func() {
+		if handle.Kill != nil {
+			handle.Kill()
+		}
+	}
+	snap := ctx.ShellJobs.StartJob("bash", targetAlias, command, writeFn, killFn, initialOutput)
+	jobID := snap.ID
+
+	go func() {
+		localStream := streamCh
+		localResult := resultCh
+		for {
+			select {
+			case chunk, ok := <-localStream:
+				if !ok {
+					localStream = nil
+					continue
+				}
+				ctx.ShellJobs.AppendOutput(jobID, chunk)
+			case res, ok := <-localResult:
+				if !ok {
+					ctx.ShellJobs.Complete(jobID, 1, "remote command ended unexpectedly")
+					return
+				}
+				ctx.ShellJobs.Complete(jobID, res.Code, strings.TrimSpace(res.Stderr))
+				return
+			}
+		}
+	}()
+
+	return utils.ExecResult{
+		Code:                      0,
+		BackgroundTaskID:          jobID,
+		OutputTaskID:              jobID,
+		BackgroundedByUser:        byUser,
+		AssistantAutoBackgrounded: !byUser,
+	}, true
+}
+
+func clampShellTimeout(timeoutMS int) time.Duration {
+	timeout := 10 * time.Minute
+	if timeoutMS > 0 {
+		timeout = time.Duration(timeoutMS) * time.Millisecond
+	}
+	if timeout > 30*time.Minute {
+		timeout = 30 * time.Minute
+	}
+	return timeout
+}
+
+func appendShellTail(current, chunk string, maxChars int) string {
+	merged := current + chunk
+	if maxChars <= 0 || len(merged) <= maxChars {
+		return merged
+	}
+	return merged[len(merged)-maxChars:]
+}
+
+func analyzeInteractionSituation(ctx tool.Context, tail string) (kind, prompt string, ok bool) {
+	if ctx.ExecuteSubQuery == nil {
+		// Fallback to basic detection if LLM is unavailable
+		return detectLocalPasswordPrompt(tail)
+	}
+
+	systemPrompt := `You are an expert system monitor. Analyze the provided terminal output tail and determine if the process is waiting for user input.
+Respond ONLY with a JSON object in the following format:
+{
+  "is_waiting": true/false,
+  "type": "PASSWORD" | "CHOICE" | "YES_NO" | "TEXT",
+  "prompt_label": "Short label for the input field (e.g. 'sudo password', 'Continue? [Y/n]')"
+}
+If is_waiting is false, other fields can be empty.`
+
+	userPrompt := fmt.Sprintf("Terminal output tail:\n---\n%s\n---", tail)
+
 	resp, err := ctx.ExecuteSubQuery(ctx.Context, systemPrompt, userPrompt)
 	if err != nil {
 		return "", "", false
@@ -261,8 +786,8 @@ func analyzeInteractionSituation(ctx tool.Context, tail string) (kind, prompt st
 		Type        string `json:"type"`
 		PromptLabel string `json:"prompt_label"`
 	}
-	
-	// JSON 파싱 (마크다운 가드 제거 로직 포함)
+
+	// Try to find JSON in the response
 	jsonStr := resp
 	if start := strings.Index(resp, "{"); start != -1 {
 		if end := strings.LastIndex(resp, "}"); end != -1 {
@@ -274,19 +799,30 @@ func analyzeInteractionSituation(ctx tool.Context, tail string) (kind, prompt st
 		return "", "", false
 	}
 
-	return result.Type, result.PromptLabel, result.IsWaiting
+	if !result.IsWaiting {
+		return "", "", false
+	}
+
+	return result.Type, result.PromptLabel, true
 }
 
-func (t *BashTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
-	rawServer := tool.ExtractStringInput(input, "server")
-	targetInfo, err := tool.ResolveShellTargetInfo(ctx, rawServer, false)
-	if err != nil {
-		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+func detectLocalPasswordPrompt(output string) (kind, prompt string, ok bool) {
+	tail := output
+	if len(tail) > 256 {
+		tail = tail[len(tail)-256:]
 	}
-	if targetInfo.Platform != workspace.PlatformUnknown {
-		if err := tool.ValidateShellCompatibility("bash", targetInfo); err != nil {
-			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
-		}
+	lower := strings.ToLower(tail)
+	switch {
+	case strings.Contains(lower, "[sudo] password for "):
+		return "sudo", "sudo password:", true
+	case strings.Contains(lower, "su password:"):
+		return "su", "su password:", true
+	case strings.Contains(lower, "'s password:"):
+		return "ssh", "ssh password:", true
+	case strings.Contains(lower, "password:"):
+		return "password", "password:", true
+	default:
+		return "", "", false
 	}
-	return types.PermissionResult{Behavior: types.BehaviorAllow}, nil
 }
+

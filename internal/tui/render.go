@@ -434,47 +434,60 @@ func (m uiModel) titleColorFor(kind string) string {
 // renderUserEntry renders a user message with the same integrated box style as the input prompt.
 func (m uiModel) renderUserEntry(body string, termW int) string {
 	bgColor := m.theme.InputBoxBg
-	if strings.TrimSpace(bgColor) == "" {
-		bgColor = "#262626"
+	hasBg := strings.TrimSpace(bgColor) != ""
+	if !hasBg {
+		bgColor = "#262626" // Fallback background for visibility if needed
 	}
 	bg := lipgloss.Color(bgColor)
+
 	if m.theme.DisableANSI {
-		return "> " + wordwrap.String(body, termW)
+		return "\n> " + wordwrap.String(body, termW) + "\n"
+	}
+
+	// 터미널 우측 끝에서의 줄 바꿈 방지를 위해 안전한 너비 사용
+	safeWidth := termW
+	if safeWidth > 1 {
+		safeWidth--
 	}
 
 	markerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(m.theme.PromptTheme.PromptIndicatorColor)).
-		Background(bg).
 		Bold(true)
 	textStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(m.theme.PromptTheme.PromptTextColor)).
-		Background(bg)
-	lineStyle := lipgloss.NewStyle().Background(bg)
+		Foreground(lipgloss.Color(m.theme.PromptTheme.PromptTextColor))
+	lineStyle := lipgloss.NewStyle()
 
-	plainBody := stripANSI(body)
-	// termW-6 gives enough room for the "> " and padding
-	wrappedBody := wordwrap.String(plainBody, termW-6)
-	lines := strings.Split(wrappedBody, "\n")
-
-	// Use the provided width to ensure it fits within the terminal after parent indentation
-	width := termW
-	if width <= 0 {
-		width = 80
+	if hasBg {
+		markerStyle = markerStyle.Background(bg)
+		textStyle = textStyle.Background(bg)
+		lineStyle = lineStyle.Background(bg)
 	}
 
-	formatted := make([]string, 0, len(lines))
+	plainBody := stripANSI(body)
+	// 테두리와 내부 여백을 고려하여 텍스트 래핑 너비 설정
+	wrappedBody := wordwrap.String(plainBody, safeWidth-4)
+	lines := strings.Split(wrappedBody, "\n")
+
+	formatted := make([]string, 0, len(lines)+2)
+
+	// 상단 테두리 추가
+	topBorderStyle := lipgloss.NewStyle()
+	if hasBg {
+		topBorderStyle = topBorderStyle.Foreground(bg)
+	} else {
+		topBorderStyle = topBorderStyle.Foreground(lipgloss.Color(m.theme.PromptTheme.PromptIndicatorColor))
+	}
+	formatted = append(formatted, topBorderStyle.Render(strings.Repeat("▄", safeWidth)))
+
 	for i, line := range lines {
 		prefix := "  "
 		if i == 0 {
 			prefix = "> "
 		}
 
-		// Calculate padding before rendering to avoid ANSI width issues
-		// 줄 시작의 공백 제거하여 왼쪽으로 한 칸 당김
 		lineContent := prefix + line
-		padding := width - lipgloss.Width(lineContent)
+		padding := safeWidth - lipgloss.Width(lineContent)
 
-		// Render parts separately and combine to ensure background persists
 		res := markerStyle.Render(prefix) + textStyle.Render(line)
 		if padding > 0 {
 			res += lineStyle.Render(strings.Repeat(" ", padding))
@@ -482,6 +495,17 @@ func (m uiModel) renderUserEntry(body string, termW int) string {
 		formatted = append(formatted, res)
 	}
 
+	// 하단 테두리 추가
+	bottomBorderStyle := lipgloss.NewStyle()
+	if hasBg {
+		bottomBorderStyle = bottomBorderStyle.Foreground(bg)
+	} else {
+		bottomBorderStyle = bottomBorderStyle.Foreground(lipgloss.Color(m.theme.PromptTheme.PromptIndicatorColor))
+	}
+	formatted = append(formatted, bottomBorderStyle.Render(strings.Repeat("▀", safeWidth)))
+
+	// 박스 아래에 빈 줄 하나를 확보하기 위해 개행 하나만 추가
+	// (renderTranscriptEntryAt에서 기본적으로 항목 간 구분을 위해 개행을 처리할 수 있으므로 중복 방지)
 	return "\n" + strings.Join(formatted, "\n")
 }
 
@@ -493,16 +517,17 @@ func stripANSI(str string) string {
 
 func (m uiModel) renderAssistantEntry(body string, termW int) string {
 	if m.theme.DisableANSI {
-		return body
+		return "  " + body
 	}
 	lines := strings.Split(body, "\n")
 	out := make([]string, len(lines))
-	width := termW
+	width := termW // termW는 이미 호출부에서 들여쓰기를 고려해 조정되어 들어옴
 	if width <= 0 {
 		width = 80
 	}
 	for i, line := range lines {
-		content := line
+		// 모든 줄 앞에 2칸 공백 추가
+		content := "  " + line
 		currentWidth := lipgloss.Width(content)
 		if currentWidth < width {
 			content += strings.Repeat(" ", width-currentWidth)
@@ -811,7 +836,8 @@ func renderTwoColumnLine(left, right string, width int, leftStyle, rightStyle li
 	if gap < 0 {
 		gap = 0
 	}
-	return left + strings.Repeat(" ", gap) + right
+	res := left + strings.Repeat(" ", gap) + right
+	return truncateToWidth(res, width)
 }
 
 func padLine(s string, width int) string {

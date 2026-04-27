@@ -165,6 +165,13 @@ func (r *Registry) ToolSpecs(ctx Context) []llm.ToolSpec {
 	tools := r.List()
 	specs := make([]llm.ToolSpec, 0, len(tools))
 	for _, t := range tools {
+		// 가시성 필터링 적용
+		if v, ok := t.(VisibleFilter); ok {
+			if !v.IsVisible(ctx) {
+				continue
+			}
+		}
+
 		specs = append(specs, llm.ToolSpec{
 			Name:        t.Name(),
 			Description: t.Description(ctx),

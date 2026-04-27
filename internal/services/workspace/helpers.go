@@ -14,12 +14,30 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func (m *Manager) startLocalExecStreaming(ctx context.Context, command string) (*ExecHandle, error) {
+func (m *Manager) startLocalExecStreaming(ctx context.Context, command string, opts ExecOptions) (*ExecHandle, error) {
 	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
+	
+	shell := opts.Shell
+	if shell == "" {
+		if runtime.GOOS == "windows" {
+			shell = "powershell"
+		} else {
+			shell = "bash"
+		}
+	}
+
+	switch shell {
+	case "powershell", "pwsh":
 		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
-	} else {
+	case "bash", "git-bash":
 		cmd = exec.CommandContext(ctx, "bash", "-lc", command)
+	default:
+		// Unknown shell, fallback to OS default
+		if runtime.GOOS == "windows" {
+			cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
+		} else {
+			cmd = exec.CommandContext(ctx, "bash", "-lc", command)
+		}
 	}
 
 	stdin, err := cmd.StdinPipe()
@@ -98,13 +116,31 @@ func (m *Manager) startLocalExecStreaming(ctx context.Context, command string) (
 	}, nil
 }
 
-func (m *Manager) execLocal(ctx context.Context, command string) (ExecResult, error) {
+func (m *Manager) execLocal(ctx context.Context, command string, opts ExecOptions) (ExecResult, error) {
 	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
-	} else {
-		cmd = exec.CommandContext(ctx, "bash", "-lc", command)
+	
+	shell := opts.Shell
+	if shell == "" {
+		if runtime.GOOS == "windows" {
+			shell = "powershell"
+		} else {
+			shell = "bash"
+		}
 	}
+
+	switch shell {
+	case "powershell", "pwsh":
+		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
+	case "bash", "git-bash":
+		cmd = exec.CommandContext(ctx, "bash", "-lc", command)
+	default:
+		if runtime.GOOS == "windows" {
+			cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
+		} else {
+			cmd = exec.CommandContext(ctx, "bash", "-lc", command)
+		}
+	}
+
 	output, err := cmd.CombinedOutput()
 	code := 0
 	if err != nil {

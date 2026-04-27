@@ -340,7 +340,7 @@ func (m *Manager) StartExecWithOptions(ctx context.Context, alias, command strin
 	}
 
 	if !m.IsRemoteAlias(alias) {
-		return m.startLocalExecStreaming(ctx, command)
+		return m.startLocalExecStreaming(ctx, command, opts)
 	}
 
 	session, err := m.ensureSession(alias)
@@ -360,7 +360,7 @@ func (m *Manager) ExecWithOptions(ctx context.Context, alias, command string, op
 	}
 
 	if !m.IsRemoteAlias(alias) {
-		return m.execLocal(ctx, command)
+		return m.execLocal(ctx, command, opts)
 	}
 
 	session, err := m.ensureSession(alias)
