@@ -1,4 +1,0 @@
-/server connect sandbox-server
-Welcome1!@#$
-sandbox-server에서 아래 명령어를 bash 도구 (server="sandbox-server")로 실행해줘. rpm이 아닌 dnf를 사용해야 의존성이 자동으로 해결돼:
-echo 'Welcome1!@#$' | sudo -S dnf install -y /tmp/oracle-database-preinstall-19c-1.0-1.el9.x86_64.rpm

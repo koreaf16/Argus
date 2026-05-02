@@ -20,15 +20,26 @@ import (
 
 const stalledAfter = 3 * time.Second
 
+// claude_cli figures.ts와 동일한 글리프를 사용한다.
+// 도구 호출은 BLACK_CIRCLE(`●`, U+25CF — Windows/Linux 변형), 결과 branch는 `⎿`(U+23BF).
 const (
-	IconSuccess    = "✓"
-	IconPending    = "○"
-	IconExecuting  = "⚙"
-	IconThinking   = "⦿"
-	IconConfirming = "?"
-	IconCanceled   = "-"
-	IconError      = "✕"
+	IconToolUse      = "●"
+	IconResultBranch = "⎿"
+	IconSuccess      = ""
+	IconPending      = ""
+	IconExecuting    = ""
+	IconThinking     = "*"
+	IconConfirming   = ""
+	IconCanceled     = ""
+	IconError        = ""
 )
+
+// asciiSpinnerFrames는 reduced-motion 모드에서 사용하는 ASCII 폴백 스피너.
+var asciiSpinnerFrames = []string{"|", "/", "-", "\\"}
+
+// spinnerFrames는 claude_cli SpinnerGlyph와 동일한 팰린드롬 프레임 배열이다 (Windows 변형).
+// 정방향: ['·','✢','*','✶','✻','✽'], 역방향을 이어 붙여 부드러운 반복 애니메이션을 만든다.
+var spinnerFrames = []string{"·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"}
 
 func (m uiModel) getRainbowColor() string {
 	if !m.signatureMotionEnabled() {
@@ -40,47 +51,6 @@ func (m uiModel) getRainbowColor() string {
 	}
 	idx := m.motionFrame(len(colors), 2)
 	return colors[idx]
-}
-
-func (m uiModel) renderGlimmerText(text string, stalled bool) string {
-	if text == "" || m.theme.DisableANSI {
-		return m.theme.style(m.theme.BodyColor).Render(text)
-	}
-	if !m.signatureMotionEnabled() {
-		color := m.theme.BodyColor
-		if stalled {
-			color = m.theme.StalledColor
-		}
-		return m.theme.style(color).Render(text)
-	}
-	colors := m.theme.GlimmerTrailColors
-	if len(colors) == 0 {
-		colors = []string{m.theme.BodyColor}
-	}
-	runes := []rune(text)
-	if len(runes) <= 6 {
-		color := m.theme.BodyColor
-		if stalled {
-			color = m.theme.StalledColor
-		}
-		return m.theme.style(color).Render(text)
-	}
-
-	head := string(runes[:len(runes)-6])
-	tail := runes[len(runes)-6:]
-	var buf strings.Builder
-	buf.WriteString(m.theme.style(m.theme.BodyColor).Render(head))
-
-	// Rainbow glimmer tail
-	for i, r := range tail {
-		colorIdx := (m.motionFrame(len(colors), 2) + i) % len(colors)
-		color := colors[colorIdx]
-		if stalled {
-			color = m.theme.StalledColor
-		}
-		buf.WriteString(m.theme.style(color).Render(string(r)))
-	}
-	return buf.String()
 }
 
 func (m uiModel) motionEnabled() bool {
@@ -114,6 +84,25 @@ func (m uiModel) motionFrame(modulo int, speedDiv int) int {
 	return frame % modulo
 }
 
+func (m uiModel) animatedDots() string {
+	if !m.motionEnabled() {
+		return "..."
+	}
+	// 3단계 점 애니메이션: . -> .. -> ...
+	count := (m.animFrame / 4) % 4
+	if count == 0 { count = 1 }
+	return strings.Repeat(".", count)
+}
+
+func (m uiModel) slidingDots() string {
+	if !m.motionEnabled() {
+		return "..."
+	}
+	// 점이 흐르는 애니메이션: .   ->  .  ->   . ->    .
+	frames := []string{".  ", " . ", "  .", "   "}
+	return frames[(m.animFrame/3)%len(frames)]
+}
+
 func (m uiModel) renderTranscriptEntry(e transcriptEntry) string {
 	return m.renderTranscriptEntryAt(-1, e)
 }
@@ -128,68 +117,71 @@ func (m uiModel) renderTranscriptEntryAt(idx int, e transcriptEntry) string {
 		return ""
 	}
 
-	// Interactive 박스(bash/powershell)는 자체 테두리를 그리므로 아이콘을 박스 안쪽에
-	// 끼우면 외곽선과 충돌한다. 들여쓰기 2칸만 균일하게 적용하고 아이콘은 생략한다.
-	if e.Interactive != nil {
+	// claude_cli AssistantToolUseMessage 패턴을 모든 주요 엔트리에 확장 적용:
+	//   `● Bash(ls -la)`            (헤드라인 — `●` + 공백 + 도구명(인자))
+	//   `● Plan mode on`            (시스템 메시지도 ● 아이콘 통일)
+	//
+	// tool_use, tool_group, system, notice, error 등은 첫 줄 앞에 `● ` 색상 prefix를 추가한다.
+	switch e.Kind {
+	case "user", "assistant", "tool_result", "parallel_group":
+		// 자체 패딩 사용
+	case "tool_use", "tool_group", "system", "notice", "error", "plan":
+		// 아이콘 색상 및 애니메이션 결정
+		var iconColor string
+		glyph := IconToolUse
+
+		switch {
+		case e.Failed:
+			iconColor = m.theme.ErrorTitleColor
+			// 실패 시 1초 주기로 부드럽게 점멸 (20프레임 내외 순환)
+			if m.motionEnabled() {
+				blink := m.animFrame % 20
+				if blink > 10 {
+					iconColor = m.theme.MutedColor // 꺼진 느낌
+				}
+			}
+		case e.IsActive:
+			iconColor = m.ClaudeAccentColor()
+			if m.signatureMotionEnabled() {
+				iconColor = m.getRainbowColor()
+			}
+			// 동작 중에는 스피너 애니메이션
+			if m.motionEnabled() {
+				if m.ui.Motion.Reduced || m.ui.Motion.Level == "restrained" {
+					glyph = asciiSpinnerFrames[m.motionFrame(len(asciiSpinnerFrames), 2)]
+				} else {
+					glyph = spinnerFrames[m.motionFrame(len(spinnerFrames), 1)]
+				}
+			}
+		default:
+			// 성공/완료 상태
+			if e.Kind == "system" || e.Kind == "plan" {
+				iconColor = m.theme.SystemTitleColor
+			} else {
+				iconColor = m.theme.UserTitleColor // 보통 녹색 계열
+			}
+		}
+
+		iconView := m.theme.style(iconColor).Render(glyph)
+		lines := strings.Split(rendered, "\n")
+		// 첫 줄에만 아이콘 prefix를 붙인다.
+		if len(lines) > 0 {
+			lines[0] = iconView + " " + lines[0]
+		}
+		rendered = strings.Join(lines, "\n")
+	default:
+		// 기타 entry는 2칸 좌측 들여쓰기.
 		lines := strings.Split(rendered, "\n")
 		for i, line := range lines {
 			lines[i] = "  " + line
 		}
-		return strings.Join(lines, "\n")
-	}
-
-	padding := ""
-
-	if idx >= 0 {
-		var icon string
-		var iconColor string
-
-		switch e.Kind {
-		case "error":
-			icon = IconError
-			iconColor = m.theme.ErrorTitleColor
-		case "thinking":
-			icon = "∴"
-			iconColor = m.theme.MutedColor
-		case "tool_use":
-			if e.IsActive {
-				icon = IconExecuting
-				iconColor = m.theme.StatusLeftColor
-			} else {
-				icon = IconPending
-				iconColor = m.theme.ToolUseTitleColor
-			}
-		case "tool_result":
-			icon = IconSuccess
-			iconColor = m.theme.StatusLeftColor
-		}
-
-		if icon != "" {
-			iconView := m.theme.style(iconColor).Bold(true).Render(icon)
-			padding = " " + iconView + " "
-		}
-	}
-
-	// 아이콘이나 패딩이 있을 때만 적용
-	if padding != "" {
-		lines := strings.Split(rendered, "\n")
-		prefix := strings.Repeat(" ", lipgloss.Width(padding))
-		for i, line := range lines {
-			if i == 0 {
-				lines[i] = padding + line
-			} else {
-				lines[i] = prefix + line
-			}
-		}
 		rendered = strings.Join(lines, "\n")
 	}
 
-	// 모든 줄 끝에 ANSI 이스케이프 시퀀스로 잔상 제거 (\x1b[K) 제거 (깜빡임 방지)
 	return rendered
 }
 
 func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThinking, streamingTool, stalled bool) string {
-	// 동적 상호작용 모델은 View()를 그대로 반환한다. 들여쓰기는 renderTranscriptEntryAt가 일괄 적용한다.
 	if e.Interactive != nil {
 		return e.Interactive.View()
 	}
@@ -211,8 +203,7 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 		trimmedBody = "-"
 	}
 
-	// 아이콘 영역(3칸)을 제외한 가용 너비 계산
-	termW := m.width - 3
+	termW := m.width - 5
 	if termW < 20 {
 		termW = 20
 	}
@@ -221,15 +212,16 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 	case "tool_group":
 		rendered = m.renderToolGroup(e, termW)
 
+	case "parallel_group":
+		rendered = m.renderParallelGroup(e, termW)
+
 	case "user":
-		// user entry already handles padding internally, use full width
 		return m.renderUserEntry(trimmedBody, m.width)
 
 	case "assistant":
 		source := trimmedBody
 		if streamingAssistant {
 			source = m.assistantStreamSource(body)
-
 			if m.assistantFlushedLines > 0 {
 				lines := strings.Split(source, "\n")
 				if m.assistantFlushedLines < len(lines) {
@@ -239,39 +231,18 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 				}
 			}
 		}
+		source = strings.TrimLeft(source, "\n\r ")
 		renderedMarkdown := strings.TrimLeft(markdown.Render(source, termW, m.themeToPalette()), "\n")
 		if renderedMarkdown == "" && streamingAssistant {
 			return ""
 		}
-		// assistant entry already handles padding internally
 		return m.renderAssistantEntry(renderedMarkdown, termW)
 
 	case "thinking":
-		title := strings.TrimSpace(e.Title)
-		if title == "" {
-			title = "Thinking"
-		}
-
-		dimStyle := m.theme.style(m.theme.MutedColor).Italic(true)
-		titleView := dimStyle.Render(title + "…")
-
-		var content string
-		if streamingThinking && !m.theme.DisableANSI {
-			content = m.renderGlimmerText(body, stalled)
-		} else {
-			wrappedContent := wordwrap.String(trimmedBody, termW-2)
-			contentLines := strings.Split(wrappedContent, "\n")
-			indented := make([]string, len(contentLines))
-			for idx, l := range contentLines {
-				indented[idx] = "  " + l
-			}
-			content = dimStyle.Render(strings.Join(indented, "\n"))
-		}
-
-		rendered = m.padMultiline(titleView + "\n" + content)
+		return ""
 
 	default:
-		// 도구 전용 렌더러가 있으면 AIDebug 여부와 관계없이 항상 우선 적용
+		// 도구 전용 렌더러 우선 적용
 		if e.ToolName != "" {
 			if renderer := toolui.GetRenderer(e.ToolName); renderer != nil {
 				switch e.Kind {
@@ -291,30 +262,54 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 				if rendered != "" {
 					break
 				}
+				if e.Kind == "tool_result" {
+					break
+				}
 			}
 		}
 
-		// TUI 모드(AIDebug=false)에서는 커스텀 렌더러 없는 도구의 상세 정보와 플랜 결과를 숨김
+		// TUI 모드 폴백 렌더링
 		if !m.cfg.AIDebug {
 			switch e.Kind {
-			case "tool_use", "tool_result":
-				title := strings.TrimSpace(e.Title)
-				if title == "" {
-					title = "-"
-				}
-				titleColor := m.titleColorFor(e.Kind)
-				titleView := m.theme.style(titleColor).Bold(true).Render(title)
-
-				if e.Kind == "tool_result" && strings.TrimSpace(e.Body) != "" {
-					body := strings.TrimSpace(e.Body)
-					// 결과가 너무 길면 첫 줄만 표시
-					firstLine := strings.Split(body, "\n")[0]
-					if len(body) > len(firstLine) {
-						firstLine += " ..."
+			case "tool_use":
+				name := toolui.NormalizeToolName(e.ToolName)
+				hint := extractHint(e.ToolName, e.Body)
+				if e.BashRepeatCount > 0 {
+					attempts := fmt.Sprintf(" × %d attempts", e.BashRepeatCount+1)
+					if !e.IsActive {
+						if e.Failed {
+							attempts += " → ✗"
+						} else {
+							attempts += " → ✓"
+						}
 					}
-					rendered = titleView + " " + m.theme.style(m.theme.BodyColor).Render(firstLine)
+					hint += attempts
+				}
+				rendered = toolui.FormatToolCall(name, hint, 160, m)
+				if e.IsActive {
+					rendered += m.theme.style(m.theme.MutedColor).Render(m.animatedDots())
+					rendered += "\n" + toolui.FormatStatusLine("Running"+m.animatedDots(), m)
+				}
+			case "tool_result":
+				body := strings.TrimSpace(e.Body)
+				if body == "" {
+					rendered = toolui.FormatStatusLine("(no output)", m)
 				} else {
-					rendered = titleView
+					lines := strings.Split(body, "\n")
+					for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+						lines = lines[:len(lines)-1]
+					}
+					const maxResultLines = 3
+					if !m.transcriptMode && len(lines) > maxResultLines {
+						rendered = toolui.FormatResultLines(lines[:maxResultLines], true, false, m)
+						rendered += "\n" + toolui.FormatHiddenLinesHint(len(lines)-maxResultLines, m)
+					} else {
+						rendered = toolui.FormatResultLines(lines, true, false, m)
+					}
+				}
+				// 텍스트 출력 후 하단에 "Done" 상태 표시 (claude_cli 패턴)
+				if !e.IsActive {
+					rendered += "\n" + toolui.FormatStatusLine("Done", m)
 				}
 			case "plan":
 				if strings.Contains(e.Title, "Result") {
@@ -328,9 +323,11 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 		}
 
 		title := strings.TrimSpace(e.Title)
-		if title == "" {
-			title = "-"
+		// system 메시지는 제목 없이 본문만 표시
+		if e.Kind == "system" || title == "" {
+			title = ""
 		}
+
 		titleColor := m.titleColorFor(e.Kind)
 		titleView := m.theme.style(titleColor).Bold(true).Render(title)
 		bodyStyle := m.theme.style(m.theme.BodyColor)
@@ -340,7 +337,12 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 			displayBody += "\n" + e.StreamBody
 		}
 
-		rendered = lipgloss.JoinVertical(lipgloss.Left, titleView, wordwrap.String(bodyStyle.Render(displayBody), termW))
+		wrappedBody := strings.Join(markdown.WrapStyled(bodyStyle.Render(displayBody), termW), "\n")
+		if title == "" {
+			rendered = wrappedBody
+		} else {
+			rendered = lipgloss.JoinVertical(lipgloss.Left, titleView, wrappedBody)
+		}
 	}
 
 	if rendered == "" {
@@ -351,12 +353,10 @@ func (m uiModel) renderEntry(e transcriptEntry, streamingAssistant, streamingThi
 }
 
 func (m uiModel) padMultiline(s string) string {
-	// 아이콘 영역(3칸)을 제외한 가용 너비 사용
 	width := m.width - 3
 	if width <= 0 {
 		width = 80
 	}
-
 	lines := strings.Split(s, "\n")
 	for i := range lines {
 		sw := lipgloss.Width(lines[i])
@@ -367,48 +367,24 @@ func (m uiModel) padMultiline(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m uiModel) Style(color string) lipgloss.Style {
-	return m.theme.style(color)
-}
-
-func (m uiModel) BaseBodyStyle() lipgloss.Style {
-	return m.theme.style(m.theme.BodyColor)
-}
-
-func (m uiModel) Width() int {
-	return m.width - 3
-}
-
-func (m uiModel) BodyColor() string {
-	return m.theme.BodyColor
-}
-
-func (m uiModel) MutedColor() string {
-	return m.theme.MutedColor
-}
-
-func (m uiModel) BorderColor() string {
-	return m.theme.ModalBorderColor
-}
-
-func (m uiModel) ToolUseColor() string {
-	return m.theme.ToolUseTitleColor
-}
-
-func (m uiModel) ToolResultColor() string {
-	return m.theme.ToolResultTitleColor
-}
-
-func (m uiModel) StatusSuccessColor() string {
-	return m.theme.UserTitleColor
-}
-
-func (m uiModel) StatusWarningColor() string {
+func (m uiModel) Style(color string) lipgloss.Style { return m.theme.style(color) }
+func (m uiModel) BaseBodyStyle() lipgloss.Style { return m.theme.style(m.theme.BodyColor) }
+func (m uiModel) Width() int { return m.width - 3 }
+func (m uiModel) BodyColor() string { return m.theme.BodyColor }
+func (m uiModel) MutedColor() string { return m.theme.MutedColor }
+func (m uiModel) BorderColor() string { return m.theme.ModalBorderColor }
+func (m uiModel) ToolUseColor() string { return m.theme.ToolUseTitleColor }
+func (m uiModel) ToolResultColor() string { return m.theme.ToolResultTitleColor }
+func (m uiModel) StatusSuccessColor() string { return m.theme.UserTitleColor }
+func (m uiModel) StatusWarningColor() string { return m.theme.ApprovalTitleColor }
+func (m uiModel) StatusErrorColor() string { return m.theme.ErrorTitleColor }
+func (m uiModel) ClaudeAccentColor() string {
+	if m.theme.ClaudeAccentColor != "" {
+		return m.theme.ClaudeAccentColor
+	}
 	return m.theme.ApprovalTitleColor
 }
-
-func (m uiModel) StatusErrorColor() string { return m.theme.ErrorTitleColor }
-func (m uiModel) AnimFrame() int           { return m.animFrame }
+func (m uiModel) AnimFrame() int { return m.animFrame }
 
 func (m uiModel) titleColorFor(kind string) string {
 	switch kind {
@@ -431,12 +407,11 @@ func (m uiModel) titleColorFor(kind string) string {
 	}
 }
 
-// renderUserEntry renders a user message with the same integrated box style as the input prompt.
 func (m uiModel) renderUserEntry(body string, termW int) string {
 	bgColor := m.theme.InputBoxBg
 	hasBg := strings.TrimSpace(bgColor) != ""
 	if !hasBg {
-		bgColor = "#262626" // Fallback background for visibility if needed
+		bgColor = "#262626"
 	}
 	bg := lipgloss.Color(bgColor)
 
@@ -444,17 +419,13 @@ func (m uiModel) renderUserEntry(body string, termW int) string {
 		return "\n> " + wordwrap.String(body, termW) + "\n"
 	}
 
-	// 터미널 우측 끝에서의 줄 바꿈 방지를 위해 안전한 너비 사용
 	safeWidth := termW
 	if safeWidth > 1 {
 		safeWidth--
 	}
 
-	markerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(m.theme.PromptTheme.PromptIndicatorColor)).
-		Bold(true)
-	textStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(m.theme.PromptTheme.PromptTextColor))
+	markerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.PromptTheme.PromptIndicatorColor)).Bold(true)
+	textStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.PromptTheme.PromptTextColor))
 	lineStyle := lipgloss.NewStyle()
 
 	if hasBg {
@@ -464,13 +435,10 @@ func (m uiModel) renderUserEntry(body string, termW int) string {
 	}
 
 	plainBody := stripANSI(body)
-	// 테두리와 내부 여백을 고려하여 텍스트 래핑 너비 설정
 	wrappedBody := wordwrap.String(plainBody, safeWidth-4)
 	lines := strings.Split(wrappedBody, "\n")
-
 	formatted := make([]string, 0, len(lines)+2)
 
-	// 상단 테두리 추가
 	topBorderStyle := lipgloss.NewStyle()
 	if hasBg {
 		topBorderStyle = topBorderStyle.Foreground(bg)
@@ -484,10 +452,8 @@ func (m uiModel) renderUserEntry(body string, termW int) string {
 		if i == 0 {
 			prefix = "> "
 		}
-
 		lineContent := prefix + line
 		padding := safeWidth - lipgloss.Width(lineContent)
-
 		res := markerStyle.Render(prefix) + textStyle.Render(line)
 		if padding > 0 {
 			res += lineStyle.Render(strings.Repeat(" ", padding))
@@ -495,7 +461,6 @@ func (m uiModel) renderUserEntry(body string, termW int) string {
 		formatted = append(formatted, res)
 	}
 
-	// 하단 테두리 추가
 	bottomBorderStyle := lipgloss.NewStyle()
 	if hasBg {
 		bottomBorderStyle = bottomBorderStyle.Foreground(bg)
@@ -504,8 +469,6 @@ func (m uiModel) renderUserEntry(body string, termW int) string {
 	}
 	formatted = append(formatted, bottomBorderStyle.Render(strings.Repeat("▀", safeWidth)))
 
-	// 박스 아래에 빈 줄 하나를 확보하기 위해 개행 하나만 추가
-	// (renderTranscriptEntryAt에서 기본적으로 항목 간 구분을 위해 개행을 처리할 수 있으므로 중복 방지)
 	return "\n" + strings.Join(formatted, "\n")
 }
 
@@ -521,28 +484,29 @@ func (m uiModel) renderAssistantEntry(body string, termW int) string {
 	}
 	lines := strings.Split(body, "\n")
 	out := make([]string, len(lines))
-	width := termW // termW는 이미 호출부에서 들여쓰기를 고려해 조정되어 들어옴
+	width := termW
 	if width <= 0 {
 		width = 80
 	}
 	for i, line := range lines {
-		// 모든 줄 앞에 2칸 공백 추가
 		content := "  " + line
-		currentWidth := lipgloss.Width(content)
-		if currentWidth < width {
-			content += strings.Repeat(" ", width-currentWidth)
+		if !markdown.IsBoxDrawingLine(stripANSI(line)) {
+			currentWidth := lipgloss.Width(content)
+			if currentWidth < width {
+				content += strings.Repeat(" ", width-currentWidth)
+			}
 		}
 		out[i] = content
 	}
 	return strings.Join(out, "\n")
 }
 
-// themeToPalette builds a markdown.Palette from the current uiTheme.
 func (m uiModel) themeToPalette() markdown.Palette {
 	return markdown.Palette{
-		Body:        m.theme.BodyColor,
-		InlineCode:  m.theme.MarkdownInlineCodeColor,
-		Link:        m.theme.MarkdownLinkColor,
+		Body:         m.theme.BodyColor,
+		InlineCode:   m.theme.MarkdownInlineCodeColor,
+		InlineCodeBg: m.theme.MarkdownInlineCodeBg,
+		Link:         m.theme.MarkdownLinkColor,
 		Strike:      m.theme.MarkdownStrikeColor,
 		Heading1:    m.theme.MarkdownHeading1Color,
 		Heading2:    m.theme.MarkdownHeading2Color,
@@ -564,7 +528,6 @@ func (m uiModel) assistantStreamSource(body string) string {
 	if mode == "" {
 		mode = DefaultStreamingMode
 	}
-
 	switch mode {
 	case "token-live":
 		if m.ui.Streaming.HideUnstableMarkdown {
@@ -578,7 +541,7 @@ func (m uiModel) assistantStreamSource(body string) string {
 			src = src[:lastNL]
 		}
 		return src
-	default: // hybrid-stable
+	default:
 		src := body
 		if m.ui.Streaming.RenderCodeBlocksStable && hasOpenCodeFence(src) {
 			src = stableStreamingMarkdownSource(src)
@@ -592,10 +555,7 @@ func (m uiModel) assistantStreamSource(body string) string {
 	}
 }
 
-func hasOpenCodeFence(text string) bool {
-	return strings.Count(text, "```")%2 == 1 || strings.Count(text, "~~~")%2 == 1
-}
-
+func hasOpenCodeFence(text string) bool { return strings.Count(text, "```")%2 == 1 || strings.Count(text, "~~~")%2 == 1 }
 func needsStableTail(text string) bool {
 	lastNL := strings.LastIndex(text, "\n")
 	tail := text
@@ -614,7 +574,6 @@ func needsStableTail(text string) bool {
 	}
 	return strings.Contains(trimmed, "http://") || strings.Contains(trimmed, "https://")
 }
-
 func stableStreamingMarkdownSource(text string) string {
 	if text == "" {
 		return ""
@@ -632,7 +591,6 @@ func stableStreamingMarkdownSource(text string) string {
 	}
 	return text
 }
-
 func isUnstableMarkdownLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
@@ -645,27 +603,20 @@ func isUnstableMarkdownLine(line string) bool {
 	if strings.HasPrefix(trimmed, "#") && !strings.Contains(trimmed, " ") {
 		return true
 	}
-	if strings.HasPrefix(trimmed, "- ") && strings.TrimSpace(trimmed[2:]) == "" {
+	if strings.HasPrefix(trimmed, "- ") && strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")) == "" {
 		return true
 	}
-	if strings.HasPrefix(trimmed, "* ") && strings.TrimSpace(trimmed[2:]) == "" {
+	if strings.HasPrefix(trimmed, "* ") && strings.TrimSpace(strings.TrimPrefix(trimmed, "* ")) == "" {
 		return true
 	}
-	if strings.HasPrefix(trimmed, "+ ") && strings.TrimSpace(trimmed[2:]) == "" {
+	if strings.HasPrefix(trimmed, "+ ") && strings.TrimSpace(strings.TrimPrefix(trimmed, "+ ")) == "" {
 		return true
 	}
-	if hasOddTokenCount(line, "`") {
-		return true
-	}
-	if hasOddTokenCount(line, "**") {
-		return true
-	}
-	if hasOddTokenCount(line, "~~") {
+	if hasOddTokenCount(line, "`") || hasOddTokenCount(line, "**") || hasOddTokenCount(line, "~~") {
 		return true
 	}
 	return strings.Count(line, "[") > strings.Count(line, "]")
 }
-
 func hasOddTokenCount(line, token string) bool {
 	if token == "" {
 		return false
@@ -690,687 +641,451 @@ func (m uiModel) isStreamStalled() bool {
 	return time.Since(last) >= stalledAfter
 }
 
+func (m uiModel) renderTaskListRow() string {
+	if len(m.latestTodos) == 0 {
+		return ""
+	}
+
+	var lines []string
+	for _, todo := range m.latestTodos {
+		var icon string
+		var color string
+		switch todo.Status {
+		case types.TodoStatusCompleted:
+			icon = "●"
+			color = m.theme.MutedColor
+		case types.TodoStatusInProgress:
+			icon = "◐"
+			color = m.theme.ThinkingTitleColor
+		default:
+			icon = "○"
+			color = m.theme.MutedColor
+		}
+
+		style := m.theme.style(color)
+		line := fmt.Sprintf("  %s %s", style.Render(icon), todo.Content)
+		lines = append(lines, line)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func (m uiModel) renderThinkingRow() string {
 	if !m.busy || m.busyStartedAt.IsZero() {
 		return ""
 	}
 	sec := int(time.Since(m.busyStartedAt).Seconds())
-
 	frame := IconThinking
-	if len(m.theme.SpinnerFrames) > 0 {
-		frame = m.theme.SpinnerFrames[m.motionFrame(len(m.theme.SpinnerFrames), 2)]
-	}
-	if !m.motionEnabled() {
-		frame = IconThinking
+	if m.motionEnabled() {
+		if m.ui.Motion.Reduced || m.ui.Motion.Level == "restrained" {
+			frame = asciiSpinnerFrames[m.motionFrame(len(asciiSpinnerFrames), 2)]
+		} else {
+			frame = spinnerFrames[m.motionFrame(len(spinnerFrames), 1)]
+		}
 	}
 	frameColor := m.theme.ToolUseTitleColor
 	if m.signatureMotionEnabled() {
 		frameColor = m.getRainbowColor()
 	}
-	rainbowFrame := m.theme.style(frameColor).Bold(true).Render(frame)
-
-	verb := m.spinnerVerb
-	if verb == "" {
+	var verb string
+	switch m.activeTokenKind {
+	case "thinking":
 		verb = "Thinking"
+	case "output":
+		verb = "Responding"
+	case "input":
+		verb = "Sketching"
+	default:
+		verb = m.spinnerVerb
+		if verb == "" {
+			verb = "Thinking"
+		}
 	}
-
+	verbView := m.theme.style(frameColor).Bold(true).Italic(true).Render(verb)
+	rainbowFrame := m.theme.style(frameColor).Bold(true).Render(frame)
 	elapsed := formatElapsed(sec)
 	tokenPart := ""
-	if m.tokenOutputSnap > 0 {
-		tokenPart = fmt.Sprintf(" · ↓ %s tokens", formatTokenCount(m.tokenOutputSnap))
+	if active := m.formatActiveToken(); active != "" {
+		tokenPart = ", " + active
 	}
-	leftText := fmt.Sprintf("%s %s… (%s%s)", rainbowFrame, verb, elapsed, tokenPart)
+	dots := m.animatedDots()
+	leftText := fmt.Sprintf("%s %s%s (%s%s)", rainbowFrame, verbView, dots, elapsed, tokenPart)
 	rightText := "? for shortcuts"
-
-	// 델타가 오랫동안 없더라도 'Thinking'은 유지하여 멈춘 느낌 방지
 	if m.isStreamStalled() {
 		leftText = fmt.Sprintf("%s %s", rainbowFrame, m.theme.style(m.theme.StatusLeftStalledColor).Render("Processing..."))
 	}
-
-	return renderTwoColumnLine(leftText, rightText, m.width,
-		lipgloss.NewStyle(),
-		m.theme.style(m.theme.StatusRightColor))
+	return renderTwoColumnLine(leftText, rightText, m.width, lipgloss.NewStyle(), m.theme.style(m.theme.StatusRightColor))
 }
 
-func (m uiModel) renderModeRow() string {
-	return lipgloss.JoinVertical(lipgloss.Left, m.renderModeDivider(), m.renderModeStatus())
-}
-
-func (m uiModel) renderModeDivider() string {
-	return m.theme.style(m.theme.MutedColor).Render(strings.Repeat("─", m.width))
-}
-
+func (m uiModel) renderModeRow() string { return lipgloss.JoinVertical(lipgloss.Left, m.renderModeDivider(), m.renderModeStatus()) }
+func (m uiModel) renderModeDivider() string { return m.theme.style(m.theme.MutedColor).Render(strings.Repeat("─", m.width)) }
 func (m uiModel) renderModeStatus() string {
 	left, leftColor := m.renderModeHintWithColor()
 	right := m.renderContextSummary()
 	gauge := m.renderContextGauge()
-
-	return renderTwoColumnLine(left, right+"  "+gauge, m.width,
-		m.theme.style(leftColor).Bold(true),
-		m.theme.style(m.theme.StatusRightColor))
+	return renderTwoColumnLine(left, right+"  "+gauge, m.width, m.theme.style(leftColor).Bold(true), m.theme.style(m.theme.StatusRightColor))
 }
-
 func (m uiModel) renderContextGauge() string {
 	percent := m.footer.ContextUsedPercent
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 100 {
-		percent = 100
-	}
-
+	if percent < 0 { percent = 0 }
+	if percent > 100 { percent = 100 }
 	width := 10
 	filled := (percent * width) / 100
-
 	gaugeColor := m.theme.StatusLeftColor
 	if percent > 80 {
 		gaugeColor = m.theme.ErrorTitleColor
 	} else if percent > 50 {
 		gaugeColor = m.theme.ApprovalTitleColor
 	}
-
-	fillGlyph := "█"
-	emptyGlyph := "░"
+	fillGlyph, emptyGlyph := "█", "░"
 	if m.theme.DisableANSI {
-		fillGlyph = "#"
-		emptyGlyph = "."
+		fillGlyph, emptyGlyph = "#", "."
 	}
-
-	bar := m.theme.style(gaugeColor).Render(strings.Repeat(fillGlyph, filled)) +
-		m.theme.style(m.theme.MutedColor).Render(strings.Repeat(emptyGlyph, width-filled))
-
+	bar := m.theme.style(gaugeColor).Render(strings.Repeat(fillGlyph, filled)) + m.theme.style(m.theme.MutedColor).Render(strings.Repeat(emptyGlyph, width-filled))
 	return fmt.Sprintf("[%s] %d%%", bar, percent)
 }
-
 func (m uiModel) renderModeHintWithColor() (string, string) {
 	mode := types.PermissionMode(strings.TrimSpace(m.footer.PermissionMode))
 	switch mode {
-	case types.PermissionModeBypassPermissions:
-		return "YOLO  Shift+Tab", m.theme.ModeYOLOColor
-	case types.PermissionModeDontAsk, types.PermissionModeAcceptEdits:
-		return "auto-accept edits  Shift+Tab", m.theme.ModeAutoColor
-	case types.PermissionModePlan:
-		return "plan  Shift+Tab", m.theme.ModePlanColor
-	default:
-		return "Shift+Tab to accept edits", m.theme.StatusRightColor
+	case types.PermissionModeBypassPermissions: return "YOLO  Shift+Tab", m.theme.ModeYOLOColor
+	case types.PermissionModeDontAsk, types.PermissionModeAcceptEdits: return "auto-accept edits  Shift+Tab", m.theme.ModeAutoColor
+	case types.PermissionModePlan: return "plan  Shift+Tab", m.theme.ModePlanColor
+	default: return "Shift+Tab to accept edits", m.theme.StatusRightColor
 	}
 }
-
 func (m uiModel) renderContextSummary() string {
 	parts := make([]string, 0, 3)
-	if m.footer.MCPCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d MCP", m.footer.MCPCount))
-	}
-	if m.footer.SkillCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d skill", m.footer.SkillCount))
-	}
-	if m.footer.TodoCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d todo", m.footer.TodoCount))
-	}
+	if m.footer.MCPCount > 0 { parts = append(parts, fmt.Sprintf("%d MCP", m.footer.MCPCount)) }
+	if m.footer.SkillCount > 0 { parts = append(parts, fmt.Sprintf("%d skill", m.footer.SkillCount)) }
+	if m.footer.TodoCount > 0 { parts = append(parts, fmt.Sprintf("%d todo", m.footer.TodoCount)) }
 	return strings.Join(parts, " | ")
 }
 
 func renderTwoColumnLine(left, right string, width int, leftStyle, rightStyle lipgloss.Style) string {
-	left = leftStyle.Render(strings.TrimSpace(left))
-	right = rightStyle.Render(strings.TrimSpace(right))
-	if width <= 0 {
-		if strings.TrimSpace(right) == "" {
-			return left
-		}
-		return left + "  " + right
-	}
-	if strings.TrimSpace(right) == "" {
-		return padLine(truncateToWidth(left, width), width)
-	}
-
+	left, right = leftStyle.Render(strings.TrimSpace(left)), rightStyle.Render(strings.TrimSpace(right))
+	if width <= 0 { return left + "  " + right }
+	if strings.TrimSpace(right) == "" { return padLine(truncateToWidth(left, width), width) }
 	rw := lipgloss.Width(right)
 	maxLeft := width - rw - 2
-	if maxLeft < 4 {
-		maxLeft = 4
-	}
-
+	if maxLeft < 4 { maxLeft = 4 }
 	left = truncateToWidth(left, maxLeft)
 	lw := lipgloss.Width(left)
-
 	gap := width - lw - rw
-	if gap < 0 {
-		gap = 0
-	}
-	res := left + strings.Repeat(" ", gap) + right
-	return truncateToWidth(res, width)
+	if gap < 0 { gap = 0 }
+	return truncateToWidth(left+strings.Repeat(" ", gap)+right, width)
 }
-
 func padLine(s string, width int) string {
-	if width <= 0 {
-		return s
-	}
 	sw := lipgloss.Width(s)
-	if sw >= width {
-		return s
-	}
+	if sw >= width { return s }
 	return s + strings.Repeat(" ", width-sw)
 }
-
 func truncateToWidth(s string, width int) string {
-	if width <= 0 || lipgloss.Width(s) <= width {
-		return s
-	}
+	if width <= 0 || lipgloss.Width(s) <= width { return s }
 	runes := []rune(s)
 	for len(runes) > 0 && lipgloss.Width(string(runes)+"...") > width {
 		runes = runes[:len(runes)-1]
 	}
-	if len(runes) == 0 {
-		return ""
-	}
+	if len(runes) == 0 { return "" }
 	return string(runes) + "..."
 }
 
 func (m uiModel) renderInput() string {
 	t := m.theme.PromptTheme
 	if types.PermissionMode(m.footer.PermissionMode) == types.PermissionModeBypassPermissions {
-		t.IndicatorChar = "*"
-		t.IndicatorColor = m.theme.ModeYOLOColor
+		t.IndicatorChar, t.IndicatorColor = "*", m.theme.ModeYOLOColor
 	}
-
 	return promptinput.RenderTextInputWithTheme(m.input.View(), m.width, t)
 }
 
 func (m uiModel) renderModal() string {
 	titleStyle := m.theme.style(m.theme.ModalTitleColor).Bold(true)
-
-	// 디자인 시스템 v2.1: 전체 테두리 대신 좌측 액센트 바만 사용
 	borderStyle := m.theme.AccentBarStyle
-
 	accentStyle := m.theme.ChevronStyle
 	successStyle := m.theme.style(m.theme.UserTitleColor)
 	mutedStyle := m.theme.style(m.theme.MutedColor)
 
 	switch m.modal.Kind {
 	case modalApproval, modalConfirm:
-		inner := []string{
-			titleStyle.Render("⦿ " + m.modal.Title),
-			m.theme.style(m.theme.BodyColor).Render(m.modal.Prompt),
-			"",
-		}
+		inner := []string{titleStyle.Render("⦿ " + m.modal.Title), m.theme.style(m.theme.BodyColor).Render(m.modal.Prompt), ""}
 		if m.modal.Kind == modalApproval {
 			inner = append(inner, mutedStyle.Render("tool: ")+m.theme.style(m.theme.BodyColor).Render(m.modal.ToolName))
-
-			// Specialized Rendering based on ToolType
 			switch m.modal.ToolType {
 			case "edit":
-				if m.modal.DiffContent != "" {
-					inner = append(inner, "", toolui.RenderDiff(m.modal.DiffContent, m.width-8, m))
-				}
+				if m.modal.DiffContent != "" { inner = append(inner, "", toolui.RenderDiff(m.modal.DiffContent, m.width-8, m)) }
 			case "exec":
 				if len(m.modal.Commands) > 0 {
-					for _, cmd := range m.modal.Commands {
-						inner = append(inner, "", toolui.RenderCode(cmd, "bash", m.width-8, m))
-					}
+					for _, cmd := range m.modal.Commands { inner = append(inner, "", toolui.RenderCode(cmd, "bash", m.width-8, m)) }
 				}
 			default:
-				if hint := approvalHint(m.modal.ToolName); hint != "" {
-					inner = append(inner, mutedStyle.Render("hint: "+hint))
-				}
+				if hint := approvalHint(m.modal.ToolName); hint != "" { inner = append(inner, mutedStyle.Render("hint: "+hint)) }
 				if strings.TrimSpace(m.modal.InputJSON) != "" {
 					maxW := m.width - 10
-					if maxW < 20 {
-						maxW = 20
-					}
-					for _, jsonLine := range strings.Split(m.modal.InputJSON, "\n") {
-						inner = append(inner, truncateToWidth(jsonLine, maxW))
-					}
+					if maxW < 20 { maxW = 20 }
+					for _, jsonLine := range strings.Split(m.modal.InputJSON, "\n") { inner = append(inner, truncateToWidth(jsonLine, maxW)) }
 				}
 			}
 			inner = append(inner, "")
 		}
-
-		options := []string{"Allow once", "Allow for this session", "Allow for all future sessions", "Deny"}
-		hintText := "↑↓ move  1-4 select  Enter confirm  y/n quick select  Esc deny"
+		options, hintText := []string{"Allow once", "Allow for this session", "Allow for all future sessions", "Deny"}, "↑↓ move  1-4 select  Enter confirm  y/n quick select  Esc deny"
 		if m.modal.Kind == modalConfirm {
-			options = []string{"Yes", "No"}
-			hintText = "↑↓ move  Enter select  y/n quick select  Esc deny"
+			options, hintText = []string{"Yes", "No"}, "↑↓ move  Enter select  y/n quick select  Esc deny"
 		}
-
 		for i, opt := range options {
-			var line string
-			if i == m.modal.AskCursor {
-				line = accentStyle.Render(fmt.Sprintf("› %d. %s", i+1, opt))
-			} else {
-				line = m.theme.style(m.theme.BodyColor).Render(fmt.Sprintf("  %d. %s", i+1, opt))
-			}
-			inner = append(inner, line)
+			if i == m.modal.AskCursor { inner = append(inner, accentStyle.Render(fmt.Sprintf("› %d. %s", i+1, opt)))
+			} else { inner = append(inner, m.theme.style(m.theme.BodyColor).Render(fmt.Sprintf("  %d. %s", i+1, opt))) }
 		}
-
 		inner = append(inner, "", mutedStyle.Render(hintText))
 		return borderStyle.Render(strings.Join(inner, "\n"))
-
 	case modalPassword:
 		mask := strings.Repeat("*", len(m.modal.Password))
-		inner := []string{
-			titleStyle.Render("⦿ " + m.modal.Title),
-			strings.TrimSpace(m.modal.Prompt) + " " + mask + "█",
-			"",
-			mutedStyle.Render("Enter submit  Esc cancel"),
-		}
-		return borderStyle.Render(strings.Join(inner, "\n"))
-
+		return borderStyle.Render(strings.Join([]string{titleStyle.Render("⦿ " + m.modal.Title), strings.TrimSpace(m.modal.Prompt) + " " + mask + "█", "", mutedStyle.Render("Enter submit  Esc cancel")}, "\n"))
 	case modalAskUser:
-		if m.modal.Question == nil {
-			return borderStyle.Render(strings.Join([]string{
-				titleStyle.Render("⦿ Question"),
-				"(missing question payload)",
-				"",
-				"Esc cancel",
-			}, "\n"))
-		}
-
+		if m.modal.Question == nil { return borderStyle.Render(strings.Join([]string{titleStyle.Render("⦿ Question"), "(missing question payload)", "", "Esc cancel"}, "\n")) }
 		q := m.modal.Question
 		header := strings.TrimSpace(q.Header)
-		if header == "" {
-			header = m.modal.Title
-			if strings.TrimSpace(header) == "" {
-				header = "Question"
-			}
+		if header == "" { header = m.modal.Title; if strings.TrimSpace(header) == "" { header = "Question" } }
+		inner := []string{titleStyle.Render("⦿ " + header)}
+		if previewContent := strings.TrimSpace(q.Preview); previewContent != "" {
+			termW := m.width - 10
+			if termW < 20 { termW = 20 }
+			renderedPreview := markdown.Render(previewContent, termW-4, m.themeToPalette())
+			inner = append(inner, lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(m.theme.ModalBorderColor)).Padding(0, 1).Width(termW).Render(strings.TrimRight(renderedPreview, "\n")), "")
 		}
-		inner := []string{titleStyle.Render("⦿ " + header), strings.TrimSpace(q.Question), ""}
-
+		inner = append(inner, strings.TrimSpace(q.Question), "")
 		qType := normalizeAskQuestionType(q)
 		switch qType {
 		case "text":
 			value := m.modal.AskInput
-			if strings.TrimSpace(value) == "" {
-				value = strings.TrimSpace(q.Placeholder)
-				if value == "" {
-					value = "(type your answer)"
-				}
-			}
-			inner = append(inner, value, "")
-			inner = append(inner, mutedStyle.Render("Type answer  Enter submit  Esc cancel"))
+			if strings.TrimSpace(value) == "" { value = strings.TrimSpace(q.Placeholder); if value == "" { value = "(type your answer)" } }
+			inner = append(inner, value, "", mutedStyle.Render("Type answer  Enter submit  Esc cancel"))
 		default:
 			options := askQuestionOptions(q)
-			if len(options) == 0 {
-				inner = append(inner, "(no options)")
+			if len(options) == 0 { inner = append(inner, "(no options)")
 			} else {
 				for i, opt := range options {
-					isFocused := i == m.modal.AskCursor
-					isChecked := false
-					if q.MultiSelect {
-						if m.modal.AskSelected != nil && m.modal.AskSelected[i] {
-							isChecked = true
-						}
-					}
-
+					isFocused, isChecked := i == m.modal.AskCursor, q.MultiSelect && m.modal.AskSelected != nil && m.modal.AskSelected[i]
 					label := strings.TrimSpace(opt.Label)
-					if label == "" {
-						label = strings.TrimSpace(opt.Value)
-					}
-
+					if label == "" { label = strings.TrimSpace(opt.Value) }
 					var line string
 					if q.MultiSelect {
-						box := "[ ]"
-						if isChecked {
-							box = successStyle.Render("[x]")
-						}
+						box := "◯"; if isChecked { box = successStyle.Render("◉") }
 						line = fmt.Sprintf("%s %s", box, label)
 					} else {
-						check := ""
-						if isChecked {
-							check = successStyle.Render(" [selected]")
-						}
+						check := ""; if isChecked { check = successStyle.Render(" [selected]") }
 						line = fmt.Sprintf("  %s%s", label, check)
 					}
-
-					if isFocused {
-						line = accentStyle.Render("› " + line[2:])
-					} else {
-						line = "  " + line[2:]
-					}
-
-					if desc := strings.TrimSpace(opt.Description); desc != "" {
-						line += " " + mutedStyle.Render("- "+desc)
-					}
+					if isFocused { line = accentStyle.Render("› " + line[2:]) } else { line = "  " + line[2:] }
+					if desc := strings.TrimSpace(opt.Description); desc != "" { line += " " + mutedStyle.Render("- "+desc) }
 					inner = append(inner, line)
 				}
 			}
 			inner = append(inner, "")
-			if q.MultiSelect {
-				inner = append(inner, mutedStyle.Render("↑↓ move  Space toggle  Enter submit  Esc cancel"))
-			} else {
-				inner = append(inner, mutedStyle.Render("↑↓ move  1-9 select  Enter submit  Esc cancel"))
-			}
+			if q.MultiSelect { inner = append(inner, mutedStyle.Render("↑↓ move  Space toggle  Enter submit  Esc cancel"))
+			} else { inner = append(inner, mutedStyle.Render("↑↓ move  1-9 select  Enter submit  Esc cancel")) }
 		}
 		return borderStyle.Render(strings.Join(inner, "\n"))
-
 	case modalAskUserBatch:
-		if len(m.modal.Questions) == 0 {
-			return borderStyle.Render(strings.Join([]string{
-				titleStyle.Render("Questions"),
-				"(missing question payload)",
-				"",
-				"[Esc] cancel",
-			}, "\n"))
-		}
-
-		inner := []string{titleStyle.Render(m.modal.Title)}
+		if len(m.modal.Questions) == 0 { return borderStyle.Render(strings.Join([]string{titleStyle.Render("Questions"), "(missing question payload)", "", "[Esc] cancel"}, "\n")) }
+		stepInfo := fmt.Sprintf("Step %d of %d", m.modal.AskTab+1, len(m.modal.Questions))
+		if m.isAskBatchReviewTab() { stepInfo = "Review" }
+		inner := []string{titleStyle.Render(m.modal.Title + " - " + stepInfo)}
 		tabs := make([]string, 0, len(m.modal.Questions)+1)
 		for i, q := range m.modal.Questions {
 			header := strings.TrimSpace(q.Header)
 			if header == "" {
 				header = fmt.Sprintf("Q%d", i+1)
 			}
-			idx := strconv.Itoa(i)
-			answered := strings.TrimSpace(m.modal.AskAnswersByIndex[idx]) != ""
+			answered := strings.TrimSpace(m.modal.AskAnswersByIndex[strconv.Itoa(i)]) != ""
+
 			label := header
 			if answered {
 				label += " *"
 			}
-			if i == m.modal.AskTab {
-				tabs = append(tabs, accentStyle.Bold(true).Render("["+label+"]"))
-			} else {
-				tabs = append(tabs, mutedStyle.Render("["+label+"]"))
-			}
+			if i == m.modal.AskTab { tabs = append(tabs, accentStyle.Bold(true).Render("["+label+"]")) } else { tabs = append(tabs, mutedStyle.Render("["+label+"]")) }
 		}
 		if len(m.modal.Questions) > 1 {
-			reviewIdx := len(m.modal.Questions)
-			label := "Review"
-			if reviewIdx == m.modal.AskTab {
-				tabs = append(tabs, accentStyle.Bold(true).Render("["+label+"]"))
-			} else {
-				tabs = append(tabs, mutedStyle.Render("["+label+"]"))
-			}
+			reviewIdx, label := len(m.modal.Questions), "Review"
+			if reviewIdx == m.modal.AskTab { tabs = append(tabs, accentStyle.Bold(true).Render("["+label+"]")) } else { tabs = append(tabs, mutedStyle.Render("["+label+"]")) }
 		}
 		inner = append(inner, strings.Join(tabs, " "), "")
-
-		isReview := len(m.modal.Questions) > 1 && m.modal.AskTab == len(m.modal.Questions)
-		if isReview {
+		if len(m.modal.Questions) > 1 && m.modal.AskTab == len(m.modal.Questions) {
 			inner = append(inner, "Review your answers:")
 			unanswered := 0
 			for i, q := range m.modal.Questions {
-				idx := strconv.Itoa(i)
-				value := strings.TrimSpace(m.modal.AskAnswersByIndex[idx])
-				if value == "" {
-					value = strings.TrimSpace(q.Default)
-				}
-				header := strings.TrimSpace(q.Header)
-				if header == "" {
-					header = fmt.Sprintf("Q%d", i+1)
-				}
-				if value == "" {
-					unanswered++
-					inner = append(inner, mutedStyle.Render(fmt.Sprintf("- %s: (not answered)", header)))
-				} else {
-					inner = append(inner, fmt.Sprintf("- %s: %s", header, value))
-				}
+				value, header := strings.TrimSpace(m.modal.AskAnswersByIndex[strconv.Itoa(i)]), strings.TrimSpace(q.Header)
+				if value == "" { value = strings.TrimSpace(q.Default) }
+				if header == "" { header = fmt.Sprintf("Q%d", i+1) }
+				if value == "" { unanswered++; inner = append(inner, mutedStyle.Render(fmt.Sprintf("- %s: (not answered)", header))) } else { inner = append(inner, fmt.Sprintf("- %s: %s", header, value)) }
 			}
 			inner = append(inner, "")
-			if unanswered > 0 {
-				inner = append(inner, mutedStyle.Render(fmt.Sprintf("%d unanswered questions", unanswered)))
-			}
-			if strings.TrimSpace(m.modal.AskError) != "" {
-				inner = append(inner, m.theme.style(m.theme.ErrorTitleColor).Render(m.modal.AskError))
-			}
+			if unanswered > 0 { inner = append(inner, mutedStyle.Render(fmt.Sprintf("%d unanswered questions", unanswered))) }
+			if strings.TrimSpace(m.modal.AskError) != "" { inner = append(inner, m.theme.style(m.theme.ErrorTitleColor).Render(m.modal.AskError)) }
 			inner = append(inner, mutedStyle.Render("[Tab/Shift+Tab] switch  [Enter] submit  [Esc] cancel"))
 			return borderStyle.Render(strings.Join(inner, "\n"))
 		}
-
-		if m.modal.AskTab < 0 || m.modal.AskTab >= len(m.modal.Questions) {
-			inner = append(inner, "(invalid question index)")
-			return borderStyle.Render(strings.Join(inner, "\n"))
-		}
 		q := m.modal.Questions[m.modal.AskTab]
+		if previewContent := strings.TrimSpace(q.Preview); previewContent != "" {
+			termW := m.width - 10
+			if termW < 20 { termW = 20 }
+			renderedPreview := markdown.Render(previewContent, termW-4, m.themeToPalette())
+			inner = append(inner, lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(m.theme.ModalBorderColor)).Padding(0, 1).Width(termW).Render(strings.TrimRight(renderedPreview, "\n")), "")
+		}
 		inner = append(inner, strings.TrimSpace(q.Question), "")
-
-		qType := normalizeAskQuestionType(&q)
-		switch qType {
+		switch normalizeAskQuestionType(&q) {
 		case "text":
 			value := m.modal.AskInput
-			if strings.TrimSpace(value) == "" {
-				value = strings.TrimSpace(q.Placeholder)
-				if value == "" {
-					value = "(type your answer)"
-				}
-			}
+			if strings.TrimSpace(value) == "" { value = strings.TrimSpace(q.Placeholder); if value == "" { value = "(type your answer)" } }
 			inner = append(inner, value, "")
-			if strings.TrimSpace(m.modal.AskError) != "" {
-				inner = append(inner, m.theme.style(m.theme.ErrorTitleColor).Render(m.modal.AskError))
-			}
-			if len(m.modal.Questions) > 1 {
-				inner = append(inner, mutedStyle.Render("[Type answer] [Enter] next  [Tab] switch  [Esc] cancel"))
-			} else {
-				inner = append(inner, mutedStyle.Render("[Type answer] [Enter] submit  [Esc] cancel"))
-			}
+			if strings.TrimSpace(m.modal.AskError) != "" { inner = append(inner, m.theme.style(m.theme.ErrorTitleColor).Render(m.modal.AskError)) }
+			msg := "[Type answer] [Enter] next  [Tab] switch  [Esc] cancel"; if len(m.modal.Questions) == 1 { msg = "[Type answer] [Enter] submit  [Esc] cancel" }
+			inner = append(inner, mutedStyle.Render(msg))
 		default:
 			options := askQuestionOptions(&q)
-			if len(options) == 0 {
-				inner = append(inner, "(no options)")
+			if len(options) == 0 { inner = append(inner, "(no options)")
 			} else {
 				for i, opt := range options {
-					isFocused := i == m.modal.AskCursor
-					checked := false
-					if q.MultiSelect {
-						checked = m.modal.AskSelected != nil && m.modal.AskSelected[i]
-					} else {
-						idx := strconv.Itoa(m.modal.AskTab)
-						current := strings.TrimSpace(m.modal.AskAnswersByIndex[idx])
-						checked = strings.EqualFold(current, optionAnswerValue(opt)) || strings.EqualFold(current, strings.TrimSpace(opt.Label))
-					}
-
-					label := strings.TrimSpace(opt.Label)
-					if label == "" {
-						label = strings.TrimSpace(opt.Value)
-					}
-					line := "  " + label
-					if q.MultiSelect {
-						prefix := "[ ]"
-						if checked {
-							prefix = "[x]"
-						}
-						line = prefix + " " + label
-					} else if checked {
-						line = label + " [selected]"
-					}
-					if isFocused {
-						line = accentStyle.Bold(true).Render("> " + line)
-					} else {
-						line = "  " + line
-					}
-					if desc := strings.TrimSpace(opt.Description); desc != "" {
-						line += " " + mutedStyle.Render("- "+desc)
-					}
+					isFocused, checked := i == m.modal.AskCursor, false
+					if q.MultiSelect { checked = m.modal.AskSelected != nil && m.modal.AskSelected[i]
+					} else { current := strings.TrimSpace(m.modal.AskAnswersByIndex[strconv.Itoa(m.modal.AskTab)]); checked = strings.EqualFold(current, optionAnswerValue(opt)) || strings.EqualFold(current, strings.TrimSpace(opt.Label)) }
+					label := strings.TrimSpace(opt.Label); if label == "" { label = strings.TrimSpace(opt.Value) }
+					line := "  " + label; if q.MultiSelect { box := "◯"; if checked { box = successStyle.Render("◉") }; line = box + " " + label } else if checked { line = label + " [selected]" }
+					if isFocused { line = accentStyle.Bold(true).Render("> " + line) } else { line = "  " + line }
+					if desc := strings.TrimSpace(opt.Description); desc != "" { line += " " + mutedStyle.Render("- "+desc) }
 					inner = append(inner, line)
 				}
 			}
 			inner = append(inner, "")
-			if strings.TrimSpace(m.modal.AskError) != "" {
-				inner = append(inner, m.theme.style(m.theme.ErrorTitleColor).Render(m.modal.AskError))
-			}
-			if q.MultiSelect {
-				inner = append(inner, mutedStyle.Render("[Up/Down] move  [Space] toggle  [Enter] next  [Tab] switch  [Esc] cancel"))
-			} else {
-				inner = append(inner, mutedStyle.Render("[Up/Down] move  [1-9] select  [Enter] next  [Tab] switch  [Esc] cancel"))
-			}
+			if strings.TrimSpace(m.modal.AskError) != "" { inner = append(inner, m.theme.style(m.theme.ErrorTitleColor).Render(m.modal.AskError)) }
+			msg := "[Up/Down] move  [1-9] select  [Enter] next  [Tab] switch  [Esc] cancel"; if q.MultiSelect { msg = "[Up/Down] move  [Space] toggle  [Enter] next  [Tab] switch  [Esc] cancel" }
+			inner = append(inner, mutedStyle.Render(msg))
 		}
 		return borderStyle.Render(strings.Join(inner, "\n"))
-	case modalServerForm:
-		return m.renderServerForm(titleStyle, accentStyle, mutedStyle, borderStyle)
-	case modalServerList:
-		return m.renderServerList(titleStyle, accentStyle, mutedStyle, borderStyle)
-	case modalModelList:
-		inner := []string{
-			titleStyle.Render("⦿ " + m.modal.Title),
-			"",
-			m.renderModelList(),
-		}
-		return borderStyle.Render(strings.Join(inner, "\n"))
-	case modalConnectorSearch:
-		return m.renderConnectorSearch(titleStyle, mutedStyle, borderStyle)
-	case modalConnectorInstall:
-		return m.renderConnectorInstall(titleStyle, mutedStyle, borderStyle)
-	default:
-		return ""
+	case modalServerForm: return m.renderServerForm(titleStyle, accentStyle, mutedStyle, borderStyle)
+	case modalServerList: return m.renderServerList(titleStyle, accentStyle, mutedStyle, borderStyle)
+	case modalModelList: return borderStyle.Render(strings.Join([]string{titleStyle.Render("⦿ " + m.modal.Title), "", m.renderModelList()}, "\n"))
+	case modalConnectorSearch: return m.renderConnectorSearch(titleStyle, mutedStyle, borderStyle)
+	case modalConnectorInstall: return m.renderConnectorInstall(titleStyle, mutedStyle, borderStyle)
+	default: return ""
 	}
 }
 
-func formatDiff(added, removed int) string {
-	if added == 0 && removed == 0 {
-		return "-"
+func formatDiff(added, removed int) string { if added == 0 && removed == 0 { return "-" }; return fmt.Sprintf("+%d -%d", added, removed) }
+func formatElapsed(sec int) string { if sec >= 60 { return fmt.Sprintf("%dm %ds", sec/60, sec%60) }; return fmt.Sprintf("%ds", sec) }
+func formatTokenCount(n int) string { if n >= 1_000_000 { return fmt.Sprintf("%.1fm", float64(n)/1_000_000) }; if n >= 1_000 { return fmt.Sprintf("%.1fk", float64(n)/1_000) }; return fmt.Sprintf("%d", n) }
+func (m uiModel) formatActiveToken() string {
+	switch m.activeTokenKind {
+	case "thinking": if m.tokenThinkingSnap > 0 { return constants.EffortMedium + formatTokenCount(m.tokenThinkingSnap) }
+	case "output": if m.tokenOutputSnap > 0 { return constants.DownArrow + formatTokenCount(m.tokenOutputSnap) }
+	case "input": if m.tokenInputSnap > 0 { return constants.UpArrow + formatTokenCount(m.tokenInputSnap) }
 	}
-	return fmt.Sprintf("+%d -%d", added, removed)
+	switch {
+	case m.tokenThinkingSnap > 0: return constants.EffortMedium + formatTokenCount(m.tokenThinkingSnap)
+	case m.tokenOutputSnap > 0: return constants.DownArrow + formatTokenCount(m.tokenOutputSnap)
+	case m.tokenInputSnap > 0: return constants.UpArrow + formatTokenCount(m.tokenInputSnap)
+	}
+	return ""
 }
-
-func formatElapsed(sec int) string {
-	if sec >= 60 {
-		return fmt.Sprintf("%dm %ds", sec/60, sec%60)
-	}
-	return fmt.Sprintf("%ds", sec)
+func formatTokensDetailed(in, out, thinking int) string {
+	if in == 0 && out == 0 && thinking == 0 { return "-" }
+	parts := make([]string, 0, 3)
+	if in > 0 { parts = append(parts, constants.UpArrow+formatTokenCount(in)) }
+	if out > 0 { parts = append(parts, constants.DownArrow+formatTokenCount(out)) }
+	if thinking > 0 { parts = append(parts, constants.EffortMedium+formatTokenCount(thinking)) }
+	if len(parts) == 0 { return "-" }; return strings.Join(parts, " ")
 }
-
-func formatTokenCount(n int) string {
-	if n >= 1_000_000 {
-		return fmt.Sprintf("%.1fm", float64(n)/1_000_000)
-	}
-	if n >= 1_000 {
-		return fmt.Sprintf("%.1fk", float64(n)/1_000)
-	}
-	return fmt.Sprintf("%d", n)
-}
-
-func formatTokens(n int) string {
-	if n == 0 {
-		return "-"
-	}
-	if n >= 1_000_000 {
-		return fmt.Sprintf("%.1fm tokens", float64(n)/1_000_000)
-	}
-	if n >= 1_000 {
-		return fmt.Sprintf("%dk tokens", n/1_000)
-	}
-	return fmt.Sprintf("%d tokens", n)
-}
-
-func emptyFallback(v, fallback string) string {
-	if strings.TrimSpace(v) == "" {
-		return fallback
-	}
-	return strings.TrimSpace(v)
-}
-
+func emptyFallback(v, fallback string) string { if strings.TrimSpace(v) == "" { return fallback }; return strings.TrimSpace(v) }
 func approvalHint(toolName string) string {
 	n := strings.ToLower(toolName)
 	switch {
-	case strings.Contains(n, "search"):
-		return "Review source URLs before continuing."
-	case strings.Contains(n, "fetch"), strings.Contains(n, "crawl"):
-		return "This may pull full page content."
-	case strings.Contains(n, "bash"), strings.Contains(n, "shell"), strings.Contains(n, "powershell"):
-		return "Command execution may modify files or system state."
-	case strings.Contains(n, "write"), strings.Contains(n, "edit"), strings.Contains(n, "patch"):
-		return "Verify target path and changes before allowing."
-	default:
-		return ""
+	case strings.Contains(n, "search"): return "Review source URLs before continuing."
+	case strings.Contains(n, "fetch"), strings.Contains(n, "crawl"): return "This may pull full page content."
+	case strings.Contains(n, "bash"), strings.Contains(n, "shell"), strings.Contains(n, "powershell"): return "Command execution may modify files or system state."
+	case strings.Contains(n, "write"), strings.Contains(n, "edit"), strings.Contains(n, "patch"): return "Verify target path and changes before allowing."
+	default: return ""
 	}
 }
 
 func renderLogoBlock(cfg Config) string {
 	var modelDisplay, effortLevel, providerName string
-	effortLevel = "high"
-	if cfg.State != nil {
-		_, disp, _ := cfg.State.ActiveModel()
-		modelDisplay = disp
-		effortLevel = cfg.State.GetEffortLevel()
-		providerName = cfg.State.ActiveModelProvider()
-	}
-	return logo.Render(logo.Data{
-		Version:      constants.Version,
-		ModelDisplay: modelDisplay,
-		EffortLevel:  effortLevel,
-		ProviderName: providerName,
-		Cwd:          cfg.WorkDir,
-		SourcePath:   constants.ConfigDirName + "\\" + constants.SettingsFileName,
-	}, cfg.AIDebug)
+	effortLevel = "high"; if cfg.State != nil { _, disp, _ := cfg.State.ActiveModel(); modelDisplay, effortLevel, providerName = disp, cfg.State.GetEffortLevel(), cfg.State.ActiveModelProvider() }
+	return logo.Render(logo.Data{Version: constants.Version, ModelDisplay: modelDisplay, EffortLevel: effortLevel, ProviderName: providerName, Cwd: cfg.WorkDir, SourcePath: constants.ConfigDirName + "\\" + constants.SettingsFileName}, cfg.AIDebug)
 }
 
-// getSearchReadSummaryText 는 tool_group 진행 요약 텍스트를 반환한다.
-func getSearchReadSummaryText(searchCount, readCount, listCount int, isActive bool) string {
-	parts := make([]string, 0, 3)
-	if searchCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d search", searchCount))
-	}
-	if readCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d read", readCount))
-	}
-	if listCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d list", listCount))
-	}
-
-	suffix := ""
-	if isActive {
-		suffix = "…"
-	}
-	if len(parts) == 0 {
-		if isActive {
-			return "Working" + suffix
-		}
-		return "Done"
-	}
-	return strings.Join(parts, ", ") + suffix
-}
-
-func (m uiModel) renderToolGroup(e transcriptEntry, termW int) string {
-	summaryText := getSearchReadSummaryText(e.SearchCount, e.ReadCount, e.ListCount, e.IsActive)
-
-	var icon string
-	var iconColor string
-	if e.IsActive {
-		// 애니메이션 스피너 프레임 선택
-		frames := m.theme.SpinnerFrames
-		if len(frames) > 0 {
-			icon = frames[m.motionFrame(len(frames), 2)]
-		} else {
-			icon = IconThinking
-		}
-		iconColor = m.theme.ToolUseTitleColor
-		if m.signatureMotionEnabled() {
-			iconColor = m.getRainbowColor()
-		}
+func (m uiModel) renderToolGroup(e transcriptEntry, _ int) string {
+	name := "Research"; if e.SearchCount > 0 { name = "WebSearch" }
+	headText := name; if e.LastHint != "" { headText = fmt.Sprintf("%s(%s)", name, e.LastHint) }
+	parts := make([]string, 0, 2)
+	if e.SearchCount > 0 {
+		if e.ReadCount > 0 { parts = append(parts, fmt.Sprintf("%d read", e.ReadCount)) }
+		if e.ListCount > 0 { parts = append(parts, fmt.Sprintf("%d list", e.ListCount)) }
 	} else {
-		icon = IconSuccess
-		iconColor = m.theme.StatusLeftColor
+		if e.ReadCount > 0 { parts = append(parts, fmt.Sprintf("%d read", e.ReadCount)) }
+		if e.ListCount > 0 { parts = append(parts, fmt.Sprintf("%d list", e.ListCount)) }
 	}
-
-	iconView := m.theme.style(iconColor).Bold(true).Render(icon)
-	mutedStyle := m.theme.style(m.theme.MutedColor)
-
-	var sb strings.Builder
-	// Design System v2.1: Header with spinner and modern spacing (2칸 들여쓰기 보장)
-	header := "  " + iconView + " " + m.theme.style(m.theme.BodyColor).Bold(true).Render(summaryText)
-	if e.Collapsed && !e.IsActive {
-		header += mutedStyle.Render(" (ctrl+o)")
+	if len(parts) > 0 { headText += " · " + strings.Join(parts, ", ") }
+	if e.IsActive {
+		if m.motionEnabled() {
+			frame := spinnerFrames[m.motionFrame(len(spinnerFrames), 1)]
+			if m.ui.Motion.Reduced || m.ui.Motion.Level == "restrained" {
+				frame = asciiSpinnerFrames[m.motionFrame(len(asciiSpinnerFrames), 2)]
+			}
+			headText += " " + frame + m.animatedDots()
+		} else {
+			headText += "..."
+		}
 	}
-	sb.WriteString(header)
-
-	if e.LastHint != "" {
-		sb.WriteString("\n    " + mutedStyle.Render("› "+e.LastHint))
-	}
-
-	if !e.Collapsed {
-		borderStyle := m.theme.AccentBarStyle.BorderForeground(lipgloss.Color(m.theme.MutedColor)).Margin(0, 0)
-		var subContent []string
+	headerColor := m.theme.ToolUseTitleColor; if !e.IsActive { headerColor = m.theme.StatusLeftColor }
+	header, collapsed := m.theme.style(headerColor).Render(headText), e.Collapsed && !m.transcriptMode
+	if collapsed && !e.IsActive { header += m.theme.style(m.theme.MutedColor).Render(" (ctrl+o to expand)")
+	} else if !collapsed && !e.IsActive { header += m.theme.style(m.theme.MutedColor).Render(" (ctrl+o to collapse)") }
+	var sb strings.Builder; sb.WriteString(header)
+	if !collapsed {
 		for _, sub := range e.SubEntries {
 			rendered := m.renderEntry(sub, false, false, false, false)
-			if rendered != "" {
-				// 하위 항목들에 4칸 들여쓰기 적용
-				lines := strings.Split(rendered, "\n")
-				for i, line := range lines {
-					lines[i] = "    " + line
-				}
-				subContent = append(subContent, strings.Join(lines, "\n"))
+			if rendered == "" { continue }
+			// 하위 항목도 ● 아이콘과 함께 ⎿ 브랜치로 연결
+			subRendered := m.renderTranscriptEntryAt(-1, sub)
+			lines := strings.Split(subRendered, "\n")
+			for i, line := range lines {
+				prefix := "    "
+				if i == 0 { prefix = "  ⎿ " }
+				lines[i] = prefix + line
 			}
-		}
-		if len(subContent) > 0 {
-			sb.WriteString("\n" + borderStyle.Render(strings.Join(subContent, "\n")))
+			sb.WriteString("\n" + strings.Join(lines, "\n"))
 		}
 	}
+	return sb.String()
+}
 
+func (m uiModel) renderParallelGroup(e transcriptEntry, _ int) string {
+	n := len(e.SubEntries); if n == 0 { return "" }
+	failedCount := 0; for _, sub := range e.SubEntries { if sub.Failed { failedCount++ } }
+	accentStyle, bodyStyle, mutedStyle, errorStyle := m.theme.style(m.ClaudeAccentColor()), m.theme.style(m.theme.BodyColor), m.theme.style(m.theme.MutedColor), m.theme.style(m.theme.ErrorTitleColor)
+	glyph, header := accentStyle.Render("⇌"), ""
+	if e.IsActive {
+		if m.motionEnabled() {
+			frame := spinnerFrames[m.motionFrame(len(spinnerFrames), 1)]
+			if m.ui.Motion.Reduced || m.ui.Motion.Level == "restrained" {
+				frame = asciiSpinnerFrames[m.motionFrame(len(asciiSpinnerFrames), 2)]
+			}
+			glyph = accentStyle.Render(frame)
+		}
+		header = fmt.Sprintf("%s %s%s", glyph, bodyStyle.Render(fmt.Sprintf("%d개 병렬 실행 중", n)), m.theme.style(m.theme.MutedColor).Render(m.animatedDots()))
+	} else {
+		duration := ""; if !e.StartTime.IsZero() && !e.EndTime.IsZero() { d := e.EndTime.Sub(e.StartTime); if d < time.Second { duration = fmt.Sprintf(" (%dms)", d.Milliseconds()) } else { duration = fmt.Sprintf(" (%.1fs)", d.Seconds()) } }
+		base := bodyStyle.Render(fmt.Sprintf("%d개 병렬 완료", n)) + mutedStyle.Render(duration)
+		if failedCount > 0 { header = fmt.Sprintf("%s %s — %s", glyph, base, errorStyle.Render(fmt.Sprintf("%d개 실패", failedCount))) } else { header = fmt.Sprintf("%s %s", glyph, base) }
+	}
+	var sb strings.Builder; sb.WriteString(header)
+	for _, sub := range e.SubEntries {
+		rendered := m.renderTranscriptEntryAt(-1, sub)
+		if rendered == "" { continue }
+		lines := strings.Split(rendered, "\n")
+		for i, line := range lines {
+			prefix := "    "
+			if i == 0 { prefix = "  ⎿ " }
+			sb.WriteString("\n" + prefix + line)
+		}
+	}
 	return sb.String()
 }

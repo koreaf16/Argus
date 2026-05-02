@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,16 +59,23 @@ type sshSession struct {
 	closeOnce sync.Once
 	closeErr  error
 
-	stateMu sync.RWMutex
-	cwd     string
-	user    string
+	stateMu          sync.RWMutex
+	cwd              string
+	user             string
+	lastSudoVerifyAt time.Time
 
 	authClosers []io.Closer
 
 	tunnelsMu sync.RWMutex
 	tunnels   map[string]*sshTunnel
 	tunnelSeq atomic.Uint64
+
+	sftpPool chan *sftp.Client
 }
+
+type authFailedError struct{ msg string }
+
+func (e *authFailedError) Error() string { return e.msg }
 
 func newSSHSession(entry ServerEntry, managerPrompt PasswordRequestFunc) (*sshSession, error) {
 	authMethods, authClosers, err := buildAuthMethods(entry, managerPrompt)
@@ -87,7 +95,7 @@ func newSSHSession(entry ServerEntry, managerPrompt PasswordRequestFunc) (*sshSe
 		User:            entry.User,
 		Auth:            authMethods,
 		HostKeyCallback: hostKeyCB,
-		Timeout:         15 * time.Second,
+		Timeout:         30 * time.Second,
 	}
 
 	port := entry.Port
@@ -100,7 +108,7 @@ func newSSHSession(entry ServerEntry, managerPrompt PasswordRequestFunc) (*sshSe
 		closeAll(authClosers)
 		errStr := err.Error()
 		if strings.Contains(errStr, "unable to authenticate") && strings.Contains(errStr, "password") {
-			return nil, fmt.Errorf("authentication failed: incorrect password or password auth disabled")
+			return nil, &authFailedError{"authentication failed: incorrect password or password auth disabled"}
 		} else if strings.Contains(errStr, "unable to authenticate") && strings.Contains(errStr, "publickey") {
 			return nil, fmt.Errorf("authentication failed: invalid SSH key or key rejected by server")
 		} else if strings.Contains(errStr, "connection refused") {
@@ -125,6 +133,7 @@ func newSSHSession(entry ServerEntry, managerPrompt PasswordRequestFunc) (*sshSe
 		user:        entry.User,
 		authClosers: authClosers,
 		tunnels:     make(map[string]*sshTunnel),
+		sftpPool:    make(chan *sftp.Client, 4),
 	}, nil
 }
 
@@ -264,8 +273,9 @@ func (s *sshSession) Exec(ctx context.Context, command string, opts ExecOptions,
 	var stdoutBuf strings.Builder
 	var stderrBuf strings.Builder
 	recentLines := make([]string, 0, 40)
-	maxRetries := 3
+	maxRetries := 2
 	retryCount := 0
+	pwInjectCount := 0
 	waitDone := false
 	chunksDone := false
 	ticker := time.NewTicker(2 * time.Second)
@@ -295,6 +305,21 @@ func (s *sshSession) Exec(ctx context.Context, command string, opts ExecOptions,
 			if len(recentLines) > 40 {
 				recentLines = recentLines[len(recentLines)-40:]
 			}
+
+			// Layer 3: immediate sudo prompt detection on each chunk
+			if isSudoPasswordPrompt(chunk.text) {
+				if pwInjectCount == 0 && opts.RootPassword != "" {
+					pwInjectCount++
+					_, _ = io.WriteString(stdin, opts.RootPassword+"\n")
+				} else if opts.RequestSudoPassword != nil {
+					newPw, err := opts.RequestSudoPassword("sudo password")
+					if err == nil && newPw != "" {
+						opts.RootPassword = newPw
+						pwInjectCount = 0
+						_, _ = io.WriteString(stdin, newPw+"\n")
+					}
+				}
+			}
 		case waitErr := <-waitCh:
 			waitDone = true
 			if waitErr != nil {
@@ -304,11 +329,28 @@ func (s *sshSession) Exec(ctx context.Context, command string, opts ExecOptions,
 				}
 			}
 		case <-ticker.C:
+			// Auxiliary: also check for sudo prompt in case chunk detection missed it
+			snapshot := strings.Join(recentLines, "\n")
+			if isSudoPasswordPrompt(snapshot) {
+				if pwInjectCount == 0 && opts.RootPassword != "" {
+					pwInjectCount++
+					_, _ = io.WriteString(stdin, opts.RootPassword+"\n")
+					continue
+				} else if opts.RequestSudoPassword != nil {
+					newPw, err := opts.RequestSudoPassword("sudo password")
+					if err == nil && newPw != "" {
+						opts.RootPassword = newPw
+						pwInjectCount = 0
+						_, _ = io.WriteString(stdin, newPw+"\n")
+					}
+					continue
+				}
+			}
+			// Non-sudo interactive prompt: fall back to LLM (limited retries)
 			if subQuery == nil || retryCount >= maxRetries || len(recentLines) == 0 {
 				continue
 			}
 			retryCount++
-			snapshot := strings.Join(recentLines, "\n")
 			systemPrompt := "You are a terminal automation assistant. Analyze the terminal output and provide the NECESSARY input string to proceed with the command. ONLY return the input string itself (e.g., 'y', '1', or ''). Do not add any explanation."
 			userPrompt := fmt.Sprintf("Command: %s\nTerminal Output:\n%s\n\nWhat should I type to proceed?", command, snapshot)
 			response, err := subQuery(ctx, systemPrompt, userPrompt)
@@ -352,6 +394,39 @@ func (s *sshSession) Exec(ctx context.Context, command string, opts ExecOptions,
 	}, nil
 }
 
+// warmupSudo refreshes the sudo credential cache via `sudo -v` so that
+// subsequent sudo commands within the same session can succeed without
+// being re-prompted for a password (default sudoers timeout: 5 minutes).
+// It is called automatically when opts.RootPassword is set and the cache
+// has expired or was never initialized.
+func (s *sshSession) warmupSudo(_ context.Context, opts ExecOptions) {
+	s.stateMu.Lock()
+	elapsed := time.Since(s.lastSudoVerifyAt)
+	s.stateMu.Unlock()
+	if elapsed < 4*time.Minute {
+		return
+	}
+	warmupCmd := "sudo -S -v 2>/dev/null"
+	warmupSession, warmupStdin, warmupStdout, _, err := s.openExecSession()
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = warmupStdin.Close()
+		_ = warmupSession.Close()
+	}()
+	if err := warmupSession.Start(warmupCmd); err != nil {
+		return
+	}
+	_, _ = io.WriteString(warmupStdin, opts.RootPassword+"\n")
+	_, _ = io.ReadAll(warmupStdout)
+	if err := warmupSession.Wait(); err == nil {
+		s.stateMu.Lock()
+		s.lastSudoVerifyAt = time.Now()
+		s.stateMu.Unlock()
+	}
+}
+
 func (s *sshSession) StartExec(ctx context.Context, command string, opts ExecOptions, subQuery ExecuteSubQueryFunc) (*ExecHandle, error) {
 	_ = subQuery
 
@@ -361,6 +436,11 @@ func (s *sshSession) StartExec(ctx context.Context, command string, opts ExecOpt
 	}
 	if execCWD == "" {
 		execCWD = "~"
+	}
+
+	// Layer 2: warm up the sudo credential cache before opening the exec session.
+	if opts.RootPassword != "" && strings.Contains(command, "sudo") {
+		s.warmupSudo(ctx, opts)
 	}
 
 	session, stdin, stdout, stderr, err := s.openExecSession()
@@ -422,8 +502,14 @@ func (s *sshSession) StartExec(ctx context.Context, command string, opts ExecOpt
 
 		var stdoutBuf strings.Builder
 		var stderrBuf strings.Builder
+		recentLines := make([]string, 0, 40)
+		maxRetries := 2 // LLM 자동응답은 일반 yes/no 용, 패스워드 prompt는 별도 처리
+		retryCount := 0
+		pwInjectCount := 0 // sudo 패스워드 자동 주입 횟수 (1회 초과 시 모달 fallback)
 		waitDone := false
 		chunksDone := false
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
 
 		for !(waitDone && chunksDone) {
 			select {
@@ -450,6 +536,29 @@ func (s *sshSession) StartExec(ctx context.Context, command string, opts ExecOpt
 					}
 				}
 				streamCh <- chunk.text
+
+				split := strings.Split(strings.ReplaceAll(chunk.text, "\r\n", "\n"), "\n")
+				recentLines = append(recentLines, split...)
+				if len(recentLines) > 40 {
+					recentLines = recentLines[len(recentLines)-40:]
+				}
+
+				// Layer 3 즉시 감지: ticker(2초)를 기다리지 않고 chunk 도착 시 바로 처리.
+				// 패스워드 prompt가 포함된 chunk를 수신하면 즉시 캐시 패스워드를 stdin에 주입.
+				if isSudoPasswordPrompt(chunk.text) {
+					if pwInjectCount == 0 && opts.RootPassword != "" {
+						pwInjectCount++
+						_, _ = io.WriteString(stdin, opts.RootPassword+"\n")
+					} else if opts.RequestSudoPassword != nil {
+						newPw, err := opts.RequestSudoPassword("sudo password")
+						if err == nil && newPw != "" {
+							opts.RootPassword = newPw
+							pwInjectCount = 0
+							_, _ = io.WriteString(stdin, newPw+"\n")
+						}
+					}
+				}
+
 			case waitErr := <-waitCh:
 				waitDone = true
 				if waitErr != nil {
@@ -469,6 +578,45 @@ func (s *sshSession) StartExec(ctx context.Context, command string, opts ExecOpt
 						return
 					}
 				}
+			case <-ticker.C:
+				if len(recentLines) == 0 {
+					continue
+				}
+				snapshot := strings.Join(recentLines, "\n")
+
+				// Layer 3 보조: chunk 즉시 감지가 실패했을 경우를 위한 2초 주기 재체크.
+				// (패스워드 prompt가 여러 chunk에 걸쳐 split된 경우 등)
+				if isSudoPasswordPrompt(snapshot) {
+					if pwInjectCount == 0 && opts.RootPassword != "" {
+						pwInjectCount++
+						_, _ = io.WriteString(stdin, opts.RootPassword+"\n")
+					} else if opts.RequestSudoPassword != nil {
+						newPw, err := opts.RequestSudoPassword("sudo password")
+						if err == nil && newPw != "" {
+							opts.RootPassword = newPw
+							pwInjectCount = 0
+							_, _ = io.WriteString(stdin, newPw+"\n")
+						}
+					}
+					continue
+				}
+
+				// 일반 yes/no 등 비-패스워드 prompt는 LLM 자동응답 허용 (횟수 제한).
+				if subQuery == nil || retryCount >= maxRetries {
+					continue
+				}
+				retryCount++
+				systemPrompt := "You are a terminal automation assistant. Analyze the terminal output and provide the NECESSARY input string to proceed with the command. ONLY return the input string itself (e.g., 'y', '1', or ''). Do not add any explanation."
+				userPrompt := fmt.Sprintf("Command: %s\nTerminal Output:\n%s\n\nWhat should I type to proceed?", command, snapshot)
+				response, err := subQuery(ctx, systemPrompt, userPrompt)
+				if err != nil {
+					continue
+				}
+				response = strings.TrimSpace(response)
+				if response == "" {
+					continue
+				}
+				_, _ = io.WriteString(stdin, response+"\n")
 			}
 		}
 
@@ -665,7 +813,7 @@ func (s *sshSession) writeFileSFTP(path string, content []byte, overwrite bool) 
 	if err != nil {
 		return err
 	}
-	
+
 	// 스트리밍 전송
 	_, err = io.Copy(file, bytes.NewReader(content))
 	file.Close() // 먼저 닫아야 디스크에 완전히 쓰임
@@ -674,11 +822,11 @@ func (s *sshSession) writeFileSFTP(path string, content []byte, overwrite bool) 
 	}
 
 	// [보강] sftp 클라이언트를 직접 사용하여 파일 크기 검증
-	client, err := sftp.NewClient(s.client)
+	client, err := s.acquireSFTPClient()
 	if err != nil {
 		return nil // 클라이언트 생성 실패는 검증만 포기 (데이터는 이미 보냄)
 	}
-	defer client.Close()
+	defer s.releaseSFTPClient(client)
 
 	info, err := client.Stat(path)
 	if err == nil {
@@ -690,39 +838,40 @@ func (s *sshSession) writeFileSFTP(path string, content []byte, overwrite bool) 
 	return nil
 }
 
-
 func (s *sshSession) openFileForReadSFTP(path string) (io.ReadCloser, error) {
-	client, err := sftp.NewClient(s.client)
+	client, err := s.acquireSFTPClient()
 	if err != nil {
 		return nil, fmt.Errorf("open sftp client: %w", err)
 	}
 
 	file, err := client.Open(path)
 	if err != nil {
-		_ = client.Close()
+		s.releaseSFTPClient(client)
 		return nil, err
 	}
-	return &sftpReadCloser{file: file, client: client}, nil
+	return &sftpReadCloser{file: file, release: func() { s.releaseSFTPClient(client) }}, nil
 }
 
 func (s *sshSession) openFileForWriteSFTP(path string, overwrite bool) (io.WriteCloser, error) {
-	client, err := sftp.NewClient(s.client)
+	client, err := s.acquireSFTPClient()
 	if err != nil {
 		return nil, fmt.Errorf("open sftp client: %w", err)
 	}
 
 	if !overwrite {
 		if _, statErr := client.Stat(path); statErr == nil {
-			_ = client.Close()
+			s.releaseSFTPClient(client)
 			return nil, fmt.Errorf("destination already exists: %s", path)
 		}
 	}
 
 	dir := pathpkgDir(path)
 	if dir != "" && dir != "." {
-		if err := client.MkdirAll(dir); err != nil {
-			_ = client.Close()
-			return nil, fmt.Errorf("create remote directory %s: %w", dir, err)
+		if _, err := client.Stat(dir); err != nil {
+			if err := client.MkdirAll(dir); err != nil {
+				s.releaseSFTPClient(client)
+				return nil, fmt.Errorf("create remote directory %s: %w", dir, err)
+			}
 		}
 	}
 
@@ -732,15 +881,15 @@ func (s *sshSession) openFileForWriteSFTP(path string, overwrite bool) (io.Write
 	}
 	file, err := client.OpenFile(path, flags)
 	if err != nil {
-		_ = client.Close()
+		s.releaseSFTPClient(client)
 		return nil, err
 	}
-	return &sftpWriteCloser{file: file, client: client}, nil
+	return &sftpWriteCloser{file: file, release: func() { s.releaseSFTPClient(client) }}, nil
 }
 
 type sftpReadCloser struct {
-	file   *sftp.File
-	client *sftp.Client
+	file    *sftp.File
+	release func()
 }
 
 func (c *sftpReadCloser) Read(p []byte) (int, error) {
@@ -749,16 +898,15 @@ func (c *sftpReadCloser) Read(p []byte) (int, error) {
 
 func (c *sftpReadCloser) Close() error {
 	fileErr := c.file.Close()
-	clientErr := c.client.Close()
-	if fileErr != nil {
-		return fileErr
+	if c.release != nil {
+		c.release()
 	}
-	return clientErr
+	return fileErr
 }
 
 type sftpWriteCloser struct {
-	file   *sftp.File
-	client *sftp.Client
+	file    *sftp.File
+	release func()
 }
 
 func (c *sftpWriteCloser) Write(p []byte) (int, error) {
@@ -767,11 +915,10 @@ func (c *sftpWriteCloser) Write(p []byte) (int, error) {
 
 func (c *sftpWriteCloser) Close() error {
 	fileErr := c.file.Close()
-	clientErr := c.client.Close()
-	if fileErr != nil {
-		return fileErr
+	if c.release != nil {
+		c.release()
 	}
-	return clientErr
+	return fileErr
 }
 
 func (s *sshSession) uploadFileSFTP(localPath, remotePath string, overwrite bool) error {
@@ -821,11 +968,11 @@ func (s *sshSession) downloadFileSFTP(remotePath, localPath string, overwrite bo
 }
 
 func (s *sshSession) listDirSFTP(root string, recursive bool, depth int) ([]FileEntry, error) {
-	client, err := sftp.NewClient(s.client)
+	client, err := s.acquireSFTPClient()
 	if err != nil {
 		return nil, fmt.Errorf("open sftp client: %w", err)
 	}
-	defer client.Close()
+	defer s.releaseSFTPClient(client)
 
 	base := strings.TrimSpace(root)
 	if base == "" {
@@ -877,6 +1024,41 @@ func pathpkgDir(p string) string {
 		return ""
 	}
 	return path.Dir(cleaned)
+}
+
+func (s *sshSession) acquireSFTPClient() (*sftp.Client, error) {
+	select {
+	case client := <-s.sftpPool:
+		if client != nil {
+			return client, nil
+		}
+	default:
+	}
+	return sftp.NewClient(s.client)
+}
+
+func (s *sshSession) releaseSFTPClient(client *sftp.Client) {
+	if client == nil {
+		return
+	}
+	select {
+	case s.sftpPool <- client:
+	default:
+		_ = client.Close()
+	}
+}
+
+func (s *sshSession) closeSFTPClients() {
+	for {
+		select {
+		case client := <-s.sftpPool:
+			if client != nil {
+				_ = client.Close()
+			}
+		default:
+			return
+		}
+	}
 }
 
 func (s *sshSession) openTunnel(localAddr, remoteAddr string) (TunnelInfo, error) {
@@ -1003,6 +1185,7 @@ func (s *sshSession) closeTunnels() {
 func (s *sshSession) Close() error {
 	s.closeOnce.Do(func() {
 		s.closeTunnels()
+		s.closeSFTPClients()
 		if s.client != nil {
 			s.closeErr = s.client.Close()
 		}
@@ -1021,6 +1204,17 @@ func (s *sshSession) currentUser() string {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
 	return s.user
+}
+
+// sudoPromptRe matches password prompts produced by sudo and su across common
+// locales (English, Korean). It is used to detect when a remote command is
+// blocked waiting for a password and auto-inject the cached credential.
+var sudoPromptRe = regexp.MustCompile(`(?im)(^\s*\[sudo\]|Password\s*:|암호\s*:|password for\b|Sorry,\s*try\s*again)`)
+
+// isSudoPasswordPrompt reports whether output contains a recognisable sudo/su
+// password prompt that we can satisfy from the cached credential.
+func isSudoPasswordPrompt(output string) bool {
+	return sudoPromptRe.MatchString(output)
 }
 
 func decodeBase64(raw string) (string, error) {

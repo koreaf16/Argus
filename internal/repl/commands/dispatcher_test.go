@@ -24,6 +24,42 @@ func TestDispatchUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestDispatchElevateCommandRemoved(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	_, err := Dispatch("/elevate a100-server", CommandContext{
+		Context: context.Background(),
+		Stdout:  &out,
+		State:   state.NewAppState(),
+	})
+	if err == nil {
+		t.Fatalf("expected error for removed /elevate command")
+	}
+	if !strings.Contains(err.Error(), "unknown command: /elevate") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDispatchHelpDoesNotListElevate(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	_, err := Dispatch("/help", CommandContext{
+		Context: context.Background(),
+		Stdout:  &out,
+		State:   state.NewAppState(),
+	})
+	if err != nil {
+		t.Fatalf("help failed: %v", err)
+	}
+	got := out.String()
+	if strings.Contains(got, "/elevate") {
+		t.Fatalf("help still lists /elevate: %s", got)
+	}
+	if !strings.Contains(got, "/server list|add|edit|connect") {
+		t.Fatalf("help does not advertise /server edit: %s", got)
+	}
+}
+
 func TestDispatchCommitNonGitRepo(t *testing.T) {
 	t.Parallel()
 	var out strings.Builder
@@ -66,6 +102,65 @@ func TestDispatchConfigSetAndGet(t *testing.T) {
 	}
 }
 
+func TestServerEditCommandInvokesFormAndSaves(t *testing.T) {
+	t.Parallel()
+	registryPath := filepath.Join(t.TempDir(), "servers.json")
+	reg := workspace.NewRegistry(registryPath)
+	if err := reg.Add(workspace.ServerEntry{
+		Alias: "a100-server",
+		Kind:  workspace.ServerKindSSH,
+		Host:  "10.0.0.8",
+		Port:  22,
+		User:  "ubuntu",
+	}); err != nil {
+		t.Fatalf("add server: %v", err)
+	}
+	ws := workspace.NewManager(reg, nil)
+
+	var out strings.Builder
+	var requestedAlias string
+	_, err := Dispatch("/server edit a100-server", CommandContext{
+		Context:   context.Background(),
+		Stdout:    &out,
+		Workspace: ws,
+		State:     state.NewAppState(),
+		ServerFormPrompt: func(_ context.Context, req ServerFormRequest) (ServerFormResult, error) {
+			requestedAlias = req.EditAlias
+			return ServerFormResult{Entry: workspace.ServerEntry{
+				Alias: "a100-server",
+				Kind:  workspace.ServerKindSSH,
+				Host:  "10.0.0.9",
+				Port:  2222,
+				User:  "admin",
+				Elevation: workspace.Elevation{
+					Allowed:     true,
+					Mode:        "reuse_login",
+					TargetUsers: []string{"root"},
+				},
+			}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("dispatch server edit: %v", err)
+	}
+	if requestedAlias != "a100-server" {
+		t.Fatalf("prompt edit alias = %q, want a100-server", requestedAlias)
+	}
+	entry, ok := reg.Get("a100-server")
+	if !ok {
+		t.Fatal("edited server missing from registry")
+	}
+	if entry.Host != "10.0.0.9" || entry.Port != 2222 || entry.User != "admin" {
+		t.Fatalf("server was not updated: %+v", entry)
+	}
+	if !entry.Elevation.Allowed || entry.Elevation.Mode != "reuse_login" || len(entry.Elevation.TargetUsers) != 1 || entry.Elevation.TargetUsers[0] != "root" {
+		t.Fatalf("elevation was not updated: %+v", entry.Elevation)
+	}
+	if !strings.Contains(out.String(), "updated server: a100-server") {
+		t.Fatalf("missing update summary: %s", out.String())
+	}
+}
+
 func TestServerDisconnectWithoutAliasResetsActiveWorkspace(t *testing.T) {
 	reg := workspace.NewRegistry("")
 	if err := reg.Add(workspace.ServerEntry{
@@ -99,5 +194,44 @@ func TestServerDisconnectWithoutAliasResetsActiveWorkspace(t *testing.T) {
 	}
 	if appState.ActiveWorkspace() != workspace.LocalAlias {
 		t.Fatalf("state active workspace = %q, want %q", appState.ActiveWorkspace(), workspace.LocalAlias)
+	}
+}
+
+func TestServerAccountAddCreatesWorkTarget(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "servers.json")
+	reg := workspace.NewRegistry(registryPath)
+	if err := reg.Add(workspace.ServerEntry{
+		Alias: "parent",
+		Kind:  workspace.ServerKindSSH,
+		Host:  "10.0.0.8",
+		Port:  22,
+		User:  "master",
+	}); err != nil {
+		t.Fatalf("add parent: %v", err)
+	}
+	ws := workspace.NewManager(reg, nil)
+
+	var out strings.Builder
+	_, err := Dispatch("/server account add parent app --alias parent-app --method su --cwd /srv/app", CommandContext{
+		Context:   context.Background(),
+		Stdout:    &out,
+		Workspace: ws,
+		State:     state.NewAppState(),
+	})
+	if err != nil {
+		t.Fatalf("dispatch account add: %v", err)
+	}
+	entry, ok := reg.Get("parent-app")
+	if !ok {
+		t.Fatal("account target missing")
+	}
+	if entry.Kind != workspace.ServerKindAccount || entry.ParentAlias != "parent" || entry.User != "app" || entry.SwitchMethod != workspace.PrivilegeSU {
+		t.Fatalf("unexpected account target: %+v", entry)
+	}
+	if entry.DefaultCWD != "/srv/app" {
+		t.Fatalf("default cwd = %q", entry.DefaultCWD)
+	}
+	if !strings.Contains(out.String(), "added work account: parent-app") {
+		t.Fatalf("missing account add summary: %s", out.String())
 	}
 }

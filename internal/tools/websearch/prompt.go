@@ -30,10 +30,14 @@ func GetWebSearchPrompt() string {
 	return fmt.Sprintf(
 		"- Search the web for up-to-date information.\n"+
 			"- Returns structured results with title, URL, and snippet.\n"+
-			"- For latest/current/news requests, prefer snippets if they contain definitive facts (e.g., current temperature, stock price).\n"+
-			"- Only call webfetch if snippets are incomplete, contradictory, or lack necessary depth.\n"+
+			"- For latest/current/news requests, web_search is only the discovery step. You MUST call webfetch on at least one selected result before finalizing.\n"+
+			"- For research, comparisons, procedures, checklists, or operational guidance, do not rely on one page unless the user supplied an exact URL or explicitly asked for one source.\n"+
 			"\n"+
 			"Search strategy:\n"+
+			"- For complex or research-style queries, issue 2-4 web_search calls simultaneously in a single response.\n"+
+			"  Example: search official docs AND release notes AND community resources in parallel.\n"+
+			"- Do NOT wait for one search result before issuing the next when queries are independent.\n"+
+			"- After those searches, webfetch at least two high-signal candidate URLs, preferably from distinct domains, before finalizing.\n"+
 			"- If the user explicitly names a site (for example Hugging Face, GitHub, Docker Hub), prioritize that site first.\n"+
 			"- Use broad search terms initially. Avoid overly specific constraints unless necessary.\n"+
 			"- If a search returns no results, DO NOT immediately conclude the information does not exist. Try again with broader or alternative search terms.\n"+

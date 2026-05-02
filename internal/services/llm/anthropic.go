@@ -90,6 +90,7 @@ func (a *anthropicLLM) Stream(ctx context.Context, req Request) (<-chan Event, e
 	if err != nil {
 		return nil, err
 	}
+	appendRequestLog(a.Provider(), model, req)
 	if req.TraceHook != nil {
 		reqCopy := req
 		reqCopy.TraceHook = nil

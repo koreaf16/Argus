@@ -1,3 +1,0 @@
-/server connect sandbox-server
-Welcome1!@#$
-bash 도구 server="sandbox-server" 으로 Oracle 설치 결과 확인: (1) echo "=== oracle_install2 log ===" && cat /tmp/oracle_install2.log 2>&1. (2) echo "=== inventory log ===" && ls -la /u01/app/oraInventory/logs/ 2>&1 && tail -50 /u01/app/oraInventory/logs/InstallActions2026-04-26_10-59-09AM/installActions*.log 2>/dev/null || echo "no_log". (3) echo "=== oracle binary ===" && ls -la /u01/app/oracle/product/19.0.0/dbhome_1/bin/oracle 2>&1 && ls -la /u01/app/oracle/product/19.0.0/dbhome_1/bin/sqlplus 2>&1. (4) echo "=== inventory xml ===" && cat /u01/app/oraInventory/ContentsXML/inventory.xml 2>&1 || echo "no_inventory".

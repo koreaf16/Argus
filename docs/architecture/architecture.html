@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Argus Architecture Diagram</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+    padding: 40px;
+    display: flex;
+    justify-content: center;
+  }
+  .container {
+    width: 1400px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 32px;
+    color: #58a6ff;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 40px;
+  }
+
+  /* Row layout */
+  .row {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .row-label {
+    position: absolute;
+    left: -10px;
+    top: 50%;
+    transform: translateY(-50%) rotate(-90deg);
+    font-size: 10px;
+    color: #484f58;
+    letter-spacing: 2px;
+  }
+
+  /* Box styles */
+  .box {
+    border-radius: 10px;
+    padding: 14px 18px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    position: relative;
+    min-width: 140px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .box .icon { font-size: 22px; margin-bottom: 4px; }
+  .box .label { font-size: 13px; font-weight: 700; }
+  .box .desc { font-size: 10px; color: #8b949e; margin-top: 2px; font-weight: 400; }
+
+  .box-user { background: linear-gradient(135deg, #1f6feb33, #1f6feb11); border: 2px solid #1f6feb; }
+  .box-cli { background: linear-gradient(135deg, #23863633, #23863611); border: 2px solid #238636; }
+  .box-tui { background: linear-gradient(135deg, #a371f733, #a371f711); border: 2px solid #a371f7; }
+  .box-engine { background: linear-gradient(135deg, #f0883e33, #f0883e11); border: 2px solid #f0883e; }
+  .box-context { background: linear-gradient(135deg, #da363333, #da363311); border: 2px solid #da3633; }
+  .box-tool { background: linear-gradient(135deg, #1f6feb33, #1f6feb11); border: 2px solid #58a6ff; }
+  .box-hook { background: linear-gradient(135deg, #d2992233, #d2992211); border: 2px solid #d29922; }
+  .box-state { background: linear-gradient(135deg, #39d2c033, #39d2c011); border: 2px solid #39d2c0; }
+  .box-llm { background: linear-gradient(135deg, #f778ba33, #f778ba11); border: 2px solid #f778ba; }
+  .box-mcp { background: linear-gradient(135deg, #7ee78733, #7ee78711); border: 2px solid #7ee787; }
+  .box-security { background: linear-gradient(135deg, #f8514933, #f8514911); border: 2px solid #f85149; }
+  .box-utils { background: linear-gradient(135deg, #8b949e33, #8b949e11); border: 2px solid #8b949e; }
+  .box-storage { background: linear-gradient(135deg, #58a6ff33, #58a6ff11); border: 2px solid #388bfd; }
+  .box-jobs { background: linear-gradient(135deg, #d2992233, #d2992211); border: 2px solid #d29922; }
+
+  /* Sub boxes */
+  .sub-row {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .sub-box {
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 10px;
+    font-weight: 500;
+    background: #161b22;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    text-align: center;
+    min-width: 90px;
+  }
+
+  /* Arrows */
+  .arrow-down {
+    text-align: center;
+    color: #484f58;
+    font-size: 20px;
+    margin: 4px 0;
+  }
+  .arrow-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    margin: 4px 0;
+  }
+  .arrow-h {
+    color: #484f58;
+    font-size: 16px;
+  }
+
+  /* Connector lines between engine and subsystems */
+  .engine-row {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 6px;
+  }
+  .connector-row {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin: 4px 0;
+  }
+  .conn-placeholder { visibility: hidden; min-width: 140px; }
+  .conn-arrow {
+    color: #484f58;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 140px;
+  }
+
+  /* Bracket for subsystems */
+  .bracket-container {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 6px 0;
+  }
+
+  /* Title bar */
+  .section-title {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: #58a6ff;
+    margin: 30px 0 16px;
+    padding: 6px;
+    border-top: 1px solid #21262d;
+    border-bottom: 1px solid #21262d;
+  }
+
+  /* Data flow section */
+  .flow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin: 6px 0;
+    flex-wrap: wrap;
+  }
+  .flow-box {
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    min-width: 100px;
+  }
+  .flow-arrow { color: #58a6ff; font-size: 16px; }
+
+  .fb-blue { background: #1f6feb22; border: 1px solid #1f6feb; }
+  .fb-green { background: #23863622; border: 1px solid #238636; }
+  .fb-purple { background: #a371f722; border: 1px solid #a371f7; }
+  .fb-orange { background: #f0883e22; border: 1px solid #f0883e; }
+  .fb-red { background: #da363322; border: 1px solid #da3633; }
+  .fb-pink { background: #f778ba22; border: 1px solid #f778ba; }
+  .fb-yellow { background: #d2992222; border: 1px solid #d29922; }
+  .fb-teal { background: #39d2c022; border: 1px solid #39d2c0; }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 30px;
+    padding: 12px;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    background: #161b22;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 3px;
+  }
+
+  /* Tool grid */
+  .tool-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    margin: 10px 0;
+  }
+  .tool-cell {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+    font-size: 10px;
+  }
+  .tool-cell .cat { font-weight: 700; color: #58a6ff; font-size: 10px; margin-bottom: 3px; }
+  .tool-cell .names { color: #8b949e; font-size: 9px; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>Argus System Architecture</h1>
+  <p class="subtitle">Go 기반 터미널 중심 AI 에이전트 — 전체 시스템 구조</p>
+
+  <!-- ============ SECTION: HIGH-LEVEL ============ -->
+  <div class="section-title">📐 전체 구조도 (High-Level Architecture)</div>
+
+  <!-- User -->
+  <div class="row">
+    <div class="box box-user" style="min-width:200px;">
+      <span class="icon">👤</span>
+      <span class="label">User (Terminal)</span>
+      <span class="desc">터미널을 통한 상호작용</span>
+    </div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <!-- CLI -->
+  <div class="row">
+    <div class="box box-cli" style="min-width:260px;">
+      <span class="icon">📥</span>
+      <span class="label">CLI Entry Point</span>
+      <span class="desc">cmd/argus/main.go · init.go · version.go</span>
+    </div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <!-- TUI -->
+  <div class="row">
+    <div class="box box-tui" style="min-width:360px;">
+      <span class="icon">🖥️</span>
+      <span class="label">TUI Layer (Bubble Tea)</span>
+      <span class="desc">tui.go · model.go · render.go · transcript.go · markdown/ · toolui/</span>
+    </div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <!-- TUI sub -->
+  <div class="sub-row">
+    <div class="sub-box">model.go<br/>메시지 처리</div>
+    <div class="sub-box">render.go<br/>Footer/Logo</div>
+    <div class="sub-box">transcript.go<br/>스크롤백 출력</div>
+    <div class="sub-box">markdown/<br/>MD 렌더링</div>
+    <div class="sub-box">cursor_park.go<br/>IME 커서 파킹</div>
+    <div class="sub-box">modal/*.go<br/>모달 UI</div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <!-- Query Engine -->
+  <div class="row">
+    <div class="box box-engine" style="min-width:400px;">
+      <span class="icon">⚙️</span>
+      <span class="label">Query Engine (Core Heart)</span>
+      <span class="desc">internal/query/engine.go — LLM 스트림 & 도구 호출 루프 조율</span>
+    </div>
+  </div>
+  <div class="arrow-down">▼▼▼</div>
+
+  <!-- Subsystems row -->
+  <div class="row" style="gap:10px; flex-wrap: wrap;">
+    <div class="box box-context" style="min-width:160px;">
+      <span class="icon">🧠</span>
+      <span class="label">Context</span>
+      <span class="desc">Graph · Distiller<br/>Token Estimator</span>
+    </div>
+    <div class="box box-tool" style="min-width:160px;">
+      <span class="icon">🔧</span>
+      <span class="label">Tool System</span>
+      <span class="desc">23개 내장 도구<br/>+ MCP Bridge</span>
+    </div>
+    <div class="box box-hook" style="min-width:160px;">
+      <span class="icon">🪝</span>
+      <span class="label">Hook System</span>
+      <span class="desc">Dispatcher · Executor<br/>File Watcher</span>
+    </div>
+    <div class="box box-state" style="min-width:160px;">
+      <span class="icon">💾</span>
+      <span class="label">State</span>
+      <span class="desc">App · Model · Session<br/>Permission · Todo</span>
+    </div>
+    <div class="box box-llm" style="min-width:160px;">
+      <span class="icon">🤖</span>
+      <span class="label">LLM Provider</span>
+      <span class="desc">Anthropic · Gemini<br/>OpenAI-compat</span>
+    </div>
+    <div class="box box-security" style="min-width:160px;">
+      <span class="icon">🔒</span>
+      <span class="label">Security</span>
+      <span class="desc">Permission Rules<br/>DPAPI · Path Guard</span>
+    </div>
+  </div>
+  <div class="arrow-down">▼▼</div>
+
+  <!-- Utils & Shell Jobs -->
+  <div class="row" style="gap:10px;">
+    <div class="box box-utils" style="min-width:200px;">
+      <span class="icon">🛠️</span>
+      <span class="label">Utilities</span>
+      <span class="desc">bash/ · powershell/ · sandbox/ · ultraplan/</span>
+    </div>
+    <div class="box box-jobs" style="min-width:200px;">
+      <span class="icon">⏳</span>
+      <span class="label">Shell Jobs</span>
+      <span class="desc">internal/shelljobs/manager.go</span>
+    </div>
+    <div class="box box-mcp" style="min-width:200px;">
+      <span class="icon">🔌</span>
+      <span class="label">MCP Integration</span>
+      <span class="desc">BridgeTool · mcp.json · Manager</span>
+    </div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <!-- Storage -->
+  <div class="row">
+    <div class="box box-storage" style="min-width:500px;">
+      <span class="icon">💿</span>
+      <span class="label">Persistent Storage (~/.argus/)</span>
+      <span class="desc">sessions/*.ndjson · session-artifacts/ · permissions/ · mcp.json · models.json · settings.json</span>
+    </div>
+  </div>
+
+  <!-- ============ SECTION: DATA FLOW ============ -->
+  <div class="section-title">🔄 데이터 흐름 (End-to-End Data Flow)</div>
+
+  <div class="flow-row">
+    <div class="flow-box fb-blue">👤<br/>User Input</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-purple">🖥️<br/>TUI Submit</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-yellow">🪝<br/>HookDispatch</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-red">🧠<br/>AppendUser</div>
+  </div>
+  <div class="flow-row" style="margin-left: 80px;">
+    <div class="flow-box fb-red">🧠<br/>RenderForLLM</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-pink">🤖<br/>LLM Stream</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-orange">⚙️<br/>Tool Call</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-teal">💾<br/>Distill & Save</div>
+  </div>
+  <div class="flow-row" style="margin-left: 80px;">
+    <div class="flow-box fb-red">🧠<br/>AppendResult</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-orange">⚙️<br/>Next Iteration</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-green">✅<br/>UIEventDone</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-blue">💿<br/>Session Save</div>
+  </div>
+
+  <!-- ============ SECTION: QUERY ENGINE LOOP ============ -->
+  <div class="section-title">🔁 쿼리 엔진 실행 루프 (Query Engine Run Loop)</div>
+
+  <div class="flow-row">
+    <div class="flow-box fb-orange" style="min-width:130px;">SubmitMessage<br/>(입력)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-yellow" style="min-width:130px;">HookDispatch<br/>(UserPrompt)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-red" style="min-width:130px;">graph.AppendUser</div>
+  </div>
+  <div style="text-align:center; color:#484f58; margin:6px 0; font-size:12px;">┌── for iter < 100 (Tool Iteration Loop) ──────────────────────────────────┐</div>
+  <div class="flow-row">
+    <div class="flow-box fb-red" style="min-width:130px;">RenderForLLM<br/>(MarkProtected)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-blue" style="min-width:130px;">ToolSpecs<br/>(Plan Mode 필터)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-orange" style="min-width:130px;">ToolChoice<br/>(classifier/auto)</div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-box fb-orange" style="min-width:130px;">Token Count<br/>(초과면 Consolidate)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-pink" style="min-width:130px;">LLM Stream<br/>(SSE 이벤트)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-purple" style="min-width:130px;">Event 처리<br/>(Text/Thinking/Tool)</div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-box fb-blue" style="min-width:130px;">Tool Lookup<br/>(Registry)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-red" style="min-width:130px;">Permission Check<br/>(Disk→Session→Ask)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-green" style="min-width:130px;">Tool.Call()<br/>(병렬 실행)</div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-box fb-teal" style="min-width:130px;">Distiller.Distill<br/>(계층적 압축)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-red" style="min-width:130px;">AppendToolResult</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-orange" style="min-width:130px;">↻ Next Iteration</div>
+  </div>
+  <div style="text-align:center; color:#484f58; margin:6px 0; font-size:12px;">└────────────────────────────────────────────────────────────────────────────┘</div>
+  <div class="flow-row">
+    <div class="flow-box fb-green" style="min-width:130px;">toolCalls == 0<br/>→ UIEventDone</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-blue" style="min-width:130px;">persistSession<br/>(NDJSON 저장)</div>
+  </div>
+
+  <!-- ============ SECTION: CONTEXT GRAPH ============ -->
+  <div class="section-title">🧠 Context Graph — 그래프 기반 문맥 관리</div>
+
+  <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin:10px 0;">
+    <div class="sub-box" style="border-color:#1f6feb; color:#58a6ff; min-width:110px;">👤 User Node</div>
+    <div class="sub-box" style="border-color:#a371f7; color:#a371f7; min-width:110px;">💬 Assistant Node</div>
+    <div class="sub-box" style="border-color:#d29922; color:#d29922; min-width:110px;">🤔 Thinking Node</div>
+    <div class="sub-box" style="border-color:#f0883e; color:#f0883e; min-width:110px;">🔧 ToolUse Node</div>
+    <div class="sub-box" style="border-color:#39d2c0; color:#39d2c0; min-width:110px;">📊 ToolResult Node</div>
+    <div class="sub-box" style="border-color:#f778ba; color:#f778ba; min-width:110px;">📝 Summary Node</div>
+    <div class="sub-box" style="border-color:#7ee787; color:#7ee787; min-width:110px;">📁 ArtifactRef Node</div>
+  </div>
+
+  <div class="flow-row">
+    <div class="flow-box fb-red">Full<br/>≤8,000 chars</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-orange">Partial<br/>8~20K head+tail</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-pink">Summary<br/>20K+ LLM 요약</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-yellow">Extractive<br/>head5 + tail5</div>
+  </div>
+
+  <!-- ============ SECTION: TOOL SYSTEM ============ -->
+  <div class="section-title">🔧 Tool 시스템 — 23개 내장 도구 + MCP 동적 확장</div>
+
+  <div class="tool-grid">
+    <div class="tool-cell"><div class="cat">셸 도구</div><div class="names">bash<br/>powershell<br/>shelljob<br/>shelljobcontrol</div></div>
+    <div class="tool-cell"><div class="cat">파일 / FS</div><div class="names">fileread<br/>filewrite<br/>fslist<br/>glob<br/>grep</div></div>
+    <div class="tool-cell"><div class="cat">웹</div><div class="names">webfetch<br/>websearch</div></div>
+    <div class="tool-cell"><div class="cat">계획 / 관리</div><div class="names">todowrite<br/>todoread<br/>task<br/>enterplanmode<br/>exitplanmode</div></div>
+    <div class="tool-cell"><div class="cat">외부 통합</div><div class="names">mcptool<br/>lsptool<br/>listmcpresources<br/>readmcpresource<br/>mcpauth</div></div>
+    <div class="tool-cell"><div class="cat">서버 관리</div><div class="names">serverconnect<br/>servercopy<br/>serverinspect<br/>servermetrics<br/>servertunnel</div></div>
+    <div class="tool-cell"><div class="cat">기타</div><div class="names">skilltool<br/>sniptool<br/>askuser<br/>enterworktree<br/>exitworktree</div></div>
+  </div>
+
+  <div class="flow-row">
+    <div class="flow-box fb-green">mcp.json<br/>(설정)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-green">Manager.Load()</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-green">BridgeTool 생성<br/>mcp__server__tool</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-blue">Registry.Register</div>
+  </div>
+
+  <!-- ============ SECTION: LLM PROVIDERS ============ -->
+  <div class="section-title">🤖 LLM Provider — 3종 지원 + 변환 레이어</div>
+
+  <div style="display:flex; justify-content:center; gap:20px; flex-wrap:wrap; margin:10px 0;">
+    <div class="box box-llm" style="min-width:220px;">
+      <span class="icon">🟣</span>
+      <span class="label">Anthropic</span>
+      <span class="desc">POST /messages<br/>tool_use / tool_result<br/>extended_thinking</span>
+    </div>
+    <div class="box box-llm" style="min-width:220px; border-color:#f778ba;">
+      <span class="icon">🔵</span>
+      <span class="label">Gemini</span>
+      <span class="desc">streamGenerateContent<br/>functionCall / functionResponse</span>
+    </div>
+    <div class="box box-llm" style="min-width:220px; border-color:#f778ba;">
+      <span class="icon">⚪</span>
+      <span class="label">OpenAI-compat</span>
+      <span class="desc">POST /chat/completions<br/>function_call / tool_calls<br/>URL 자동 정규화</span>
+    </div>
+  </div>
+
+  <div class="flow-row">
+    <div class="flow-box fb-pink">공급자별 Tool Call</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-orange">toolcalls.go<br/>(변환 레이어)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-blue">내부 표준<br/>ToolSpec / ToolResult</div>
+  </div>
+
+  <!-- ============ SECTION: PERMISSION ============ -->
+  <div class="section-title">🔒 권한 시스템 — 3단계 검증</div>
+
+  <div class="flow-row">
+    <div class="flow-box fb-orange">Tool Call</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-blue">Disk Rules<br/>~/.argus/permissions/<br/>2초 TTL 캐시</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-teal">Session Rules<br/>AppState</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-yellow">Tool.CheckPermission</div>
+  </div>
+  <div class="flow-row" style="margin-left:160px;">
+    <div class="flow-box fb-green">Allow → 실행</div>
+    <span style="color:#484f58;">|</span>
+    <div class="flow-box fb-red">Deny → 차단</div>
+    <span style="color:#484f58;">|</span>
+    <div class="flow-box fb-orange">ReadOnly? → Allow / Ask → Prompt</div>
+  </div>
+
+  <!-- ============ SECTION: HOOK SYSTEM ============ -->
+  <div class="section-title">🪝 Hook System — 이벤트 기반 확장</div>
+
+  <div style="display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin:10px 0;">
+    <div class="sub-box" style="border-color:#d29922; color:#d29922;">SessionStart</div>
+    <div class="sub-box" style="border-color:#d29922; color:#d29922;">UserPrompt</div>
+    <div class="sub-box" style="border-color:#d29922; color:#d29922;">CwdChanged</div>
+    <div class="sub-box" style="border-color:#d29922; color:#d29922;">FileChanged</div>
+    <div class="sub-box" style="border-color:#d29922; color:#d29922;">Stop</div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-box fb-yellow">HookDispatcher</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-yellow">resolveCommands</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-yellow">조건 필터</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-yellow">once 체크</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box fb-yellow">Executor</div>
+  </div>
+  <div style="display:flex; justify-content:center; gap:10px; margin:8px 0;">
+    <div class="sub-box">executeCommand<br/>(셸 명령)</div>
+    <div class="sub-box">executeHTTP<br/>(HTTP POST)</div>
+    <div class="sub-box">executePrompt<br/>(LLM 서브 쿼리)</div>
+  </div>
+
+  <!-- ============ LEGEND ============ -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#1f6feb;"></div> CLI / Tool / Storage</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#238636;"></div> Entry Point</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a371f7;"></div> TUI Layer</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f0883e;"></div> Query Engine</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#da3633;"></div> Context</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f778ba;"></div> LLM Provider</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#d29922;"></div> Hook / Shell Jobs</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#39d2c0;"></div> State</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#7ee787;"></div> MCP Integration</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f85149;"></div> Security</div>
+  </div>
+
+  <div style="text-align:center; margin-top:20px; font-size:11px; color:#484f58;">
+    Argus v1.0 — Go 1.23 · Bubble Tea v1.2.4 · Lipgloss v1.1.0 · Chroma v2.23.1
+  </div>
+</div>
+</body>
+</html>

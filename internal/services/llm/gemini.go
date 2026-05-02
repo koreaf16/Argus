@@ -74,6 +74,7 @@ func (g *geminiLLM) Stream(ctx context.Context, req Request) (<-chan Event, erro
 	if err != nil {
 		return nil, err
 	}
+	appendRequestLog(g.Provider(), model, req)
 	if req.TraceHook != nil {
 		reqCopy := req
 		reqCopy.TraceHook = nil

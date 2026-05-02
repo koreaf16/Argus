@@ -29,9 +29,12 @@ type ServerListResult struct {
 
 // ServerFormResult is the output produced by the interactive server-add form.
 type ServerFormResult struct {
-	Entry        workspace.ServerEntry
-	Password     string // plaintext; dispatcher decides whether to persist
-	SavePassword bool   // user opted-in to DPAPI persistence
+	Entry             workspace.ServerEntry
+	WorkAccounts      []workspace.ServerEntry
+	Password          string            // SSH login password (plaintext); dispatcher decides whether to persist
+	SavePassword      bool              // user opted-in to DPAPI persistence
+	ElevationPassword string            // sudo/su password (plaintext); stored separately in CredentialStore
+	TargetPasswords   map[string]string // specific sudo/su passwords per target user
 }
 
 type CommandContext struct {

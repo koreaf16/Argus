@@ -23,6 +23,10 @@ func (t *ShellJobControlTool) Description(ctx tool.Context) string {
 	return "Control background shell jobs. Actions: stop, send_input."
 }
 
+func (t *ShellJobControlTool) IsVisible(ctx tool.Context) bool {
+	return ctx.ShellJobs != nil && len(ctx.ShellJobs.List()) > 0
+}
+
 func (t *ShellJobControlTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",

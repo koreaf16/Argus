@@ -28,10 +28,14 @@ func (r *FileReadRenderer) RenderToolUse(args map[string]any, _ string, theme to
 	path, _ := args["path"].(string)
 	start, _ := args["start_line"].(float64)
 	end, _ := args["end_line"].(float64)
+	server := renderTargetAlias(args)
 
 	var sb strings.Builder
 	sb.WriteString(theme.Style(theme.ToolUseColor()).Bold(true).Render("  Read: "))
 	sb.WriteString(theme.Style(theme.BodyColor()).Render(path))
+	if server != "" {
+		sb.WriteString(theme.Style(theme.MutedColor()).Render(" [" + server + "]"))
+	}
 	if start > 0 || end > 0 {
 		sb.WriteString(theme.Style(theme.MutedColor()).Render(fmt.Sprintf(" (lines %v-%v)", start, end)))
 	}
@@ -70,6 +74,8 @@ func (t *FileReadTool) InputSchema() tool.ToolInputJSONSchema {
 			"start_line": map[string]any{"type": "integer", "description": "Start line (1-indexed)"},
 			"end_line":   map[string]any{"type": "integer", "description": "End line (inclusive)"},
 			"server":     map[string]any{"type": "string", "description": "Optional workspace alias. Defaults to active workspace."},
+			"role":       map[string]any{"type": "string", "description": "Optional workflow role."},
+			"channel":    map[string]any{"type": "string", "description": "Optional workflow channel."},
 		},
 		"required": []string{"path"},
 	}
@@ -91,6 +97,8 @@ func (t *FileReadTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 		StartLine *int   `json:"start_line"`
 		EndLine   *int   `json:"end_line"`
 		Server    string `json:"server"`
+		Role      string `json:"role"`
+		Channel   string `json:"channel"`
 	}
 	if err := json.Unmarshal(input, &req); err != nil {
 		return nil, err
@@ -98,12 +106,16 @@ func (t *FileReadTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 
 	go func() {
 		defer close(events)
-		targetAlias := tool.ResolveWorkspaceAlias(ctx, req.Server)
-		if strings.TrimSpace(req.Server) != "" && ctx.Workspace == nil {
+		targetAlias, _, err := tool.ResolveExecutionRoleServer(ctx, req.Server, req.Role, req.Channel, "fileread")
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
+		if strings.TrimSpace(targetAlias) != "" && targetAlias != "local" && ctx.Workspace == nil {
 			events <- tool.NewErrorEvent(fmt.Errorf("workspace manager is unavailable"))
 			return
 		}
-		if strings.TrimSpace(req.Server) != "" && ctx.Workspace != nil {
+		if strings.TrimSpace(targetAlias) != "" && ctx.Workspace != nil {
 			if _, ok := ctx.Workspace.Registry().Get(targetAlias); !ok {
 				events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", targetAlias))
 				return
@@ -111,13 +123,17 @@ func (t *FileReadTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 		}
 
 		var data []byte
-		var err error
 		if tool.IsRemoteWorkspace(ctx, targetAlias) {
 			if ctx.Workspace == nil {
 				events <- tool.NewErrorEvent(fmt.Errorf("workspace manager is unavailable"))
 				return
 			}
-			data, err = ctx.Workspace.ReadFile(ctx.Context, targetAlias, req.Path)
+			var readErr error
+			data, readErr = ctx.Workspace.ReadFile(ctx.Context, targetAlias, req.Path)
+			if readErr != nil {
+				events <- tool.NewErrorEvent(readErr)
+				return
+			}
 		} else {
 			path, pathErr := tool.ResolvePathForRead(ctx, req.Path)
 			if pathErr != nil {
@@ -155,16 +171,20 @@ func (t *FileReadTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 
 func (t *FileReadTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
 	rawServer := tool.ExtractStringInput(input, "server")
-	if strings.TrimSpace(rawServer) != "" {
+	rawRole := tool.ExtractStringInput(input, "role")
+	rawChannel := tool.ExtractStringInput(input, "channel")
+	server, _, err := tool.ResolveExecutionRoleServer(ctx, rawServer, rawRole, rawChannel, "fileread")
+	if err != nil {
+		return tool.PermissionResult{Behavior: "deny", Message: err.Error()}, nil
+	}
+	if strings.TrimSpace(server) != "" && server != "local" {
 		if ctx.Workspace == nil {
 			return tool.PermissionResult{Behavior: "deny", Message: "workspace manager is unavailable"}, nil
 		}
-		alias := tool.ResolveWorkspaceAlias(ctx, rawServer)
-		if _, ok := ctx.Workspace.Registry().Get(alias); !ok {
-			return tool.PermissionResult{Behavior: "deny", Message: fmt.Sprintf("unknown server alias: %s", alias)}, nil
+		if _, ok := ctx.Workspace.Registry().Get(server); !ok {
+			return tool.PermissionResult{Behavior: "deny", Message: fmt.Sprintf("unknown server alias: %s", server)}, nil
 		}
 	}
-	server := tool.ResolveWorkspaceAlias(ctx, tool.ExtractStringInput(input, "server"))
 	if tool.IsRemoteWorkspace(ctx, server) {
 		return tool.DefaultAllowPermission(), nil
 	}
@@ -204,4 +224,21 @@ func applyLineRange(content string, startLine, endLine *int) (string, error) {
 	}
 
 	return strings.Join(lines[start-1:end], "\n"), nil
+}
+
+func renderTargetAlias(args map[string]any) string {
+	server := "local"
+	if s, ok := args["server"].(string); ok && strings.TrimSpace(s) != "" {
+		server = strings.TrimSpace(s)
+	} else if active, ok := args["_active_workspace"].(string); ok && strings.TrimSpace(active) != "" {
+		server = strings.TrimSpace(active)
+	}
+	label := server
+	if ch, ok := args["channel"].(string); ok && strings.TrimSpace(ch) != "" {
+		label += "/" + strings.TrimSpace(ch)
+	}
+	if role, ok := args["role"].(string); ok && strings.TrimSpace(role) != "" {
+		label += " role=" + strings.TrimSpace(role)
+	}
+	return label
 }

@@ -1,6 +1,10 @@
 package state
 
-import "github.com/koreaf16/argus/internal/types"
+import (
+	"strconv"
+
+	"github.com/koreaf16/argus/internal/types"
+)
 
 const (
 	metaActiveModelAlias    = "active_model_alias"
@@ -13,62 +17,72 @@ const (
 
 func (s *AppState) SetActiveModel(alias, display string, contextWin int) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.metadata == nil {
-		s.metadata = make(map[string]interface{})
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
 	}
-	s.metadata[metaActiveModelAlias] = alias
-	s.metadata[metaActiveModelName] = display
-	s.metadata[metaActiveModelCtx] = contextWin
+	before, _ := s.Metadata[metaActiveModelAlias].(string)
+	s.Metadata[metaActiveModelAlias] = alias
+	s.Metadata[metaActiveModelName] = display
+	s.Metadata[metaActiveModelCtx] = contextWin
+	hook := s.onStateChange
+	s.mu.Unlock()
+	if hook != nil && before != alias {
+		hook("active_model", before, alias)
+	}
 }
 
 func (s *AppState) SetActiveModelProvider(provider string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.metadata == nil {
-		s.metadata = make(map[string]interface{})
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
 	}
-	s.metadata[metaActiveModelProvider] = provider
+	s.Metadata[metaActiveModelProvider] = provider
 }
 
 func (s *AppState) ActiveModelProvider() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return ""
 	}
-	v, _ := s.metadata[metaActiveModelProvider].(string)
+	v, _ := s.Metadata[metaActiveModelProvider].(string)
 	return v
 }
 
 func (s *AppState) ActiveModel() (alias, display string, contextWin int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return "", "", 0
 	}
-	a, _ := s.metadata[metaActiveModelAlias].(string)
-	d, _ := s.metadata[metaActiveModelName].(string)
-	c, _ := s.metadata[metaActiveModelCtx].(int)
+	a, _ := s.Metadata[metaActiveModelAlias].(string)
+	d, _ := s.Metadata[metaActiveModelName].(string)
+	c, _ := s.Metadata[metaActiveModelCtx].(int)
 	return a, d, c
 }
 
 func (s *AppState) SetEffortLevel(level string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.metadata == nil {
-		s.metadata = make(map[string]interface{})
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
 	}
-	s.metadata[metaEffortLevel] = level
+	before, _ := s.Metadata[metaEffortLevel].(string)
+	s.Metadata[metaEffortLevel] = level
+	hook := s.onStateChange
+	s.mu.Unlock()
+	if hook != nil && before != level {
+		hook("effort_level", before, level)
+	}
 }
 
 func (s *AppState) GetEffortLevel() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return "high"
 	}
-	v, _ := s.metadata[metaEffortLevel].(string)
+	v, _ := s.Metadata[metaEffortLevel].(string)
 	if v == "" {
 		return "high"
 	}
@@ -78,10 +92,10 @@ func (s *AppState) GetEffortLevel() string {
 func (s *AppState) ActiveModelContext() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return 0
 	}
-	c, _ := s.metadata[metaActiveModelCtx].(int)
+	c, _ := s.Metadata[metaActiveModelCtx].(int)
 	return c
 }
 
@@ -93,20 +107,25 @@ func (s *AppState) SetContextUsedPercent(percent int) {
 		percent = 100
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.metadata == nil {
-		s.metadata = make(map[string]interface{})
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
 	}
-	s.metadata[metaContextUsedPercent] = percent
+	before, _ := s.Metadata[metaContextUsedPercent].(int)
+	s.Metadata[metaContextUsedPercent] = percent
+	hook := s.onStateChange
+	s.mu.Unlock()
+	if hook != nil && before != percent {
+		hook("context_used_percent", strconv.Itoa(before), strconv.Itoa(percent))
+	}
 }
 
 func (s *AppState) ContextUsedPercent() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return 0
 	}
-	p, _ := s.metadata[metaContextUsedPercent].(int)
+	p, _ := s.Metadata[metaContextUsedPercent].(int)
 	if p < 0 {
 		return 0
 	}
@@ -118,8 +137,13 @@ func (s *AppState) ContextUsedPercent() int {
 
 func (s *AppState) SetPermissionMode(mode types.PermissionMode) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	before := s.Permissions
 	s.Permissions = string(mode)
+	hook := s.onStateChange
+	s.mu.Unlock()
+	if hook != nil && before != string(mode) {
+		hook("permission_mode", before, string(mode))
+	}
 }
 
 func (s *AppState) GetPermissionMode() types.PermissionMode {
@@ -135,4 +159,10 @@ func (s *AppState) InPlanMode() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Mode == "plan" || types.PermissionMode(s.Permissions) == types.PermissionModePlan
+}
+
+func (s *AppState) InYoloMode() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return types.PermissionMode(s.Permissions) == types.PermissionModeBypassPermissions
 }

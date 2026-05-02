@@ -190,5 +190,5 @@ func (r *Registry) removeAliasesForLocked(target string) {
 }
 
 func normalizeToolName(name string) string {
-	return strings.ToLower(strings.TrimSpace(name))
+	return CanonicalName(name)
 }

@@ -25,6 +25,7 @@ type uiTheme struct {
 	ErrorTitleColor      string
 	PlanTitleColor       string
 	ApprovalTitleColor   string
+	ClaudeAccentColor    string
 
 	ModalBorderColor string
 	ModalTitleColor  string
@@ -42,6 +43,7 @@ type uiTheme struct {
 	MarkdownHeading3Color    string
 	MarkdownHeading4Color    string
 	MarkdownInlineCodeColor  string
+	MarkdownInlineCodeBg     string
 	MarkdownLinkColor        string
 	MarkdownStrikeColor      string
 	MarkdownQuoteColor       string
@@ -84,40 +86,42 @@ func resolveUIThemeWithVariant(name, variant string, aiDebug bool) uiTheme {
 		t := uiTheme{
 			Name:                     "argus_ui_demo",
 			Variant:                  variant,
-			MutedColor:               "#AFAFAF",
+			MutedColor:               "#999999",
 			BodyColor:                "#FFFFFF",
-			StalledColor:             "#EA4335",
-			UserTitleColor:           "#34A853",
+			StalledColor:             "#FF6B80",
+			UserTitleColor:           "#4EBA65",
 			AssistantTitleColor:      "#4285F4",
 			ThinkingTitleColor:       "#A06EE1",
 			ToolUseTitleColor:        "#4285F4",
 			ToolResultTitleColor:     "#4FB3BF",
 			NoticeTitleColor:         "#4FB3BF",
 			SystemTitleColor:         "#A06EE1",
-			ErrorTitleColor:          "#EA4335",
+			ErrorTitleColor:          "#FF6B80",
 			PlanTitleColor:           "#A06EE1",
-			ApprovalTitleColor:       "#A06EE1",
+			ApprovalTitleColor:       "#B1B9F9",
+			ClaudeAccentColor:        "#D77757",
 			ModalBorderColor:         "#A06EE1",
 			ModalTitleColor:          "#FFFFFF",
 			StatusLeftColor:          "#FFFFFF",
 			StatusLeftStalledColor:   "#EA4335",
 			StatusRightColor:         "#AFAFAF",
 			StatusRightStalledColor:  "#EA4335",
-			ModeYOLOColor:            "#EA4335",
-			ModePlanColor:            "#34A853",
+			ModeYOLOColor:            "#FF6B80",
+			ModePlanColor:            "#48968C",
 			ModeAutoColor:            "#4285F4",
 			MarkdownHeading1Color:    "#4285F4",
 			MarkdownHeading2Color:    "#4FB3BF",
 			MarkdownHeading3Color:    "#A06EE1",
 			MarkdownHeading4Color:    "#AFAFAF",
 			MarkdownInlineCodeColor:  "#4FB3BF",
+			MarkdownInlineCodeBg:     "#1A2030",
 			MarkdownLinkColor:        "#4285F4",
 			MarkdownStrikeColor:      "#555555",
 			MarkdownQuoteColor:       "#AFAFAF",
 			MarkdownRuleColor:        "#555555",
 			MarkdownCodeHeadColor:    "#AFAFAF",
 			MarkdownCodeLineColor:    "#AFAFAF",
-			MarkdownTableBorderColor: "#555555",
+			MarkdownTableBorderColor: "#888888",
 			MarkdownTableHeaderColor: "#4285F4",
 			MarkdownTableRowColor:    "#E0E0E0",
 			AssistantMarkerColor:     "#A06EE1",
@@ -162,6 +166,7 @@ func resolveUIThemeWithVariant(name, variant string, aiDebug bool) uiTheme {
 			ErrorTitleColor:          "9",
 			PlanTitleColor:           "5",
 			ApprovalTitleColor:       "11",
+			ClaudeAccentColor:        "208",
 			ModalBorderColor:         "11",
 			ModalTitleColor:          "15",
 			StatusLeftColor:          "250",
@@ -181,7 +186,7 @@ func resolveUIThemeWithVariant(name, variant string, aiDebug bool) uiTheme {
 			MarkdownRuleColor:        "240",
 			MarkdownCodeHeadColor:    "244",
 			MarkdownCodeLineColor:    "249",
-			MarkdownTableBorderColor: "240",
+			MarkdownTableBorderColor: "245",
 			MarkdownTableHeaderColor: "14",
 			MarkdownTableRowColor:    "250",
 			AssistantMarkerColor:     "214",
@@ -228,6 +233,7 @@ func applyVariant(t uiTheme, variant string) uiTheme {
 		t.ErrorTitleColor = "#D96570"
 		t.PlanTitleColor = "#5CC4D6"
 		t.ApprovalTitleColor = "#F5C451"
+		t.ClaudeAccentColor = "#F49B4F"
 		t.StatusRightColor = "#9AA0A6"
 		t.ModeAutoColor = "#4492E6"
 		t.ModePlanColor = "#61CF8E"
@@ -254,6 +260,7 @@ func applyVariant(t uiTheme, variant string) uiTheme {
 		t.ErrorTitleColor = "#E0E0E0"
 		t.PlanTitleColor = "#C8C8C8"
 		t.ApprovalTitleColor = "#D0D0D0"
+		t.ClaudeAccentColor = "#D0D0D0"
 		t.StatusLeftColor = "#F0F0F0"
 		t.StatusRightColor = "#8A8A8A"
 		t.ModeAutoColor = "#C0C0C0"

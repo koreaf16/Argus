@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/koreaf16/argus/internal/query"
 	"github.com/koreaf16/argus/internal/services/llm"
+	"github.com/koreaf16/argus/internal/state"
 	tool "github.com/koreaf16/argus/internal/tools"
+	"github.com/koreaf16/argus/internal/types"
 )
 
 func TestReplayEvents_BuildsTranscriptRows(t *testing.T) {
@@ -126,6 +129,58 @@ func TestFromUIEvent_AskUserBatchPrompt(t *testing.T) {
 	}
 	if !strings.Contains(evt.Input, "1. Project") || !strings.Contains(evt.Input, "2. Target") {
 		t.Fatalf("unexpected options: %q", evt.Input)
+	}
+}
+
+func TestBuildFooterState_PopulatesWorkflowFields(t *testing.T) {
+	app := state.NewAppState()
+	app.SetSessionID("sess-1")
+	app.SetTodos("sess-1", []types.TodoItem{
+		{Content: "discover", ActiveForm: "Discovering", Status: types.TodoStatusCompleted},
+		{Content: "research", ActiveForm: "Researching", Status: types.TodoStatusInProgress},
+		{Content: "plan", ActiveForm: "Planning", Status: types.TodoStatusPending},
+	})
+	app.SetWorkflowCard(&state.WorkflowCard{
+		Title:     "Migrate db",
+		Category:  state.WorkflowCategoryMigration,
+		Phase:     state.WorkflowPhaseResearch,
+		StartedAt: time.Now(),
+	})
+
+	footer := BuildFooterState(app, "/repo")
+	if footer.WorkflowCategory != "migration" {
+		t.Fatalf("expected migration category, got %q", footer.WorkflowCategory)
+	}
+	if footer.WorkflowPhase != "research" {
+		t.Fatalf("expected research phase, got %q", footer.WorkflowPhase)
+	}
+	if footer.WorkflowProgress != "1/3" {
+		t.Fatalf("expected 1/3 progress (1 completed of 3 todos), got %q", footer.WorkflowProgress)
+	}
+	if footer.WorkflowTitle != "Migrate db" {
+		t.Fatalf("unexpected workflow title: %q", footer.WorkflowTitle)
+	}
+}
+
+func TestBuildFooterState_NoWorkflowLeavesFieldsEmpty(t *testing.T) {
+	app := state.NewAppState()
+	footer := BuildFooterState(app, "/repo")
+	if footer.WorkflowPhase != "" || footer.WorkflowCategory != "" {
+		t.Fatalf("expected empty workflow fields, got %+v", footer)
+	}
+}
+
+func TestCanonicalStateLine_IncludesWorkflow(t *testing.T) {
+	s := FooterState{
+		PermissionMode:   "default",
+		Workspace:        "local",
+		WorkflowCategory: "migration",
+		WorkflowPhase:    "research",
+		WorkflowProgress: "1/3",
+	}
+	line := CanonicalStateLine(s)
+	if !strings.Contains(line, "workflow=migration:research/1/3") {
+		t.Fatalf("expected workflow segment, got %q", line)
 	}
 }
 

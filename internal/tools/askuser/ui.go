@@ -98,6 +98,7 @@ func (m *AskUserInteractiveModel) IsExpanded() bool                   { return f
 func (m *AskUserInteractiveModel) OnStreamDelta(delta string)         {}
 func (m *AskUserInteractiveModel) SetInputResponse(input chan string) {}
 func (m *AskUserInteractiveModel) SetFinished(finished bool)          { m.isFinished = finished }
+func (m *AskUserInteractiveModel) SetResult(_ string)                 {}
 
 type AskUserRenderer struct{}
 
@@ -113,10 +114,36 @@ func (r *AskUserRenderer) RenderToolUse(args map[string]any, _ string, theme too
 
 func (r *AskUserRenderer) RenderToolResult(resultText string, durationMs int64, theme toolui.ThemeContext) string {
 	var res map[string]any
-	if err := json.Unmarshal([]byte(resultText), &res); err == nil {
-		if canceled, _ := res["canceled"].(bool); canceled {
-			return theme.Style(theme.StatusWarningColor()).Render("  [canceled]")
-		}
+	if err := json.Unmarshal([]byte(resultText), &res); err != nil {
+		return theme.Style(theme.StatusErrorColor()).Render("  [error: " + err.Error() + "]")
 	}
-	return theme.Style(theme.StatusSuccessColor()).Render("  [answered]")
+
+	if canceled, _ := res["canceled"].(bool); canceled {
+		return theme.Style(theme.StatusWarningColor()).Render("  [canceled]")
+	}
+
+	responses, ok := res["responses"].([]any)
+	if !ok || len(responses) == 0 {
+		return theme.Style(theme.StatusSuccessColor()).Render("  [answered]")
+	}
+
+	var sb strings.Builder
+	sb.WriteString(theme.Style(theme.StatusSuccessColor()).Render("  ✓ Answered:"))
+	for _, respAny := range responses {
+		resp, ok := respAny.(map[string]any)
+		if !ok {
+			continue
+		}
+		question, _ := resp["question"].(string)
+		value, _ := resp["value"].(string)
+
+		// 질문이 너무 길면 자름
+		if len(question) > 50 {
+			question = question[:47] + "..."
+		}
+
+		sb.WriteString("\n    " + theme.Style(theme.MutedColor()).Render("· "+question+": ") + theme.Style(theme.BodyColor()).Render(value))
+	}
+
+	return sb.String()
 }

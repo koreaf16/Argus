@@ -199,10 +199,24 @@ func ApproximateTokenCount(req Request) int {
 		total += approximateTextTokens(s.Text)
 	}
 	for _, m := range req.Messages {
+		total += 4 // role/content framing overhead
+		total += approximateTextTokens(string(m.Role))
 		for _, b := range m.Content {
 			total += approximateTextTokens(b.Text)
+			total += approximateTextTokens(b.ID)
 			total += approximateTextTokens(b.Name)
+			total += approximateTextTokens(b.ToolUseID)
+			total += approximateJSONTokens(b.Input)
+			if b.IsError {
+				total++
+			}
 		}
+	}
+	for _, t := range req.Tools {
+		total += 8 // function declaration framing overhead
+		total += approximateTextTokens(t.Name)
+		total += approximateTextTokens(t.Description)
+		total += approximateJSONTokens(t.InputSchema)
 	}
 	if total == 0 {
 		return 0
@@ -231,6 +245,24 @@ func approximateTextTokens(text string) int {
 		return 1
 	}
 	return tokens
+}
+
+func approximateJSONTokens(v any) int {
+	if v == nil {
+		return 0
+	}
+	switch raw := v.(type) {
+	case json.RawMessage:
+		if len(raw) == 0 {
+			return 0
+		}
+		return approximateTextTokens(string(raw))
+	}
+	payload, err := json.Marshal(v)
+	if err != nil || len(payload) == 0 || string(payload) == "null" {
+		return 0
+	}
+	return approximateTextTokens(string(payload))
 }
 
 func isCJKRune(r rune) bool {

@@ -37,7 +37,8 @@ func (e *Engine) makeSummarizeFn() func(toolName, content string) (string, error
 		sCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		stream, err := client.Stream(sCtx, llm.Request{
-			Messages: []llm.Message{llm.TextMessage(llm.RoleUser, prompt)},
+			Messages:  []llm.Message{llm.TextMessage(llm.RoleUser, prompt)},
+			MaxTokens: subQueryMaxTokens,
 		})
 		if err != nil {
 			return "", err

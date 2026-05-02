@@ -40,7 +40,7 @@ func FormatPasswordPrompt(reg *Registry, alias, kind, prompt string) string {
 		if kind == "" {
 			label = "password:"
 		} else {
-			label = fmt.Sprintf("%s password:", kind)
+			label = fmt.Sprintf("%s password:", strings.ReplaceAll(kind, "/", " as "))
 		}
 	}
 
@@ -58,6 +58,18 @@ func workspaceTargetLabel(reg *Registry, alias string) string {
 	entry, ok := reg.Get(alias)
 	if !ok {
 		return ""
+	}
+	if entry.Kind == ServerKindAccount {
+		parent, ok := reg.Get(entry.ParentAlias)
+		if !ok {
+			return fmt.Sprintf("%s via %s", entry.User, entry.ParentAlias)
+		}
+		host := strings.TrimSpace(parent.Host)
+		port := parent.Port
+		if port <= 0 {
+			port = 22
+		}
+		return fmt.Sprintf("%s via %s@%s:%d", entry.User, parent.User, host, port)
 	}
 	if entry.Kind != ServerKindSSH {
 		return LocalAlias

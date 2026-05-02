@@ -8,6 +8,8 @@ import (
 	"github.com/koreaf16/argus/internal/services/workspace"
 )
 
+const modalWidth = 60
+
 // renderServerList renders the interactive server list panel.
 func (m uiModel) renderServerList(
 	titleStyle, accentStyle, mutedStyle lipgloss.Style,
@@ -21,7 +23,15 @@ func (m uiModel) renderServerList(
 	successStyle := m.theme.style(m.theme.UserTitleColor)
 	errorStyle := m.theme.style(m.theme.ErrorTitleColor)
 
-	lines := []string{titleStyle.Render("Servers"), ""}
+	// Header with Horizontal Line
+	headerText := fmt.Sprintf(" HOSTS / TARGETS (%d) ", len(sl.Entries))
+	lineLen := modalWidth - len(headerText) - 2
+	if lineLen < 0 {
+		lineLen = 0
+	}
+	header := titleStyle.Render(headerText) + mutedStyle.Render(strings.Repeat("─", lineLen))
+
+	lines := []string{header, ""}
 
 	if sl.ShowAction {
 		lines = append(lines, m.renderServerActionMenu(sl, accentStyle, mutedStyle, errorStyle)...)
@@ -29,7 +39,7 @@ func (m uiModel) renderServerList(
 		lines = append(lines, m.renderServerListRows(sl, accentStyle, mutedStyle, successStyle)...)
 	}
 
-	return borderStyle.Render(strings.Join(lines, "\n"))
+	return borderStyle.Width(modalWidth).Render(strings.Join(lines, "\n"))
 }
 
 // renderServerListRows renders the server list rows plus the "Add New" row.
@@ -44,18 +54,60 @@ func (m uiModel) renderServerListRows(
 		lines = append(lines, mutedStyle.Render("  (no servers configured)"))
 	}
 
+	// Group by local, physical SSH hosts, and work account targets.
+	var localEntries []int
+	var hostEntries []int
+	accountsByParent := make(map[string][]int)
+	var orphanAccounts []int
 	for i, st := range sl.Entries {
-		isCursor := sl.Cursor == i
-		lines = append(lines, m.renderServerRow(st, isCursor, accentStyle, mutedStyle, successStyle))
+		if st.Kind == workspace.ServerKindLocal {
+			localEntries = append(localEntries, i)
+		} else if st.Kind == workspace.ServerKindAccount {
+			if strings.TrimSpace(st.ParentAlias) == "" {
+				orphanAccounts = append(orphanAccounts, i)
+			} else {
+				accountsByParent[st.ParentAlias] = append(accountsByParent[st.ParentAlias], i)
+			}
+		} else {
+			hostEntries = append(hostEntries, i)
+		}
 	}
 
-	// 디자인 시스템 v2.1: 투박한 구분선 제거 후 여백으로 대체
-	lines = append(lines, "")
+	// 1. Current Workspace (Local)
+	if len(localEntries) > 0 {
+		lines = append(lines, mutedStyle.Bold(true).Render("  CURRENT WORKSPACE"))
+		for _, i := range localEntries {
+			lines = append(lines, m.renderServerRow(sl.Entries[i], sl.Cursor == i, accentStyle, mutedStyle, successStyle))
+		}
+		lines = append(lines, "")
+	}
+
+	// 2. Hosts and their work account targets.
+	if len(hostEntries) > 0 {
+		lines = append(lines, mutedStyle.Bold(true).Render("  HOSTS"))
+		for _, i := range hostEntries {
+			lines = append(lines, m.renderServerRow(sl.Entries[i], sl.Cursor == i, accentStyle, mutedStyle, successStyle))
+			for _, accountIdx := range accountsByParent[sl.Entries[i].Alias] {
+				lines = append(lines, m.renderServerRow(sl.Entries[accountIdx], sl.Cursor == accountIdx, accentStyle, mutedStyle, successStyle))
+			}
+		}
+		lines = append(lines, "")
+	}
+	if len(orphanAccounts) > 0 {
+		lines = append(lines, mutedStyle.Bold(true).Render("  WORK ACCOUNTS"))
+		for _, i := range orphanAccounts {
+			lines = append(lines, m.renderServerRow(sl.Entries[i], sl.Cursor == i, accentStyle, mutedStyle, successStyle))
+		}
+		lines = append(lines, "")
+	}
+
+	// Footer Separator
+	lines = append(lines, mutedStyle.Render("  "+strings.Repeat("─", modalWidth-4)))
 
 	// "Add New Server" row
-	addRow := "  + Add New Server"
+	addRow := "    + Add New Server"
 	if sl.Cursor == len(sl.Entries) {
-		addRow = m.theme.ChevronStyle.Render("› Add New Server")
+		addRow = m.theme.ChevronStyle.Render("  › ") + accentStyle.Bold(true).Render("Add New Server")
 	} else {
 		addRow = mutedStyle.Render(addRow)
 	}
@@ -72,21 +124,25 @@ func (m uiModel) renderServerListRows(
 		lines = append(lines, errorStyle.Render("  ✗ "+sl.ErrorMsg))
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, mutedStyle.Render("  ↑↓ navigate  Enter select  a add  Esc close"))
+	lines = append(lines, "", mutedStyle.Render("  ↑↓ navigate  Enter select  a add  Esc close"))
 	return lines
 }
 
-// renderServerRow renders a single server row.
+// renderServerRow renders a single server row with right-aligned status.
 func (m uiModel) renderServerRow(
 	st workspace.StatusEntry,
 	isCursor bool,
 	accentStyle, mutedStyle, successStyle lipgloss.Style,
 ) string {
-	// Status dot
-	statusDot := mutedStyle.Render("•")
+	// Status dot and text
+	statusDot := mutedStyle.Render("○")
+	statusText := "OFFLINE"
 	if st.Connected {
-		statusDot = successStyle.Render("•")
+		statusDot = successStyle.Render("●")
+		statusText = "CONNECTED"
+		if st.Kind == workspace.ServerKindLocal {
+			statusText = "READY"
+		}
 	}
 
 	// Kind Icon
@@ -95,20 +151,57 @@ func (m uiModel) renderServerRow(
 		icon = "🏠"
 	}
 
-	// Host info
-	hostInfo := ""
-	if st.Kind != workspace.ServerKindLocal && st.User != "" {
-		hostInfo = "  " + mutedStyle.Render(st.User+"@...")
+	if st.Kind == workspace.ServerKindAccount {
+		icon = "?궇"
 	}
 
-	alias := fmt.Sprintf("%-14s", st.Alias)
-	row := fmt.Sprintf("%s %s %s %s", statusDot, icon, alias, hostInfo)
+	// Left part: [status dot] [icon] [alias] [user/host]
+	aliasStr := st.Alias
+	if st.Kind == workspace.ServerKindLocal {
+		aliasStr = "[" + st.Alias + "]"
+	}
 
+	info := ""
+	if st.Kind == workspace.ServerKindAccount {
+		targetUser := strings.TrimSpace(st.TargetUser)
+		if targetUser == "" {
+			targetUser = strings.TrimSpace(st.User)
+		}
+		info = mutedStyle.Render(targetUser + " via " + st.ParentAlias)
+	} else if st.Kind != workspace.ServerKindLocal {
+		if st.User != "" {
+			info = mutedStyle.Render(st.User + "@...")
+		}
+	} else {
+		info = mutedStyle.Render("(Local machine)")
+	}
+
+	// Layout using lipgloss for alignment
+	leftContent := fmt.Sprintf("%s %s %-14s %s", statusDot, icon, aliasStr, info)
 	if isCursor {
-		// 슬라이싱(row[2:])을 제거하고 처음부터 다시 구성하여 ANSI 코드 파손 방지
-		return m.theme.ChevronStyle.Render("› ") + lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.BodyColor)).Bold(true).Render(fmt.Sprintf("%s %s %s", icon, alias, hostInfo))
+		leftContent = m.theme.ChevronStyle.Render("› ") + lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.BodyColor)).Bold(true).Render(fmt.Sprintf("%s %-14s %s", icon, aliasStr, info))
+	} else {
+		leftContent = "  " + leftContent
 	}
-	return "  " + row
+
+	// Status text alignment
+	rightContent := statusText
+	if st.Connected {
+		rightContent = successStyle.Render(statusText)
+	} else {
+		rightContent = mutedStyle.Render(statusText)
+	}
+
+	// Calculate padding for right alignment
+	totalWidth := modalWidth - 4
+	leftLen := lipgloss.Width(leftContent)
+	rightLen := lipgloss.Width(rightContent)
+	padding := totalWidth - leftLen - rightLen
+	if padding < 1 {
+		padding = 1
+	}
+
+	return leftContent + strings.Repeat(" ", padding) + rightContent
 }
 
 // renderServerActionMenu renders the action sub-menu for a selected server.
@@ -143,7 +236,7 @@ func (m uiModel) renderServerActionMenu(
 			continue
 		}
 		if sl.Action.Cursor == i {
-			lines = append(lines, accentStyle.Bold(true).Render("> "+label))
+			lines = append(lines, m.theme.ChevronStyle.Render("  › ")+accentStyle.Bold(true).Render(label))
 		} else {
 			lines = append(lines, "    "+label)
 		}

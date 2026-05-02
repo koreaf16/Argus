@@ -12,14 +12,16 @@ type BridgeTool struct {
 	server  string
 	name    string
 	desc    string
+	schema  map[string]any
 	manager *Manager
 }
 
-func NewBridgeTool(server, name, description string, manager *Manager) *BridgeTool {
+func NewBridgeTool(server, name, description string, inputSchema map[string]any, manager *Manager) *BridgeTool {
 	return &BridgeTool{
 		server:  server,
 		name:    name,
 		desc:    description,
+		schema:  inputSchema,
 		manager: manager,
 	}
 }
@@ -36,6 +38,9 @@ func (t *BridgeTool) Description(ctx tool.Context) string {
 }
 
 func (t *BridgeTool) InputSchema() tool.ToolInputJSONSchema {
+	if len(t.schema) > 0 {
+		return tool.ToolInputJSONSchema(t.schema)
+	}
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 	}

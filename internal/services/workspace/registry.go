@@ -84,6 +84,9 @@ func (r *Registry) Save() error {
 		Servers: make([]ServerEntry, 0, len(r.servers)),
 	}
 	for _, entry := range r.servers {
+		if entry.IsEphemeral {
+			continue
+		}
 		cat.Servers = append(cat.Servers, entry)
 	}
 	r.mu.RUnlock()
@@ -160,6 +163,14 @@ func (r *Registry) Remove(alias string) error {
 		return fmt.Errorf("unknown server alias: %s", alias)
 	}
 	delete(r.servers, alias)
+	for childAlias, entry := range r.servers {
+		if entry.Kind == ServerKindAccount && entry.ParentAlias == alias {
+			delete(r.servers, childAlias)
+			if r.active == childAlias {
+				r.active = LocalAlias
+			}
+		}
+	}
 	if r.active == alias {
 		r.active = LocalAlias
 	}
@@ -219,12 +230,61 @@ func normalizeEntry(entry ServerEntry) (ServerEntry, error) {
 		if strings.TrimSpace(entry.User) == "" {
 			return ServerEntry{}, fmt.Errorf("user is required for %s", entry.Alias)
 		}
+		entry.Elevation = normalizeElevation(entry.Elevation)
+		return entry, nil
+	case ServerKindAccount:
+		entry.ParentAlias = normalizeAlias(entry.ParentAlias)
+		if entry.ParentAlias == "" {
+			return ServerEntry{}, fmt.Errorf("parent_alias is required for account target %s", entry.Alias)
+		}
+		if entry.ParentAlias == LocalAlias || entry.ParentAlias == entry.Alias {
+			return ServerEntry{}, fmt.Errorf("invalid parent_alias %q for account target %s", entry.ParentAlias, entry.Alias)
+		}
+		if strings.TrimSpace(entry.User) == "" {
+			return ServerEntry{}, fmt.Errorf("user is required for account target %s", entry.Alias)
+		}
+		entry.User = strings.TrimSpace(entry.User)
+		entry.SwitchMethod = normalizeSwitchMethod(entry.SwitchMethod)
 		return entry, nil
 	default:
 		return ServerEntry{}, fmt.Errorf("unsupported server kind: %s", entry.Kind)
 	}
 }
 
+// normalizeElevation validates and canonicalizes an Elevation config:
+//   - Mode is lowercased and must be "", "none", "password", or "reuse_login".
+//   - TargetUsers are trimmed and deduplicated (order preserved).
+//   - If Allowed is false, Mode and TargetUsers are preserved but not enforced.
+func normalizeElevation(e Elevation) Elevation {
+	e.Mode = strings.ToLower(strings.TrimSpace(e.Mode))
+	switch e.Mode {
+	case "", "none", "password", "reuse_login":
+	default:
+		e.Mode = "none"
+	}
+	seen := make(map[string]bool, len(e.TargetUsers))
+	cleaned := e.TargetUsers[:0]
+	for _, u := range e.TargetUsers {
+		u = strings.TrimSpace(u)
+		if u == "" || seen[u] {
+			continue
+		}
+		seen[u] = true
+		cleaned = append(cleaned, u)
+	}
+	e.TargetUsers = cleaned
+	return e
+}
+
 func normalizeAlias(alias string) string {
 	return strings.ToLower(strings.TrimSpace(alias))
+}
+
+func normalizeSwitchMethod(method string) string {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "sudo":
+		return "sudo"
+	default:
+		return "su"
+	}
 }

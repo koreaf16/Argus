@@ -1,3 +1,0 @@
-/server connect sandbox-server
-Welcome1!@#$
-sandbox-server에서 다음을 확인해줘 (bash 도구 server="sandbox-server" 사용): (1) id - 현재 유저 확인, (2) groups sandbox - sandbox가 속한 그룹, (3) sudo -n true 2>&1 - sudo 비밀번호 없이 가능한지, (4) echo "Welcome1!@#$" | sudo -S true 2>&1 && echo "sudo_ok" - Welcome1!@#$ 로 sudo 성공하는지.

@@ -37,7 +37,7 @@ func Dispatch(line string, ctx CommandContext) (bool, error) {
 		fmt.Fprintln(ctx.Stdout, "Commands:")
 		fmt.Fprintln(ctx.Stdout, "/help /exit /clear /model /status /session /plan /memory /mcp /server /skills /commit /diff /review /init /config /keybindings /connector")
 		fmt.Fprintln(ctx.Stdout, "Hints:")
-		fmt.Fprintln(ctx.Stdout, "/session save|load|list  /memory add|list|search  /mcp list|reload|tools|resources|read  /server list|add|connect|use|copy|ls|metrics|tunnel")
+		fmt.Fprintln(ctx.Stdout, "/session save|load|list  /memory add|list|search  /mcp list|reload|tools|resources|read  /server list|add|edit|connect|account|use|copy|ls|metrics|tunnel")
 		fmt.Fprintln(ctx.Stdout, "/connector search|install|list|remove|info")
 		return false, nil
 	case "model":
@@ -499,6 +499,13 @@ func handleServer(args []string, ctx CommandContext) error {
 			return handleServerAddForm(ctx)
 		}
 		return handleServerAdd(args[1:], ctx)
+	case "account", "target":
+		return handleServerAccount(args[1:], ctx)
+	case "edit":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /server edit <alias>")
+		}
+		return handleServerEditForm(ctx, args[1])
 	case "rm", "remove", "del":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: /server rm <alias>")
@@ -749,7 +756,7 @@ func handleServer(args []string, ctx CommandContext) error {
 			return fmt.Errorf("usage: /server tunnel <open|close|list> ...")
 		}
 	default:
-		return fmt.Errorf("usage: /server [list|add|rm|connect|use|disconnect|status|import|pull|copy|ls|metrics|tunnel]")
+		return fmt.Errorf("usage: /server [list|add|account|edit|rm|connect|use|disconnect|status|import|pull|copy|ls|metrics|tunnel]")
 	}
 }
 
@@ -825,6 +832,304 @@ func handleServerAdd(args []string, ctx CommandContext) error {
 	}
 	fmt.Fprintf(ctx.Stdout, "added server: %s (%s@%s:%d)\n", entry.Alias, entry.User, entry.Host, entry.Port)
 	return nil
+}
+
+type serverAccountOptions struct {
+	HostAlias    string
+	User         string
+	Alias        string
+	Method       string
+	DefaultCWD   string
+	Password     string
+	SavePassword bool
+	Shell        string
+	Home         string
+	Groups       string
+	NoCreateHome bool
+}
+
+func handleServerAccount(args []string, ctx CommandContext) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: /server account <add|create> <hostAlias> <user> [--alias <alias>] [--method su|sudo] [--cwd <path>]")
+	}
+	switch strings.ToLower(args[0]) {
+	case "add":
+		opts, err := parseServerAccountOptions(args[1:], false)
+		if err != nil {
+			return err
+		}
+		return addServerAccountTarget(ctx, opts)
+	case "create":
+		opts, err := parseServerAccountOptions(args[1:], true)
+		if err != nil {
+			return err
+		}
+		if err := createRemoteAccount(ctx, opts); err != nil {
+			return err
+		}
+		return addServerAccountTarget(ctx, opts)
+	default:
+		return fmt.Errorf("usage: /server account <add|create> <hostAlias> <user> [--alias <alias>] [--method su|sudo] [--cwd <path>]")
+	}
+}
+
+func parseServerAccountOptions(args []string, allowCreateFlags bool) (serverAccountOptions, error) {
+	if len(args) < 2 {
+		return serverAccountOptions{}, fmt.Errorf("usage: /server account <add|create> <hostAlias> <user> [--alias <alias>] [--method su|sudo] [--cwd <path>]")
+	}
+	opts := serverAccountOptions{
+		HostAlias: strings.ToLower(strings.TrimSpace(args[0])),
+		User:      strings.TrimSpace(args[1]),
+		Method:    workspace.PrivilegeSU,
+		Shell:     "/bin/bash",
+	}
+	if !isSafeLinuxName(opts.User) {
+		return serverAccountOptions{}, fmt.Errorf("invalid Linux user name: %s", opts.User)
+	}
+	for i := 2; i < len(args); i++ {
+		switch strings.ToLower(args[i]) {
+		case "--alias":
+			if i+1 >= len(args) {
+				return serverAccountOptions{}, fmt.Errorf("--alias requires a value")
+			}
+			opts.Alias = strings.ToLower(strings.TrimSpace(args[i+1]))
+			i++
+		case "--method":
+			if i+1 >= len(args) {
+				return serverAccountOptions{}, fmt.Errorf("--method requires su or sudo")
+			}
+			switch strings.ToLower(strings.TrimSpace(args[i+1])) {
+			case workspace.PrivilegeSudo:
+				opts.Method = workspace.PrivilegeSudo
+			case workspace.PrivilegeSU, "":
+				opts.Method = workspace.PrivilegeSU
+			default:
+				return serverAccountOptions{}, fmt.Errorf("--method requires su or sudo")
+			}
+			i++
+		case "--cwd":
+			if i+1 >= len(args) {
+				return serverAccountOptions{}, fmt.Errorf("--cwd requires a value")
+			}
+			opts.DefaultCWD = args[i+1]
+			i++
+		case "--password", "--su-password":
+			if i+1 >= len(args) {
+				return serverAccountOptions{}, fmt.Errorf("%s requires a value", args[i])
+			}
+			opts.Password = args[i+1]
+			i++
+		case "--password-env", "--su-password-env":
+			if i+1 >= len(args) {
+				return serverAccountOptions{}, fmt.Errorf("%s requires an environment variable name", args[i])
+			}
+			opts.Password = os.Getenv(args[i+1])
+			if strings.TrimSpace(opts.Password) == "" {
+				return serverAccountOptions{}, fmt.Errorf("environment variable %s is empty", args[i+1])
+			}
+			i++
+		case "--save-password":
+			opts.SavePassword = true
+		case "--shell":
+			if !allowCreateFlags {
+				return serverAccountOptions{}, fmt.Errorf("--shell is only valid with /server account create")
+			}
+			if i+1 >= len(args) {
+				return serverAccountOptions{}, fmt.Errorf("--shell requires a value")
+			}
+			opts.Shell = args[i+1]
+			i++
+		case "--home":
+			if !allowCreateFlags {
+				return serverAccountOptions{}, fmt.Errorf("--home is only valid with /server account create")
+			}
+			if i+1 >= len(args) {
+				return serverAccountOptions{}, fmt.Errorf("--home requires a value")
+			}
+			opts.Home = args[i+1]
+			i++
+		case "--groups":
+			if !allowCreateFlags {
+				return serverAccountOptions{}, fmt.Errorf("--groups is only valid with /server account create")
+			}
+			if i+1 >= len(args) {
+				return serverAccountOptions{}, fmt.Errorf("--groups requires a comma-separated value")
+			}
+			if !isSafeLinuxGroupList(args[i+1]) {
+				return serverAccountOptions{}, fmt.Errorf("invalid group list: %s", args[i+1])
+			}
+			opts.Groups = args[i+1]
+			i++
+		case "--no-create-home":
+			if !allowCreateFlags {
+				return serverAccountOptions{}, fmt.Errorf("--no-create-home is only valid with /server account create")
+			}
+			opts.NoCreateHome = true
+		default:
+			return serverAccountOptions{}, fmt.Errorf("unknown account option: %s", args[i])
+		}
+	}
+	if opts.Alias == "" {
+		opts.Alias = defaultAccountAlias(opts.HostAlias, opts.User)
+	}
+	return opts, nil
+}
+
+func addServerAccountTarget(ctx CommandContext, opts serverAccountOptions) error {
+	parent, ok := ctx.Workspace.Registry().Get(opts.HostAlias)
+	if !ok {
+		return fmt.Errorf("unknown parent host alias: %s", opts.HostAlias)
+	}
+	if parent.Kind != workspace.ServerKindSSH {
+		return fmt.Errorf("parent alias %s is not an SSH host", opts.HostAlias)
+	}
+	entry := workspace.ServerEntry{
+		Alias:        opts.Alias,
+		Kind:         workspace.ServerKindAccount,
+		ParentAlias:  parent.Alias,
+		User:         opts.User,
+		SwitchMethod: opts.Method,
+		DefaultCWD:   opts.DefaultCWD,
+	}
+	if err := ctx.Workspace.Registry().Add(entry); err != nil {
+		return err
+	}
+	if err := ctx.Workspace.Registry().Save(); err != nil {
+		return err
+	}
+	storeAccountTargetPassword(ctx, parent.Alias, opts)
+	fmt.Fprintf(ctx.Stdout, "added work account: %s (%s via %s, method=%s)\n", entry.Alias, entry.User, entry.ParentAlias, entry.SwitchMethod)
+	return nil
+}
+
+func createRemoteAccount(ctx CommandContext, opts serverAccountOptions) error {
+	parent, ok := ctx.Workspace.Registry().Get(opts.HostAlias)
+	if !ok {
+		return fmt.Errorf("unknown parent host alias: %s", opts.HostAlias)
+	}
+	if parent.Kind != workspace.ServerKindSSH {
+		return fmt.Errorf("parent alias %s is not an SSH host", opts.HostAlias)
+	}
+	var useradd []string
+	useradd = append(useradd, "useradd")
+	if !opts.NoCreateHome {
+		useradd = append(useradd, "-m")
+	} else {
+		useradd = append(useradd, "-M")
+	}
+	if strings.TrimSpace(opts.Shell) != "" {
+		useradd = append(useradd, "-s", opts.Shell)
+	}
+	if strings.TrimSpace(opts.Home) != "" {
+		useradd = append(useradd, "-d", opts.Home)
+	}
+	useradd = append(useradd, opts.User)
+
+	var script strings.Builder
+	script.WriteString("set -e\n")
+	script.WriteString("if ! id -u " + posixQuote(opts.User) + " >/dev/null 2>&1; then\n")
+	script.WriteString("  if command -v useradd >/dev/null 2>&1; then\n")
+	script.WriteString("    " + shellWords(useradd...) + "\n")
+	script.WriteString("  elif command -v adduser >/dev/null 2>&1; then\n")
+	script.WriteString("    adduser --disabled-password --gecos '' --shell " + posixQuote(opts.Shell) + " " + posixQuote(opts.User) + "\n")
+	script.WriteString("  else\n")
+	script.WriteString("    echo 'useradd/adduser not found' >&2; exit 127\n")
+	script.WriteString("  fi\n")
+	script.WriteString("fi\n")
+	if strings.TrimSpace(opts.Groups) != "" {
+		script.WriteString("usermod -aG " + posixQuote(opts.Groups) + " " + posixQuote(opts.User) + "\n")
+	}
+	if opts.Method == workspace.PrivilegeSU && strings.TrimSpace(opts.Password) != "" {
+		script.WriteString("printf '%s:%s\\n' " + posixQuote(opts.User) + " " + posixQuote(opts.Password) + " | chpasswd\n")
+	}
+	cmd := "sudo -S -- sh -c " + posixQuote(script.String())
+	res, err := ctx.Workspace.ExecWithOptions(ctx.Context, parent.Alias, cmd, workspace.ExecOptions{
+		Shell:           "bash",
+		ReuseSession:    workspace.ReuseSessionRequired,
+		PrivilegeMethod: workspace.PrivilegeSudo,
+	}, nil)
+	if err != nil {
+		return err
+	}
+	if res.Code != 0 {
+		return fmt.Errorf("create account failed: %s", strings.TrimSpace(commandFirstNonEmpty(res.Stderr, res.Stdout)))
+	}
+	fmt.Fprintf(ctx.Stdout, "created/verified remote account: %s on %s\n", opts.User, parent.Alias)
+	return nil
+}
+
+func storeAccountTargetPassword(ctx CommandContext, parentAlias string, opts serverAccountOptions) {
+	if strings.TrimSpace(opts.Password) == "" {
+		return
+	}
+	if opts.SavePassword && ctx.Credentials != nil {
+		if err := ctx.Credentials.SetPasswordForTarget(parentAlias, opts.Method, opts.User, opts.Password); err != nil {
+			fmt.Fprintf(ctx.Stdout, "warning: could not save account credential: %v\n", err)
+		} else if err := ctx.Credentials.Save(); err != nil {
+			fmt.Fprintf(ctx.Stdout, "warning: could not write credential store: %v\n", err)
+		}
+		return
+	}
+	ctx.Workspace.SetPasswordForTarget(parentAlias, opts.Method, opts.User, opts.Password)
+}
+
+func defaultAccountAlias(hostAlias, user string) string {
+	clean := strings.ToLower(strings.TrimSpace(user))
+	var b strings.Builder
+	for _, r := range clean {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
+			b.WriteRune(r)
+		} else if r == '_' || r == '.' {
+			b.WriteByte('-')
+		}
+	}
+	if b.Len() == 0 {
+		return strings.ToLower(strings.TrimSpace(hostAlias)) + "-account"
+	}
+	return strings.ToLower(strings.TrimSpace(hostAlias)) + "-" + b.String()
+}
+
+func isSafeLinuxName(s string) bool {
+	if s == "" || strings.HasPrefix(s, "-") {
+		return false
+	}
+	for _, r := range s {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isSafeLinuxGroupList(s string) bool {
+	for _, part := range strings.Split(s, ",") {
+		if !isSafeLinuxName(strings.TrimSpace(part)) {
+			return false
+		}
+	}
+	return true
+}
+
+func shellWords(words ...string) string {
+	quoted := make([]string, 0, len(words))
+	for _, w := range words {
+		quoted = append(quoted, posixQuote(w))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func posixQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func commandFirstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func handleSkills(args []string, ctx CommandContext) error {
@@ -1141,6 +1446,9 @@ func printServerList(ctx CommandContext) error {
 		line := fmt.Sprintf("%s %-12s %-5s %s", active, st.Alias, string(st.Kind), connected)
 		if strings.TrimSpace(st.CurrentCWD) != "" {
 			line += " cwd=" + st.CurrentCWD
+		}
+		if st.Kind == workspace.ServerKindAccount && strings.TrimSpace(st.ParentAlias) != "" {
+			line += " parent=" + st.ParentAlias
 		}
 		if strings.TrimSpace(st.User) != "" {
 			line += " user=" + st.User

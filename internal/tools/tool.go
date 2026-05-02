@@ -36,6 +36,7 @@ type AskUserQuestion struct {
 	Default     string          `json:"default,omitempty"`
 	MultiSelect bool            `json:"multi_select,omitempty"`
 	Required    bool            `json:"required,omitempty"`
+	Preview     string          `json:"preview,omitempty"`
 	Options     []AskUserOption `json:"options,omitempty"`
 }
 

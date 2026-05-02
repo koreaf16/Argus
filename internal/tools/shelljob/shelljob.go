@@ -22,6 +22,10 @@ func (t *ShellJobTool) Description(ctx tool.Context) string {
 	return "Inspect background shell jobs. Actions: list, status, tail."
 }
 
+func (t *ShellJobTool) IsVisible(ctx tool.Context) bool {
+	return ctx.ShellJobs != nil && len(ctx.ShellJobs.List()) > 0
+}
+
 func (t *ShellJobTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",

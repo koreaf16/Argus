@@ -132,9 +132,11 @@ func applyToken(token, color string, bold, italic bool, p Palette) string {
 
 	// `inline code`
 	case token[0] == '`':
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color(p.InlineCode)).
-			Render(strings.Trim(token, "`"))
+		s := lipgloss.NewStyle().Foreground(lipgloss.Color(p.InlineCode))
+		if p.InlineCodeBg != "" {
+			s = s.Background(lipgloss.Color(p.InlineCodeBg))
+		}
+		return s.Render(strings.Trim(token, "`"))
 
 	// [text](url)
 	case token[0] == '[':

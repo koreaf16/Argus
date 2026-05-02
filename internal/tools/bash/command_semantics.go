@@ -20,7 +20,13 @@ var writeOpsRe = regexp.MustCompile(`(>|>>|2>|&>|\|\||&&)`)
 var writeCommandsRe = regexp.MustCompile(`(?i)\b(rm|mv|cp|touch|mkdir|rmdir|chmod|chown|sed\s+-i|git\s+(commit|push|pull|checkout|merge|rebase|reset|add))\b`)
 
 // readOnlyCommandsRe matches commands that are strictly read-only.
-var readOnlyCommandsRe = regexp.MustCompile(`(?i)\b(ls|cat|grep|rg|find|diff|git\s+(diff|log|show|status|branch|tag|remote|ls-files|blame|rev-parse))\b`)
+var readOnlyCommandsRe = regexp.MustCompile(`(?i)\b(ls|cat|grep|rg|diff|git\s+(diff|log|show|status|branch|tag|remote|ls-files|blame|rev-parse))\b`)
+
+// serverDestructiveRe matches commands that terminate or restart the system.
+var serverDestructiveRe = regexp.MustCompile(`(?i)\b(shutdown|reboot|halt|poweroff|telinit)\b|init\s+[06]\b`)
+
+// processKillRe matches commands that forcibly terminate processes.
+var processKillRe = regexp.MustCompile(`(?i)\b(kill|pkill|killall|killpg)\b`)
 
 // ParseCommandSemantics analyzes a bash command to determine its safety and intent.
 func ParseCommandSemantics(cmd string) CommandSemantics {
@@ -39,8 +45,9 @@ func ParseCommandSemantics(cmd string) CommandSemantics {
 		semantics.IsReadOnly = false
 	}
 
-	// 위험한 명령어 여부 (rm -rf 등)
-	if strings.Contains(cmd, "rm -rf") || strings.Contains(cmd, "sudo ") {
+	// 위험한 명령어 여부 (rm -rf, 시스템/프로세스 종료 등)
+	if strings.Contains(cmd, "rm -rf") || strings.Contains(cmd, "sudo ") ||
+		serverDestructiveRe.MatchString(cmd) || processKillRe.MatchString(cmd) {
 		semantics.IsDangerous = true
 	}
 

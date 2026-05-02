@@ -17,6 +17,7 @@ Argus는 Go 기반의 터미널 중심 AI 에이전트로, 효율적인 문맥 �
 ## 📦 패키지 구조
 - `internal/context`: 그래프 기반 문맥 관리, 토큰 추정, 아티팩트 저장.
 - `internal/query`: 대화 루프 및 도구 실행 제어.
+- `internal/connector`: 외부 도구/커넥터의 자동 감지, 설치 및 런타임 관리. (GitHub, Registry 지원)
 - `internal/tool`: 기본 도구 및 MCP 동적 브릿지 레지스트리.
 - `internal/tui`: Bubble Tea 기반의 스크롤백 유지형 UI 엔진.
 - `internal/services/mcp`: 외부 MCP 서버 연동 (JSON-RPC).

@@ -20,7 +20,7 @@ func buildContextUsageBreakdown(system []llm.SystemBlock, messages []llm.Message
 	artifactRefs := 0
 	for _, msg := range messages {
 		for _, block := range msg.Content {
-			messageChars += len(block.Text) + len(block.Name)
+			messageChars += len(block.Text) + len(block.Name) + len(block.ID) + len(block.ToolUseID) + len(block.Input)
 			if block.Type != llm.ContentToolResult {
 				continue
 			}

@@ -1,11 +1,44 @@
 {
   "activeModel": "",
   "permissions": {
+    "allow": [
+      "Bash(sudo *)",
+      "bash(# Attempting:*)",
+      "bash(psql postgres:*)",
+      "bash(psql sandbox:*)",
+      "bash(ctx[server=sandbox-server]:sudo su:*)",
+      "bash(ctx[server=sandbox-server;role=target_postgres]:uname \u0026\u0026:*)",
+      "bash(ctx[server=sandbox-server;role=target_postgres]:ps aux:*)"
+    ],
+    "ask": [],
     "defaultMode": "ask",
-    "allow": [],
     "deny": []
   },
   "ui": {
-    "theme": "default"
+    "theme": "argus_ui_demo",
+    "variant": "argus-signature",
+    "motion": {
+      "enabled": true,
+      "level": "restrained",
+      "tick_ms": 100,
+      "reduced": false,
+      "signature": true
+    },
+    "streaming": {
+      "mode": "line-stable",
+      "hide_unstable_markdown_tail": true,
+      "flush_plain_text_partial": true,
+      "render_code_blocks_stable": true
+    }
+  },
+  "web": {
+    "searxng": {
+      "base_url": "http://192.168.0.3:30080/search",
+      "max_results": 10
+    },
+    "crawl4ai": {
+      "base_url": "http://192.168.0.3:30090",
+      "timeout_ms": 60000
+    }
   }
 }

@@ -25,10 +25,14 @@ func (r *GlobRenderer) CreateInteractiveModel(args map[string]any, theme toolui.
 
 func (r *GlobRenderer) RenderToolUse(args map[string]any, _ string, theme toolui.ThemeContext) string {
 	pattern, _ := args["pattern"].(string)
+	server := renderTargetAlias(args)
 
 	var sb strings.Builder
 	sb.WriteString(theme.Style(theme.ToolUseColor()).Bold(true).Render("  Glob: "))
 	sb.WriteString(theme.Style(theme.BodyColor()).Render(pattern))
+	if server != "" {
+		sb.WriteString(theme.Style(theme.MutedColor()).Render(" [" + server + "]"))
+	}
 	return sb.String()
 }
 
@@ -63,6 +67,8 @@ func (t *GlobTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"pattern": map[string]any{"type": "string", "description": "The glob pattern"},
 			"server":  map[string]any{"type": "string", "description": "Optional workspace alias. Defaults to active workspace."},
+			"role":    map[string]any{"type": "string", "description": "Optional workflow role."},
+			"channel": map[string]any{"type": "string", "description": "Optional workflow channel."},
 		},
 		"required": []string{"pattern"},
 	}
@@ -81,6 +87,8 @@ func (t *GlobTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 	var req struct {
 		Pattern string `json:"pattern"`
 		Server  string `json:"server"`
+		Role    string `json:"role"`
+		Channel string `json:"channel"`
 	}
 	if err := json.Unmarshal(input, &req); err != nil {
 		return nil, err
@@ -88,12 +96,16 @@ func (t *GlobTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 
 	go func() {
 		defer close(events)
-		targetAlias := tool.ResolveWorkspaceAlias(ctx, req.Server)
-		if strings.TrimSpace(req.Server) != "" && ctx.Workspace == nil {
+		targetAlias, _, err := tool.ResolveExecutionRoleServer(ctx, req.Server, req.Role, req.Channel, "glob")
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
+		if strings.TrimSpace(targetAlias) != "" && targetAlias != "local" && ctx.Workspace == nil {
 			events <- tool.NewErrorEvent(fmt.Errorf("workspace manager is unavailable"))
 			return
 		}
-		if strings.TrimSpace(req.Server) != "" && ctx.Workspace != nil {
+		if strings.TrimSpace(targetAlias) != "" && ctx.Workspace != nil {
 			if _, ok := ctx.Workspace.Registry().Get(targetAlias); !ok {
 				events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", targetAlias))
 				return
@@ -141,16 +153,20 @@ func (t *GlobTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 
 func (t *GlobTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
 	rawServer := tool.ExtractStringInput(input, "server")
-	if strings.TrimSpace(rawServer) != "" {
+	rawRole := tool.ExtractStringInput(input, "role")
+	rawChannel := tool.ExtractStringInput(input, "channel")
+	targetAlias, _, err := tool.ResolveExecutionRoleServer(ctx, rawServer, rawRole, rawChannel, "glob")
+	if err != nil {
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+	}
+	if strings.TrimSpace(targetAlias) != "" && targetAlias != "local" {
 		if ctx.Workspace == nil {
 			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "workspace manager is unavailable"}, nil
 		}
-		alias := tool.ResolveWorkspaceAlias(ctx, rawServer)
-		if _, ok := ctx.Workspace.Registry().Get(alias); !ok {
-			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("unknown server alias: %s", alias)}, nil
+		if _, ok := ctx.Workspace.Registry().Get(targetAlias); !ok {
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("unknown server alias: %s", targetAlias)}, nil
 		}
 	}
-	targetAlias := tool.ResolveWorkspaceAlias(ctx, rawServer)
 	if tool.IsRemoteWorkspace(ctx, targetAlias) {
 		return tool.DefaultAllowPermission(), nil
 	}
@@ -205,4 +221,21 @@ func runRemoteGlob(ctx tool.Context, alias, pattern string) ([]string, error) {
 		out = append(out, line)
 	}
 	return out, nil
+}
+
+func renderTargetAlias(args map[string]any) string {
+	server := "local"
+	if s, ok := args["server"].(string); ok && strings.TrimSpace(s) != "" {
+		server = strings.TrimSpace(s)
+	} else if active, ok := args["_active_workspace"].(string); ok && strings.TrimSpace(active) != "" {
+		server = strings.TrimSpace(active)
+	}
+	label := server
+	if ch, ok := args["channel"].(string); ok && strings.TrimSpace(ch) != "" {
+		label += "/" + strings.TrimSpace(ch)
+	}
+	if role, ok := args["role"].(string); ok && strings.TrimSpace(role) != "" {
+		label += " role=" + strings.TrimSpace(role)
+	}
+	return label
 }

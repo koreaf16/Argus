@@ -29,6 +29,10 @@ type Snapshot struct {
 	// v2 전용 필드
 	Graph     []*ctxpkg.Node        `json:"graph,omitempty"`
 	Artifacts []*ctxpkg.ArtifactRef `json:"artifacts,omitempty"`
+
+	// AppState 필드
+	Mode     string                 `json:"mode,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // IsV2 는 이 snapshot이 v2 형식인지 반환한다.

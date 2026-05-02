@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -56,7 +57,10 @@ func (s *scriptedLLM) Provider() string {
 type scriptedTool struct {
 	name       string
 	output     string
+	outputFn   func(json.RawMessage) string
+	isError    bool
 	permission types.PermissionBehavior
+	writable   bool
 }
 
 func (t *scriptedTool) Name() string { return t.name }
@@ -66,16 +70,26 @@ func (t *scriptedTool) Description(tool.Context) string {
 func (t *scriptedTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{"type": "object"}
 }
-func (t *scriptedTool) IsReadOnly() bool { return true }
+func (t *scriptedTool) IsReadOnly() bool {
+	return !t.writable
+}
 func (t *scriptedTool) MaxResultSizeChars() int {
 	return 0
 }
 func (t *scriptedTool) CheckPermission(tool.Context, json.RawMessage) (tool.PermissionResult, error) {
 	return tool.PermissionResult{Behavior: t.permission}, nil
 }
-func (t *scriptedTool) Call(_ tool.Context, _ json.RawMessage) (<-chan tool.ToolEvent, error) {
+func (t *scriptedTool) Call(_ tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
+	output := t.output
+	if t.outputFn != nil {
+		output = t.outputFn(input)
+	}
 	ch := make(chan tool.ToolEvent, 2)
-	ch <- tool.NewOutputEvent(t.output)
+	if t.isError {
+		ch <- tool.NewErrorEvent(errors.New(output))
+	} else {
+		ch <- tool.NewOutputEvent(output)
+	}
 	ch <- tool.NewDoneEvent()
 	close(ch)
 	return ch, nil
@@ -190,6 +204,7 @@ func TestWebEvidenceGate_FailsClosedWhenWebFetchNotCompleted(t *testing.T) {
 	engine := NewEngine(llmScript, reg, state.NewAppState(), nil)
 	cfg := DefaultConfig()
 	cfg.MaxToolIterations = 10
+	cfg.MaxForcedContinuations = 2
 	engine.SetConfig(cfg)
 
 	stream, err := engine.SubmitMessage(context.Background(), "latest gemma news")
@@ -213,6 +228,264 @@ func TestWebEvidenceGate_FailsClosedWhenWebFetchNotCompleted(t *testing.T) {
 	}
 }
 
+func TestWebEvidenceGate_DoesNotRequireWebForLocalPostgresStatus(t *testing.T) {
+	stopToolUse := llm.StopReasonToolUse
+	stopEnd := llm.StopReasonEndTurn
+	llmScript := &scriptedLLM{
+		sequences: [][]llm.Event{
+			{
+				{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "bash-1", Name: "bash", Input: mustRawJSON(t, map[string]any{"command": "ps -ef | grep postgres", "server": "sandbox-server"})}},
+				{Kind: llm.EventStop, Stop: &stopToolUse},
+			},
+			{
+				{Kind: llm.EventTextDelta, Delta: "PostgreSQL is running on sandbox-server."},
+				{Kind: llm.EventStop, Stop: &stopEnd},
+			},
+		},
+	}
+
+	reg := tool.NewRegistry()
+	if err := reg.Register(&scriptedTool{
+		name:       "bash",
+		permission: types.BehaviorAllow,
+		output:     "postgres 154452 1 0 10:39 ? 00:00:00 /usr/pgsql-18/bin/postgres -D /var/lib/pgsql/18/data/",
+	}); err != nil {
+		t.Fatalf("register bash: %v", err)
+	}
+
+	engine := NewEngine(llmScript, reg, state.NewAppState(), nil)
+	cfg := DefaultConfig()
+	cfg.MaxToolIterations = 4
+	engine.SetConfig(cfg)
+
+	stream, err := engine.SubmitMessage(context.Background(), "postgresql \ub5a0\uc788\ub294\uac70 \ud655\uc778\ud574\ubcf4\uc790")
+	if err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+
+	var assistantText strings.Builder
+	for evt := range stream {
+		if evt.Kind == UIEventAssistantDelta {
+			assistantText.WriteString(evt.Delta)
+		}
+		if evt.Kind == UIEventToolUse && evt.ToolUse != nil && strings.EqualFold(evt.ToolUse.Name, "webfetch") {
+			t.Fatalf("did not expect webfetch for local postgres status check")
+		}
+	}
+
+	out := assistantText.String()
+	if strings.Contains(out, "Web verification was required") {
+		t.Fatalf("local status check must not fail closed on web evidence, got: %q", out)
+	}
+	if !strings.Contains(out, "PostgreSQL is running") {
+		t.Fatalf("expected local status answer, got: %q", out)
+	}
+}
+
+func TestPersistencePolicy_KoreanResearchRequiresMultipleSources(t *testing.T) {
+	cfg := DefaultConfig()
+	query := "\uc6f9\ud398\uc774\uc9c0\ub4e4 \uac80\uc0c9\ud574\uc11c mysql \uc810\uac80\ubc29\ubc95\uc744 \uccb4\ud06c\ud574\ubd10"
+
+	p := classifyPersistencePolicy(context.Background(), nil, query, "", cfg)
+
+	if !p.Enabled || !p.Web.Enabled {
+		t.Fatalf("expected persistence web policy enabled, got: %#v", p)
+	}
+	if !p.Web.ResearchMode {
+		t.Fatalf("expected research mode for Korean web research request")
+	}
+	if p.Web.MinSearches != cfg.ResearchMinSearches {
+		t.Fatalf("expected %d searches, got %d", cfg.ResearchMinSearches, p.Web.MinSearches)
+	}
+	if p.Web.MinFetches != cfg.ResearchMinFetches {
+		t.Fatalf("expected %d fetches, got %d", cfg.ResearchMinFetches, p.Web.MinFetches)
+	}
+	if !p.Web.RequireDistinctFetchDomains {
+		t.Fatalf("expected distinct fetch domains for broad research")
+	}
+}
+
+func TestResearchPersistenceGate_RequiresMultipleSearchesAndFetches(t *testing.T) {
+	stopToolUse := llm.StopReasonToolUse
+	stopEnd := llm.StopReasonEndTurn
+	llmScript := &scriptedLLM{
+		sequences: [][]llm.Event{
+			{
+				{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "ws-1", Name: "web_search", Input: mustRawJSON(t, map[string]any{"query": "mysql health check official docs"})}},
+				{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "ws-2", Name: "web_search", Input: mustRawJSON(t, map[string]any{"query": "mysql health check checklist dba"})}},
+				{Kind: llm.EventStop, Stop: &stopToolUse},
+			},
+			{
+				{Kind: llm.EventTextDelta, Delta: "single source answer"},
+				{Kind: llm.EventStop, Stop: &stopEnd},
+			},
+			{
+				{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "wf-1", Name: "webfetch", Input: mustRawJSON(t, map[string]any{"url": "https://dev.mysql.com/doc/refman/8.0/en/using-system-variables.html", "prompt": "extract mysql health check items"})}},
+				{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "wf-2", Name: "webfetch", Input: mustRawJSON(t, map[string]any{"url": "https://severalnines.com/blog/mysql-health-check/", "prompt": "extract mysql health check checklist"})}},
+				{Kind: llm.EventStop, Stop: &stopToolUse},
+			},
+			{
+				{Kind: llm.EventTextDelta, Delta: "verified multi-source answer\nSources:\n- https://dev.mysql.com/doc/refman/8.0/en/using-system-variables.html\n- https://severalnines.com/blog/mysql-health-check/"},
+				{Kind: llm.EventStop, Stop: &stopEnd},
+			},
+		},
+	}
+
+	reg := tool.NewRegistry()
+	if err := reg.Register(&scriptedTool{
+		name:       "web_search",
+		permission: types.BehaviorAllow,
+		output:     `{"query":"mysql health check","results":[{"content":[{"url":"https://dev.mysql.com/doc/refman/8.0/en/using-system-variables.html","title":"MySQL docs","snippet":"status variables"}]},{"content":[{"url":"https://severalnines.com/blog/mysql-health-check/","title":"MySQL health check","snippet":"checklist"}]}]}`,
+	}); err != nil {
+		t.Fatalf("register web_search: %v", err)
+	}
+	if err := reg.Register(&scriptedTool{
+		name:       "webfetch",
+		permission: types.BehaviorAllow,
+		outputFn: func(input json.RawMessage) string {
+			var req struct {
+				URL string `json:"url"`
+			}
+			_ = json.Unmarshal(input, &req)
+			if strings.TrimSpace(req.URL) == "" {
+				req.URL = "https://example.com/fallback"
+			}
+			b, _ := json.Marshal(map[string]any{
+				"code":   200,
+				"result": "mysql health check commands and caveats",
+				"url":    req.URL,
+			})
+			return string(b)
+		},
+	}); err != nil {
+		t.Fatalf("register webfetch: %v", err)
+	}
+
+	engine := NewEngine(llmScript, reg, state.NewAppState(), nil)
+	cfg := DefaultConfig()
+	cfg.MaxToolIterations = 10
+	engine.SetConfig(cfg)
+
+	query := "\uc6f9\ud398\uc774\uc9c0\ub4e4 \uac80\uc0c9\ud574\uc11c mysql \uc810\uac80\ubc29\ubc95\uc744 \uccb4\ud06c\ud574\ubd10"
+	stream, err := engine.SubmitMessage(context.Background(), query)
+	if err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+
+	var assistantText strings.Builder
+	webSearchCalls := 0
+	webFetchCalls := 0
+	sawParallelBatch := false
+	for evt := range stream {
+		if evt.Kind == UIEventAssistantDelta {
+			assistantText.WriteString(evt.Delta)
+		}
+		if evt.Kind == UIEventToolUse && evt.ToolUse != nil {
+			switch strings.ToLower(evt.ToolUse.Name) {
+			case "web_search":
+				webSearchCalls++
+			case "webfetch":
+				webFetchCalls++
+			}
+		}
+		if evt.Kind == UIEventParallelBatch && len(evt.BatchTaskIDs) >= 2 {
+			sawParallelBatch = true
+		}
+	}
+
+	out := assistantText.String()
+	if strings.Contains(out, "single source answer") {
+		t.Fatalf("premature single-source answer should be hidden, got: %q", out)
+	}
+	if !strings.Contains(out, "verified multi-source answer") {
+		t.Fatalf("expected verified final answer, got: %q", out)
+	}
+	if webSearchCalls < cfg.ResearchMinSearches {
+		t.Fatalf("expected at least %d web_search calls, got %d", cfg.ResearchMinSearches, webSearchCalls)
+	}
+	if webFetchCalls < cfg.ResearchMinFetches {
+		t.Fatalf("expected at least %d webfetch calls, got %d", cfg.ResearchMinFetches, webFetchCalls)
+	}
+	if !sawParallelBatch {
+		t.Fatalf("expected parallel batch event for concurrent research calls")
+	}
+}
+
+func TestPersistenceGate_ContinuesAfterRecoverableToolFailureUntilVerified(t *testing.T) {
+	stopToolUse := llm.StopReasonToolUse
+	stopEnd := llm.StopReasonEndTurn
+	llmScript := &scriptedLLM{
+		sequences: [][]llm.Event{
+			{
+				{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "bash-1", Name: "bash", Input: mustRawJSON(t, map[string]any{"command": "npm install example-package"})}},
+				{Kind: llm.EventStop, Stop: &stopToolUse},
+			},
+			{
+				{Kind: llm.EventTextDelta, Delta: "failed, done"},
+				{Kind: llm.EventStop, Stop: &stopEnd},
+			},
+			{
+				{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "grep-1", Name: "grep", Input: mustRawJSON(t, map[string]any{"pattern": "example-package"})}},
+				{Kind: llm.EventStop, Stop: &stopToolUse},
+			},
+			{
+				{Kind: llm.EventTextDelta, Delta: "verified after alternate check"},
+				{Kind: llm.EventStop, Stop: &stopEnd},
+			},
+		},
+	}
+
+	reg := tool.NewRegistry()
+	if err := reg.Register(&scriptedTool{
+		name:       "bash",
+		permission: types.BehaviorAllow,
+		output:     "exit status 1: network timeout",
+		isError:    true,
+		writable:   true,
+	}); err != nil {
+		t.Fatalf("register bash: %v", err)
+	}
+	if err := reg.Register(&scriptedTool{
+		name:       "grep",
+		permission: types.BehaviorAllow,
+		output:     "example-package found in package.json",
+	}); err != nil {
+		t.Fatalf("register grep: %v", err)
+	}
+
+	engine := NewEngine(llmScript, reg, state.NewAppState(), nil)
+	cfg := DefaultConfig()
+	cfg.MaxToolIterations = 8
+	engine.SetConfig(cfg)
+
+	stream, err := engine.SubmitMessage(context.Background(), "change local config setting")
+	if err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+
+	var assistantText strings.Builder
+	sawContinuation := false
+	for evt := range stream {
+		if evt.Kind == UIEventAssistantDelta {
+			assistantText.WriteString(evt.Delta)
+		}
+		if evt.Kind == UIEventNotice && strings.Contains(evt.Notice, "persistence checks") {
+			sawContinuation = true
+		}
+	}
+
+	out := assistantText.String()
+	if strings.Contains(out, "failed, done") {
+		t.Fatalf("premature failure summary should be hidden, got: %q", out)
+	}
+	if !strings.Contains(out, "verified after alternate check") {
+		t.Fatalf("expected final answer after verification, got: %q", out)
+	}
+	if !sawContinuation {
+		t.Fatalf("expected persistence continuation after recoverable failure")
+	}
+}
+
 func TestClassifyWebEvidencePolicy_StrongRules(t *testing.T) {
 	p1 := classifyWebEvidencePolicy(context.Background(), nil, "오늘 gemma 최신 뉴스 찾아봐", "")
 	if !p1.Enabled {
@@ -222,6 +495,18 @@ func TestClassifyWebEvidencePolicy_StrongRules(t *testing.T) {
 	p2 := classifyWebEvidencePolicy(context.Background(), nil, "이 코드 리팩터링 해줘", "")
 	if p2.Enabled {
 		t.Fatalf("expected strong-disable policy for code refactor query")
+	}
+}
+
+func TestClassifyWebEvidencePolicy_LocalOperationalStatusSkipsWeb(t *testing.T) {
+	p := classifyWebEvidencePolicy(context.Background(), nil, "postgresql \ub5a0\uc788\ub294\uac70 \ud655\uc778\ud574\ubcf4\uc790", "")
+	if p.Enabled {
+		t.Fatalf("expected local postgres status check to skip web policy, got: %#v", p)
+	}
+
+	p = classifyWebEvidencePolicy(context.Background(), nil, "postgresql latest release notes", "")
+	if !p.Enabled {
+		t.Fatalf("expected explicit latest release request to require web policy")
 	}
 }
 

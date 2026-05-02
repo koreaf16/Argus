@@ -1,6 +1,9 @@
 package llm
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestStreamAccumulatorOpenAI(t *testing.T) {
 	t.Parallel()
@@ -28,6 +31,51 @@ func TestBuildToolResultMessage(t *testing.T) {
 	}
 	if msg.Content[0].Type != ContentToolResult {
 		t.Fatalf("unexpected content type: %s", msg.Content[0].Type)
+	}
+}
+
+func TestApproximateTokenCountIncludesToolSchemasAndInputs(t *testing.T) {
+	t.Parallel()
+
+	base := ApproximateTokenCount(Request{
+		Messages: []Message{TextMessage(RoleUser, "hi")},
+	})
+	withTool := ApproximateTokenCount(Request{
+		Messages: []Message{TextMessage(RoleUser, "hi")},
+		Tools: []ToolSpec{
+			{
+				Name:        "bash",
+				Description: "Run a shell command.",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"command": map[string]any{"type": "string"},
+					},
+				},
+			},
+		},
+	})
+	if withTool <= base {
+		t.Fatalf("tool schema should increase estimate: base=%d withTool=%d", base, withTool)
+	}
+
+	withInput := ApproximateTokenCount(Request{
+		Messages: []Message{
+			{
+				Role: RoleAssistant,
+				Content: []ContentBlock{
+					{
+						Type:  ContentToolUse,
+						ID:    "toolu_1",
+						Name:  "bash",
+						Input: json.RawMessage(`{"command":"printf 'long tool input payload'"}`),
+					},
+				},
+			},
+		},
+	})
+	if withInput <= base {
+		t.Fatalf("tool input should increase estimate: base=%d withInput=%d", base, withInput)
 	}
 }
 

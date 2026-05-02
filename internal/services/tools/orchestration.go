@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/koreaf16/argus/internal/hooks"
@@ -19,8 +21,8 @@ type ToolResult struct {
 	IsError bool
 }
 
-// toolBatch groups tool calls by whether they are safe to run concurrently.
-type toolBatch struct {
+// ToolBatch groups tool calls by whether they are safe to run concurrently.
+type ToolBatch struct {
 	IsConcurrencySafe bool
 	Calls             []llm.ToolUseStart
 }
@@ -32,8 +34,8 @@ type ConcurrencySafetyEvaluator interface {
 }
 
 // PartitionToolCalls partitions tool calls into concurrent-safe and sequential batches.
-func PartitionToolCalls(calls []llm.ToolUseStart, registry *tool.Registry) []toolBatch {
-	var batches []toolBatch
+func PartitionToolCalls(calls []llm.ToolUseStart, registry *tool.Registry) []ToolBatch {
+	var batches []ToolBatch
 
 	for _, call := range calls {
 		isSafe := isCallConcurrencySafe(call, registry)
@@ -41,7 +43,7 @@ func PartitionToolCalls(calls []llm.ToolUseStart, registry *tool.Registry) []too
 		if isSafe && len(batches) > 0 && batches[len(batches)-1].IsConcurrencySafe {
 			batches[len(batches)-1].Calls = append(batches[len(batches)-1].Calls, call)
 		} else {
-			batches = append(batches, toolBatch{
+			batches = append(batches, ToolBatch{
 				IsConcurrencySafe: isSafe,
 				Calls:             []llm.ToolUseStart{call},
 			})
@@ -59,10 +61,48 @@ func isCallConcurrencySafe(call llm.ToolUseStart, registry *tool.Registry) bool 
 	if !ok {
 		return false
 	}
+	if !inputShapeValid(t, call.Input) {
+		return false
+	}
 	if evaluator, ok := t.(ConcurrencySafetyEvaluator); ok {
-		return evaluator.IsConcurrencySafe(call.Input)
+		return safelyEvaluateConcurrency(evaluator, call.Input)
 	}
 	return t.IsReadOnly()
+}
+
+func safelyEvaluateConcurrency(evaluator ConcurrencySafetyEvaluator, input json.RawMessage) (safe bool) {
+	defer func() {
+		if recover() != nil {
+			safe = false
+		}
+	}()
+	return evaluator.IsConcurrencySafe(input)
+}
+
+func inputShapeValid(t tool.Tool, input json.RawMessage) bool {
+	schema := t.InputSchema()
+	typ, _ := schema["type"].(string)
+	trimmed := json.RawMessage("{}")
+	if len(input) > 0 {
+		trimmed = input
+	}
+	if typ == "object" {
+		var obj map[string]any
+		return json.Unmarshal(trimmed, &obj) == nil
+	}
+	return json.Valid(trimmed)
+}
+
+func MaxToolConcurrency() int {
+	raw := os.Getenv("ARGUS_MAX_TOOL_CONCURRENCY")
+	if raw == "" {
+		return 10
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 10
+	}
+	return n
 }
 
 // RunTools orchestrates tool calls with hook support.
@@ -92,11 +132,15 @@ func RunToolsWithDispatcher(
 		if batch.IsConcurrencySafe {
 			var wg sync.WaitGroup
 			batchResults := make([]ToolResult, len(batch.Calls))
+			limit := MaxToolConcurrency()
+			sem := make(chan struct{}, limit)
 
 			for i, call := range batch.Calls {
 				wg.Add(1)
 				go func(index int, c llm.ToolUseStart) {
 					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
 
 					if hookRegistry != nil {
 						_ = hookRegistry.RunPreHooks(ctx, c)

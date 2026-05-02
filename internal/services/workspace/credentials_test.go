@@ -68,6 +68,33 @@ func TestCredentialStoreRoundtrip(t *testing.T) {
 	}
 }
 
+func TestCredentialStoreTargetUserOverridesLegacy(t *testing.T) {
+	store, path := newTestStore(t, xorEncrypter{})
+
+	if err := store.SetPassword("db", "sudo", "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPasswordForTarget("db", "sudo", "postgres", "pgpw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	store2 := NewCredentialStore(path, xorEncrypter{})
+	if err := store2.Load(); err != nil {
+		t.Fatal(err)
+	}
+	pw, ok, err := store2.GetPasswordForTarget("db", "sudo", "postgres")
+	if err != nil || !ok || pw != "pgpw" {
+		t.Fatalf("target password = %q ok=%v err=%v", pw, ok, err)
+	}
+	pw, ok, err = store2.GetPasswordForTarget("db", "sudo", "root")
+	if err != nil || !ok || pw != "legacy" {
+		t.Fatalf("legacy fallback = %q ok=%v err=%v", pw, ok, err)
+	}
+}
+
 func TestCredentialStoreMissingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nonexistent.json")

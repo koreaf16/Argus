@@ -33,27 +33,27 @@ import (
 )
 
 type Config struct {
-	Engine       *query.Engine
-	Registry     *llm.Registry
-	State        *state.AppState
-	ModelPath    string
-	SettingsPath string
-	WorkDir      string
-	Memory       *memdir.Store
-	Connector    *connector.Manager
-	MCP          *mcp.Manager
-	LSP          *lsp.Manager
-	Workspace    *workspace.Manager
-	ShellJobs    *shelljobs.Manager
-	Skills       *skills.Registry
-	Credentials  *workspace.CredentialStore
+	Engine                 *query.Engine
+	Registry               *llm.Registry
+	State                  *state.AppState
+	ModelPath              string
+	SettingsPath           string
+	WorkDir                string
+	Memory                 *memdir.Store
+	Connector              *connector.Manager
+	MCP                    *mcp.Manager
+	LSP                    *lsp.Manager
+	Workspace              *workspace.Manager
+	ShellJobs              *shelljobs.Manager
+	Skills                 *skills.Registry
+	Credentials            *workspace.CredentialStore
 	MCPReload              func() error
 	ConnectorSearchPrompt  func(ctx context.Context, query string, results []connector.ConnectorSpec) (*connector.ConnectorSpec, error)
 	ConnectorInstallPrompt func(ctx context.Context, spec connector.ConnectorSpec) (map[string]string, bool, error)
 	Theme                  string
-	UI           UISettings
-	AIDebug      bool
-	AutoApprove  bool
+	UI                     UISettings
+	AIDebug                bool
+	AutoApprove            bool
 }
 
 type app struct {
@@ -282,10 +282,14 @@ func (a *app) popJobInputChannel(jobID string) chan string {
 }
 
 func (a *app) submit(input string) {
+	a.submitPrompt(promptSubmission{Display: input, Expanded: input})
+}
+
+func (a *app) submitPrompt(input promptSubmission) {
 	go a.runSubmit(input)
 }
 
-func (a *app) runSubmit(input string) {
+func (a *app) runSubmit(input promptSubmission) {
 	submitCtx, cancel := context.WithCancel(a.ctx)
 	a.setSubmitCancel(cancel)
 	defer a.clearSubmitCancel()
@@ -293,14 +297,18 @@ func (a *app) runSubmit(input string) {
 	a.send(submitStartedMsg{})
 	defer a.send(submitFinishedMsg{})
 
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" {
+	display := strings.TrimSpace(input.Display)
+	expanded := strings.TrimSpace(input.Expanded)
+	if expanded == "" {
 		a.emitFooter()
 		return
 	}
+	if display == "" {
+		display = expanded
+	}
 
-	if strings.HasPrefix(trimmed, "/") {
-		quit, loaded, err := a.handleSlashCommand(submitCtx, trimmed)
+	if strings.HasPrefix(display, "/") {
+		quit, loaded, err := a.handleSlashCommand(submitCtx, expanded)
 		if err != nil {
 			a.send(presentationEventMsg{
 				Event: presentation.Event{
@@ -320,113 +328,14 @@ func (a *app) runSubmit(input string) {
 		return
 	}
 
-	if a.cfg.Connector != nil {
-		installed, _ := a.cfg.Connector.Installer.ListInstalled()
-		var installedNames []string
-		for _, c := range installed {
-			installedNames = append(installedNames, c.Spec.Name)
-		}
-
-		// 기존 워크스페이스 별칭과 겹치는지 확인
-		isWorkspaceAlias := false
-		if a.cfg.Workspace != nil {
-			for _, entry := range a.cfg.Workspace.Registry().List() {
-				if strings.EqualFold(entry.Alias, trimmed) {
-					isWorkspaceAlias = true
-					break
-				}
-			}
-		}
-
-		if !isWorkspaceAlias {
-			if hint := connector.Detect(trimmed, installedNames); hint != nil {
-				question := tool.AskUserQuestion{
-					Question: fmt.Sprintf("It looks like you want to use %s. Would you like to install the '%s' connector?", hint.Name, hint.Name),
-					Type:     "yesno",
-				}
-				resp := a.promptAskUser(submitCtx, "connector_suggest", &question)
-				if !resp.Canceled && (strings.EqualFold(resp.Value, "yes") || strings.EqualFold(resp.Value, "y")) {
-					spec, err := a.cfg.Connector.Aggregator.Info(submitCtx, hint.Name)
-					if err != nil {
-						a.send(presentationEventMsg{
-							Event: presentation.Event{
-								Kind: presentation.EventError,
-								Text: fmt.Sprintf("Failed to get connector info for %s: %v", hint.Name, err),
-							},
-						})
-					} else {
-						envAnswers := make(map[string]string)
-						canceled := false
-						if len(spec.EnvPrompts) > 0 {
-							var questions []tool.AskUserQuestion
-							for _, ep := range spec.EnvPrompts {
-								qType := "text"
-								if ep.Secret {
-									qType = "password"
-								}
-								questions = append(questions, tool.AskUserQuestion{
-									ID:          ep.Key,
-									Question:    fmt.Sprintf("Configure %s: %s", spec.Name, ep.Description),
-									Type:        qType,
-									Placeholder: ep.Key,
-								})
-							}
-							batchResp := a.promptAskUserBatch(submitCtx, "connector_suggest", questions)
-							if batchResp.Canceled {
-								canceled = true
-							} else {
-								envAnswers = batchResp.AnswersByID
-							}
-						}
-
-						if canceled {
-							a.send(presentationEventMsg{
-								Event: presentation.Event{
-									Kind: presentation.EventNotice,
-									Text: fmt.Sprintf("Installation of %s canceled.", hint.Name),
-								},
-							})
-						} else {
-							a.send(presentationEventMsg{
-								Event: presentation.Event{
-									Kind: presentation.EventNotice,
-									Text: fmt.Sprintf("Installing %s (runtime: %s)...", hint.Name, spec.Runtime),
-								},
-							})
-							errInstall := a.cfg.Connector.Installer.Install(submitCtx, *spec, envAnswers)
-							if errInstall == nil {
-								if a.cfg.MCPReload != nil {
-									_ = a.cfg.MCPReload()
-								}
-								a.send(presentationEventMsg{
-									Event: presentation.Event{
-										Kind: presentation.EventNotice,
-										Text: fmt.Sprintf("Successfully installed %s. You can now use its tools.", hint.Name),
-									},
-								})
-							} else {
-								a.send(presentationEventMsg{
-									Event: presentation.Event{
-										Kind: presentation.EventError,
-										Text: fmt.Sprintf("Failed to install %s: %v", hint.Name, errInstall),
-									},
-								})
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
 	a.send(presentationEventMsg{
 		Event: presentation.Event{
 			Kind: presentation.EventUser,
-			Text: trimmed,
+			Text: display,
 		},
 	})
 
-	stream, err := a.cfg.Engine.SubmitMessage(submitCtx, trimmed)
+	stream, err := a.cfg.Engine.SubmitMessage(submitCtx, expanded)
 	if err != nil {
 		a.send(presentationEventMsg{
 			Event: presentation.Event{
@@ -444,7 +353,7 @@ func (a *app) runSubmit(input string) {
 	)
 
 	for evt := range stream {
-		// 중복 방지를 위해 엔진 이벤트를 그대로 전달하되, 
+		// 중복 방지를 위해 엔진 이벤트를 그대로 전달하되,
 		// 필요한 메타데이터 처리가 끝난 후 단 한 번만 a.send() 호출.
 		a.send(queryEventMsg{Event: evt})
 
@@ -513,8 +422,11 @@ func (a *app) buildFooterMsg() footerStateMsg {
 	}
 	footer := presentation.BuildFooterState(a.cfg.State, cwd)
 	if a.cfg.Engine != nil {
-		in, out := a.cfg.Engine.CumulativeTokenSnapshot()
-		footer.TokensUsed = in + out
+		in, out, thinking := a.cfg.Engine.CumulativeTokenSnapshot()
+		footer.TokensUsed = in + out + thinking
+		footer.TokensIn = in
+		footer.TokensOut = out
+		footer.TokensThinking = thinking
 	}
 	footer.DiffAdded, footer.DiffRemoved = gitDiffStat(cwd)
 	return footerStateMsg{Footer: footer}
@@ -742,9 +654,29 @@ func buildApprovalRuleValue(toolName string, input json.RawMessage) (types.Permi
 		if prefix == "" {
 			return types.PermissionRuleValue{}, false
 		}
-		rule.RuleContent = prefix + ":*"
+		rule.RuleContent = scopedShellRuleContent(input, prefix+":*")
 	}
 	return rule, true
+}
+
+func scopedShellRuleContent(input json.RawMessage, commandRule string) string {
+	var obj map[string]any
+	if err := json.Unmarshal(input, &obj); err != nil {
+		return commandRule
+	}
+	var scopes []string
+	for _, key := range []string{"server", "role", "channel", "as_user", "privilege_method"} {
+		value, _ := obj[key].(string)
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		scopes = append(scopes, key+"="+strings.ReplaceAll(value, ";", "_"))
+	}
+	if len(scopes) == 0 {
+		return commandRule
+	}
+	return "ctx[" + strings.Join(scopes, ";") + "]:" + commandRule
 }
 
 func extractShellRulePrefix(toolName, command string) string {
@@ -798,6 +730,10 @@ func formatAskUserPromptOptions(options []tool.AskUserOption) string {
 func (a *app) handleSlashCommand(ctx context.Context, line string) (quit bool, loadedSession bool, err error) {
 	if strings.EqualFold(strings.TrimSpace(line), "/clear") {
 		a.send(presentationEventMsg{Event: presentation.Event{Kind: presentation.EventViewCleared}})
+		if a.cfg.Engine != nil {
+			a.cfg.Engine.EmitTrace("slash_command", "", map[string]any{"name": "clear", "is_error": false})
+			a.cfg.Engine.EmitTrace("view.cleared", "", map[string]any{"reason": "slash_command"})
+		}
 		return false, false, nil
 	}
 
@@ -816,23 +752,23 @@ func (a *app) handleSlashCommand(ctx context.Context, line string) (quit bool, l
 		},
 	}
 	cmdCtx := commands.CommandContext{
-		Context:          ctx,
-		Stdout:           sink,
-		State:            a.cfg.State,
-		Registry:         a.cfg.Registry,
-		Engine:           a.cfg.Engine,
-		ModelPath:        a.cfg.ModelPath,
-		SettingsPath:     a.cfg.SettingsPath,
-		WorkDir:          a.cfg.WorkDir,
-		Memory:           a.cfg.Memory,
-		MCP:              a.cfg.MCP,
-		LSP:              a.cfg.LSP,
-		Workspace:        a.cfg.Workspace,
-		Skills:           a.cfg.Skills,
-		Connector:        a.cfg.Connector,
-		Credentials:      a.cfg.Credentials,
-		MCPReload:        a.cfg.MCPReload,
-		ModelHandler:     a.handleModelCommand,
+		Context:                ctx,
+		Stdout:                 sink,
+		State:                  a.cfg.State,
+		Registry:               a.cfg.Registry,
+		Engine:                 a.cfg.Engine,
+		ModelPath:              a.cfg.ModelPath,
+		SettingsPath:           a.cfg.SettingsPath,
+		WorkDir:                a.cfg.WorkDir,
+		Memory:                 a.cfg.Memory,
+		MCP:                    a.cfg.MCP,
+		LSP:                    a.cfg.LSP,
+		Workspace:              a.cfg.Workspace,
+		Skills:                 a.cfg.Skills,
+		Connector:              a.cfg.Connector,
+		Credentials:            a.cfg.Credentials,
+		MCPReload:              a.cfg.MCPReload,
+		ModelHandler:           a.handleModelCommand,
 		ServerFormPrompt:       a.promptServerForm,
 		ServerListPrompt:       a.promptServerList,
 		ConnectorSearchPrompt:  a.promptConnectorSearch,
@@ -840,6 +776,16 @@ func (a *app) handleSlashCommand(ctx context.Context, line string) (quit bool, l
 	}
 	quit, err = commands.Dispatch(line, cmdCtx)
 	sink.Flush()
+	if a.cfg.Engine != nil {
+		cmdName := ""
+		if parts := strings.Fields(strings.TrimSpace(line)); len(parts) > 0 {
+			cmdName = strings.TrimPrefix(parts[0], "/")
+		}
+		a.cfg.Engine.EmitTrace("slash_command", "", map[string]any{
+			"name":     cmdName,
+			"is_error": err != nil,
+		})
+	}
 	if err != nil {
 		return quit, false, err
 	}

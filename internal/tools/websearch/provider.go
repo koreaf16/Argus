@@ -71,6 +71,9 @@ func (r *SearchRouter) RouteWithScore(input SearchInput) (SearchProvider, int) {
 		if provider == nil {
 			continue
 		}
+		if !isProviderAllowed(provider, input.AllowedDomains) {
+			continue
+		}
 		if isProviderBlocked(provider, input.BlockedDomains) {
 			continue
 		}
@@ -93,6 +96,23 @@ func (r *SearchRouter) RouteWithScore(input SearchInput) (SearchProvider, int) {
 		return nil, 0
 	}
 	return best, bestScore
+}
+
+func isProviderAllowed(provider SearchProvider, allowedDomains []string) bool {
+	allowed := normalizeDomains(allowedDomains)
+	if len(allowed) == 0 || provider == nil {
+		return true
+	}
+	domain := strings.ToLower(strings.TrimSpace(provider.Domain()))
+	if domain == "" {
+		return false
+	}
+	for _, allowedDomain := range allowed {
+		if domainMatches(domain, allowedDomain) || domainMatches(allowedDomain, domain) {
+			return true
+		}
+	}
+	return false
 }
 
 func isProviderBlocked(provider SearchProvider, blockedDomains []string) bool {

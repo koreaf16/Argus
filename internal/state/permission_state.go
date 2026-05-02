@@ -11,19 +11,19 @@ const (
 func (s *AppState) SetPrePlanMode(mode types.PermissionMode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.metadata == nil {
-		s.metadata = make(map[string]interface{})
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
 	}
-	s.metadata[metaPrePlanMode] = string(mode)
+	s.Metadata[metaPrePlanMode] = string(mode)
 }
 
 func (s *AppState) PrePlanMode() types.PermissionMode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return types.PermissionModeDefault
 	}
-	v, _ := s.metadata[metaPrePlanMode].(string)
+	v, _ := s.Metadata[metaPrePlanMode].(string)
 	if v == "" {
 		return types.PermissionModeDefault
 	}
@@ -33,30 +33,30 @@ func (s *AppState) PrePlanMode() types.PermissionMode {
 func (s *AppState) ClearPrePlanMode() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return
 	}
-	delete(s.metadata, metaPrePlanMode)
+	delete(s.Metadata, metaPrePlanMode)
 }
 
 func (s *AppState) SetAdditionalWorkingDirectories(dirs []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.metadata == nil {
-		s.metadata = make(map[string]interface{})
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
 	}
 	cp := make([]string, len(dirs))
 	copy(cp, dirs)
-	s.metadata[metaExtraDirs] = cp
+	s.Metadata[metaExtraDirs] = cp
 }
 
 func (s *AppState) AdditionalWorkingDirectories() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return nil
 	}
-	src, _ := s.metadata[metaExtraDirs].([]string)
+	src, _ := s.Metadata[metaExtraDirs].([]string)
 	out := make([]string, len(src))
 	copy(out, src)
 	return out
@@ -65,13 +65,13 @@ func (s *AppState) AdditionalWorkingDirectories() []string {
 func (s *AppState) AddSessionPermissionRule(rule types.PermissionRule) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.metadata == nil {
-		s.metadata = make(map[string]interface{})
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
 	}
 	if rule.Source == "" {
 		rule.Source = types.RuleSourceSession
 	}
-	existing, _ := s.metadata[metaSessionPermissionRules].([]types.PermissionRule)
+	existing, _ := s.Metadata[metaSessionPermissionRules].([]types.PermissionRule)
 	for _, it := range existing {
 		if it.RuleBehavior == rule.RuleBehavior &&
 			it.Source == rule.Source &&
@@ -81,16 +81,16 @@ func (s *AppState) AddSessionPermissionRule(rule types.PermissionRule) {
 		}
 	}
 	next := append(existing, rule)
-	s.metadata[metaSessionPermissionRules] = next
+	s.Metadata[metaSessionPermissionRules] = next
 }
 
 func (s *AppState) SessionPermissionRules() []types.PermissionRule {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return nil
 	}
-	existing, _ := s.metadata[metaSessionPermissionRules].([]types.PermissionRule)
+	existing, _ := s.Metadata[metaSessionPermissionRules].([]types.PermissionRule)
 	out := make([]types.PermissionRule, len(existing))
 	copy(out, existing)
 	return out
@@ -99,8 +99,8 @@ func (s *AppState) SessionPermissionRules() []types.PermissionRule {
 func (s *AppState) ClearSessionPermissionRules() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.metadata == nil {
+	if s.Metadata == nil {
 		return
 	}
-	delete(s.metadata, metaSessionPermissionRules)
+	delete(s.Metadata, metaSessionPermissionRules)
 }

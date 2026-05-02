@@ -25,6 +25,10 @@ func (t *ConnectorSuggestTool) Description(ctx tools.Context) string {
 	return "Search for and optionally install an MCP connector from the registry. Use this when you need a specific tool (e.g. database connector, kubernetes connector) that is currently missing."
 }
 
+func (t *ConnectorSuggestTool) IsVisible(ctx tools.Context) bool {
+	return false
+}
+
 func (t *ConnectorSuggestTool) InputSchema() tools.ToolInputJSONSchema {
 	return tools.ToolInputJSONSchema{
 		"type": "object",
@@ -70,7 +74,7 @@ func (t *ConnectorSuggestTool) Call(deps tools.Context, input json.RawMessage) (
 	out := make(chan tools.ToolEvent, 1)
 	go func() {
 		defer close(out)
-		
+
 		installName := strings.TrimSpace(req.Install)
 		if installName != "" {
 			spec, err := t.manager.Aggregator.Info(deps.Context, installName)
@@ -78,7 +82,7 @@ func (t *ConnectorSuggestTool) Call(deps tools.Context, input json.RawMessage) (
 				out <- tools.NewErrorEvent(fmt.Errorf("failed to get connector info for %q: %v", installName, err))
 				return
 			}
-			
+
 			envAnswers := make(map[string]string)
 			if len(spec.EnvPrompts) > 0 {
 				var missing []string
@@ -97,7 +101,7 @@ func (t *ConnectorSuggestTool) Call(deps tools.Context, input json.RawMessage) (
 				out <- tools.NewErrorEvent(fmt.Errorf("failed to install %s: %v", installName, err))
 				return
 			}
-			
+
 			out <- tools.NewOutputEvent(fmt.Sprintf("Successfully installed connector %s. You may now use its tools.", installName))
 			out <- tools.NewDoneEvent()
 			return

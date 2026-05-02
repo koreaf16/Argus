@@ -3,7 +3,61 @@ package commands
 import (
 	"fmt"
 	"strings"
+
+	"github.com/koreaf16/argus/internal/services/workspace"
 )
+
+// storeElevationPassword persists the elevation password from a ServerFormResult.
+// The credential is stored per-target-user using the TargetPasswords map.
+// Errors are printed as warnings rather than returned, matching the SSH password behaviour above.
+func storeElevationPassword(ctx CommandContext, res ServerFormResult) {
+	if ctx.Credentials == nil {
+		return
+	}
+	entry := res.Entry
+
+	// Handle wildcard target if mode is password and no targets are defined but allowed.
+	// We use the legacy ElevationPassword field for this fallback.
+	if len(res.TargetPasswords) == 0 && entry.Elevation.Allowed && entry.Elevation.Mode == "password" {
+		pw := strings.TrimSpace(res.ElevationPassword)
+		if pw != "" {
+			if err := ctx.Credentials.SetPasswordForTarget(entry.Alias, "sudo", "", pw); err != nil {
+				fmt.Fprintf(ctx.Stdout, "warning: could not save elevation credential: %v\n", err)
+			}
+		}
+	} else {
+		// Save per-target passwords
+		for targetUser, pw := range res.TargetPasswords {
+			pw = strings.TrimSpace(pw)
+			if pw != "" {
+				if err := ctx.Credentials.SetPasswordForTarget(entry.Alias, "sudo", targetUser, pw); err != nil {
+					fmt.Fprintf(ctx.Stdout, "warning: could not save elevation credential for %q: %v\n", targetUser, err)
+				}
+			}
+		}
+	}
+
+	if err := ctx.Credentials.Save(); err != nil {
+		fmt.Fprintf(ctx.Stdout, "warning: could not write credential store: %v\n", err)
+	}
+}
+
+func saveWorkAccounts(ctx CommandContext, res ServerFormResult) {
+	for _, account := range res.WorkAccounts {
+		account.ParentAlias = strings.TrimSpace(account.ParentAlias)
+		if account.ParentAlias == "" {
+			account.ParentAlias = res.Entry.Alias
+		}
+		if existing, ok := ctx.Workspace.Registry().Get(account.Alias); ok {
+			if existing.Kind == workspace.ServerKindAccount && existing.ParentAlias == account.ParentAlias {
+				_ = ctx.Workspace.Registry().Remove(account.Alias)
+			}
+		}
+		if err := ctx.Workspace.Registry().Add(account); err != nil {
+			fmt.Fprintf(ctx.Stdout, "warning: could not add work account %s: %v\n", account.Alias, err)
+		}
+	}
+}
 
 // handleServerEditForm invokes the interactive TUI server-edit form for an existing server.
 func handleServerEditForm(ctx CommandContext, alias string) error {
@@ -28,6 +82,7 @@ func handleServerEditForm(ctx CommandContext, alias string) error {
 	if err := ctx.Workspace.Registry().Add(res.Entry); err != nil {
 		return fmt.Errorf("update server: %w", err)
 	}
+	saveWorkAccounts(ctx, res)
 	if err := ctx.Workspace.Registry().Save(); err != nil {
 		return fmt.Errorf("save server registry: %w", err)
 	}
@@ -43,9 +98,20 @@ func handleServerEditForm(ctx CommandContext, alias string) error {
 			ctx.Workspace.SetPassword(res.Entry.Alias, "ssh", res.Password)
 		}
 	}
+	storeElevationPassword(ctx, res)
 
-	fmt.Fprintf(ctx.Stdout, "updated server: %s (%s@%s:%d)\n",
-		res.Entry.Alias, res.Entry.User, res.Entry.Host, res.Entry.Port)
+	e := res.Entry.Elevation
+	if e.Allowed {
+		targets := strings.Join(e.TargetUsers, ", ")
+		if targets == "" {
+			targets = "any"
+		}
+		fmt.Fprintf(ctx.Stdout, "updated server: %s (%s@%s:%d)\n  elevation: ENABLED  mode=%s  targets=%s\n",
+			res.Entry.Alias, res.Entry.User, res.Entry.Host, res.Entry.Port, e.Mode, targets)
+	} else {
+		fmt.Fprintf(ctx.Stdout, "updated server: %s (%s@%s:%d)\n  elevation: DISABLED\n",
+			res.Entry.Alias, res.Entry.User, res.Entry.Host, res.Entry.Port)
+	}
 	return nil
 }
 
@@ -70,6 +136,7 @@ func handleServerAddForm(ctx CommandContext) error {
 	if err := ctx.Workspace.Registry().Add(res.Entry); err != nil {
 		return fmt.Errorf("add server: %w", err)
 	}
+	saveWorkAccounts(ctx, res)
 	if err := ctx.Workspace.Registry().Save(); err != nil {
 		return fmt.Errorf("save server registry: %w", err)
 	}
@@ -88,8 +155,19 @@ func handleServerAddForm(ctx CommandContext) error {
 			ctx.Workspace.SetPassword(res.Entry.Alias, "ssh", res.Password)
 		}
 	}
+	storeElevationPassword(ctx, res)
 
-	fmt.Fprintf(ctx.Stdout, "added server: %s (%s@%s:%d)\n",
-		res.Entry.Alias, res.Entry.User, res.Entry.Host, res.Entry.Port)
+	e := res.Entry.Elevation
+	if e.Allowed {
+		targets := strings.Join(e.TargetUsers, ", ")
+		if targets == "" {
+			targets = "any"
+		}
+		fmt.Fprintf(ctx.Stdout, "added server: %s (%s@%s:%d)\n  elevation: ENABLED  mode=%s  targets=%s\n",
+			res.Entry.Alias, res.Entry.User, res.Entry.Host, res.Entry.Port, e.Mode, targets)
+	} else {
+		fmt.Fprintf(ctx.Stdout, "added server: %s (%s@%s:%d)\n  elevation: DISABLED — sudo/su refused until /server edit %s\n",
+			res.Entry.Alias, res.Entry.User, res.Entry.Host, res.Entry.Port, res.Entry.Alias)
+	}
 	return nil
 }

@@ -47,7 +47,7 @@ func runPrint(flags *parsedFlags) error {
 			if flags.autoOK {
 				ok = true
 			} else {
-				ok, err = promptToolApproval(ctx, toolName, input)
+				ok, err = promptToolApprovalWithWriter(os.Stdout, ctx, toolName, input, config.State)
 			}
 			decision := "deny"
 			if ok {

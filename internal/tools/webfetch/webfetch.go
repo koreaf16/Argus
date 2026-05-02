@@ -77,7 +77,7 @@ func (t *WebFetchTool) Name() string {
 
 func (t *WebFetchTool) Description(ctx tool.Context) string {
 	_ = ctx
-	return "Fetch and extract web page content via Crawl4AI, then apply a prompt to the extracted markdown. For time-sensitive or latest/news queries, extract publication/update date, key facts, what changed, and include the canonical source URL."
+	return "Fetch and extract web page content via Crawl4AI, then apply a prompt to the extracted markdown. For time-sensitive or latest/news queries, extract publication/update date, key facts, what changed, and include the canonical source URL. For research, comparison, checklist, or procedure requests, fetch multiple candidate URLs in parallel and compare them; do not rely on one page unless the user supplied an exact URL or explicitly asked for one source."
 }
 
 func (t *WebFetchTool) InputSchema() tool.ToolInputJSONSchema {

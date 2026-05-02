@@ -32,6 +32,8 @@ func (t *ServerMetricsTool) InputSchema() tool.ToolInputJSONSchema {
 				"type":        "string",
 				"description": "Optional workspace alias. Defaults to active workspace.",
 			},
+			"role":    map[string]any{"type": "string", "description": "Optional workflow role."},
+			"channel": map[string]any{"type": "string", "description": "Optional workflow channel."},
 		},
 	}
 }
@@ -51,7 +53,9 @@ func (t *ServerMetricsTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 	}
 
 	var req struct {
-		Server string `json:"server"`
+		Server  string `json:"server"`
+		Role    string `json:"role"`
+		Channel string `json:"channel"`
 	}
 	if err := json.Unmarshal(input, &req); err != nil {
 		return nil, err
@@ -59,8 +63,11 @@ func (t *ServerMetricsTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 
 	go func() {
 		defer close(events)
-
-		alias := tool.ResolveWorkspaceAlias(ctx, req.Server)
+		alias, _, err := tool.ResolveExecutionRoleServer(ctx, req.Server, req.Role, req.Channel, "server_metrics")
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
 		entry, ok := ctx.Workspace.Registry().Get(alias)
 		if !ok {
 			events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", alias))
@@ -93,7 +100,15 @@ func (t *ServerMetricsTool) CheckPermission(ctx tool.Context, input json.RawMess
 	}
 
 	rawServer := strings.TrimSpace(tool.ExtractStringInput(input, "server"))
-	alias := tool.ResolveWorkspaceAlias(ctx, rawServer)
+	rawRole := tool.ExtractStringInput(input, "role")
+	rawChannel := tool.ExtractStringInput(input, "channel")
+	alias, _, err := tool.ResolveExecutionRoleServer(ctx, rawServer, rawRole, rawChannel, "server_metrics")
+	if err != nil {
+		return tool.PermissionResult{
+			Behavior: types.BehaviorDeny,
+			Message:  err.Error(),
+		}, nil
+	}
 	entry, ok := ctx.Workspace.Registry().Get(alias)
 	if !ok {
 		return tool.PermissionResult{

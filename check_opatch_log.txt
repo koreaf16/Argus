@@ -1,4 +1,0 @@
-/server connect sandbox-server
-Welcome1!@#$
-bash 도구 server="sandbox-server" 으로 OPatch 오류 로그 확인: (1) ls -ltr /u01/app/oracle/product/19.0.0/dbhome_1/cfgtoollogs/opatchauto/ 2>&1 | tail -5. (2) ls -ltr /u01/app/oracle/product/19.0.0/dbhome_1/cfgtoollogs/opatchauto/*/ 2>&1 | tail -10. (3) find /u01/app/oracle/product/19.0.0/dbhome_1/cfgtoollogs/opatchauto/ -name "*.log" -newer /tmp/oracle_install_ru.log 2>&1 | head -5 | xargs -I{} tail -40 {} 2>&1 | head -60 || echo no_log.
-bash 도구 server="sandbox-server" 으로 OPatch 버전 확인 및 oracle home 상태 점검: (1) /u01/app/oracle/product/19.0.0/dbhome_1/OPatch/opatch version 2>&1. (2) ls /u01/app/oracle/product/19.0.0/dbhome_1/OPatch/ 2>&1 | head -10. (3) df -h /u01/app/ 2>&1. (4) ls /u01/app/oracle/product/19.0.0/dbhome_1/bin/oracle 2>&1 || echo no_oracle_bin.

@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	colPadding  = 2 // 1 space each side of cell content
-	tableMargin = 2 // left indent of the whole table
-	minColWidth = 5 // minimum column content width before aggressive scaling
+	colPadding        = 2 // 1 space each side of cell content
+	tableMargin       = 2 // left indent of the whole table
+	minColWidth       = 5 // minimum column content width before aggressive scaling
+	tableSafetyMargin = 4 // right-edge safety buffer (mirrors claude_cli SAFETY_MARGIN)
 )
 
 // RenderTable renders headers+rows as a box-drawing bordered table string.
@@ -32,11 +33,23 @@ func RenderTable(headers []string, rows [][]string, termWidth int, p Palette) st
 
 	colWidths := allocateColWidths(headers, rows, numCols, termWidth)
 
-	// Wrap cell text to allocated widths.
+	// Wrap cell text to allocated widths, tracking whether each cell was wrapped.
 	wrappedHdr := wrapRow(headers, colWidths)
-	wrappedRows := make([][][]string, len(rows))
+	wrappedRows := make([][]wrappedCell, len(rows))
+	maxRowLines := 1
 	for i, row := range rows {
 		wrappedRows[i] = wrapRow(row, colWidths)
+		for _, wc := range wrappedRows[i] {
+			if len(wc.lines) > maxRowLines {
+				maxRowLines = len(wc.lines)
+			}
+		}
+	}
+
+	// Fall back to vertical key-value layout for very narrow terminals or deeply
+	// wrapped rows (mirrors claude_cli useVerticalFormat).
+	if termWidth < 80 || maxRowLines > 4 {
+		return renderVerticalTable(headers, rows, termWidth, p)
 	}
 
 	var parts []string
@@ -45,7 +58,10 @@ func RenderTable(headers []string, rows [][]string, termWidth int, p Palette) st
 	parts = append(parts, indent+renderBorderLine(colWidths, "top", p))
 	parts = append(parts, renderDataRows(wrappedHdr, colWidths, true, indent, p)...)
 	parts = append(parts, indent+renderBorderLine(colWidths, "mid", p))
-	for _, wr := range wrappedRows {
+	for i, wr := range wrappedRows {
+		if i > 0 {
+			parts = append(parts, indent+renderBorderLine(colWidths, "mid", p))
+		}
 		parts = append(parts, renderDataRows(wr, colWidths, false, indent, p)...)
 	}
 	parts = append(parts, indent+renderBorderLine(colWidths, "bot", p))
@@ -80,8 +96,8 @@ func allocateColWidths(headers []string, rows [][]string, numCols, termWidth int
 		cons[c] = constraint{minW, maxW}
 	}
 
-	// fixedOverhead: border chars (numCols+1) + padding (numCols*colPadding) + tableMargin
-	fixedOverhead := (numCols + 1) + numCols*colPadding + tableMargin
+	// fixedOverhead: border chars (numCols+1) + padding (numCols*colPadding) + tableMargin + safety
+	fixedOverhead := (numCols + 1) + numCols*colPadding + tableMargin + tableSafetyMargin
 	available := termWidth - fixedOverhead
 	if available < 0 {
 		available = 0
@@ -147,15 +163,32 @@ func allocateColWidths(headers []string, rows [][]string, numCols, termWidth int
 	return final
 }
 
-// wrapRow wraps each cell string to its allocated column width.
-func wrapRow(cells []string, colWidths []int) [][]string {
-	result := make([][]string, len(cells))
+// wrappedCell holds the wrap result for a single table cell.
+// When wrapped is false (cell fits in one line), source is used for rendering
+// so inline markers (**bold**, `code`, etc.) are preserved.
+// When wrapped is true, lines contains the plain-text wrap result and inline
+// markers are stripped to avoid width mis-calculation across wrap boundaries.
+type wrappedCell struct {
+	lines   []string // plain text lines (markers stripped), used for padding calc
+	source  string   // original cell text (markers intact), used when !wrapped
+	wrapped bool     // true when len(lines) > 1
+}
+
+// wrapRow wraps each cell to its allocated column width.
+func wrapRow(cells []string, colWidths []int) []wrappedCell {
+	result := make([]wrappedCell, len(cells))
 	for c, cell := range cells {
 		w := 0
 		if c < len(colWidths) {
 			w = colWidths[c]
 		}
-		result[c] = WrapToWidth(StripInlineMarkers(StripANSI(cell)), w)
+		plain := StripInlineMarkers(StripANSI(cell))
+		lines := WrapToWidth(plain, w)
+		result[c] = wrappedCell{
+			lines:   lines,
+			source:  cell,
+			wrapped: len(lines) > 1,
+		}
 	}
 	return result
 }
@@ -186,12 +219,17 @@ func renderBorderLine(colWidths []int, kind string, p Palette) string {
 }
 
 // renderDataRows renders one logical data row (which may span multiple visual lines due to wrapping).
-func renderDataRows(wrappedCells [][]string, colWidths []int, isHeader bool, indent string, p Palette) []string {
+func renderDataRows(wrappedCells []wrappedCell, colWidths []int, isHeader bool, indent string, p Palette) []string {
 	maxH := 1
-	for _, lines := range wrappedCells {
-		if len(lines) > maxH {
-			maxH = len(lines)
+	for _, wc := range wrappedCells {
+		if len(wc.lines) > maxH {
+			maxH = len(wc.lines)
 		}
+	}
+
+	base := p.TableRow
+	if isHeader {
+		base = p.TableHeader
 	}
 
 	borderS := lipgloss.NewStyle().Foreground(lipgloss.Color(p.TableBorder))
@@ -207,36 +245,82 @@ func renderDataRows(wrappedCells [][]string, colWidths []int, isHeader bool, ind
 		var sb strings.Builder
 		sb.WriteString(indent)
 		sb.WriteString(pipe())
-		for c, lines := range wrappedCells {
+		for c, wc := range wrappedCells {
 			w := 0
 			if c < len(colWidths) {
 				w = colWidths[c]
 			}
-			cell := ""
-			if h < len(lines) {
-				cell = lines[h]
+
+			var rendered, plain string
+			if wc.wrapped {
+				// Multi-line: inline markers are already stripped in wc.lines.
+				// Apply base color only to preserve alignment.
+				if h < len(wc.lines) {
+					plain = wc.lines[h]
+				}
+				rendered = seg(plain, base, isHeader, false)
+			} else if h == 0 {
+				// Single line: use original source so inline markers are rendered.
+				plain = wc.lines[0]
+				rendered = ParseInlineWithBase(wc.source, base, isHeader, p)
 			}
 
-			cellW := VisibleWidth(cell)
-			padding := w - cellW
+			padding := w - VisibleWidth(plain)
 			if padding < 0 {
 				padding = 0
 			}
-
-			var rendered string
-			if isHeader {
-				rendered = ParseInlineWithBase(cell, p.TableHeader, true, p)
-			} else {
-				rendered = ParseInlineWithBase(cell, p.TableRow, false, p)
-			}
-
-			// 1 space padding on each side + right-fill
 			sb.WriteString(" " + rendered + strings.Repeat(" ", padding+1))
 			sb.WriteString(pipe())
 		}
 		result = append(result, sb.String())
 	}
 	return result
+}
+
+// renderVerticalTable renders a table in key-value vertical format, used when
+// the terminal is too narrow or rows wrap too deeply for horizontal layout.
+func renderVerticalTable(headers []string, rows [][]string, termWidth int, p Palette) string {
+	if len(headers) == 0 || len(rows) == 0 {
+		return ""
+	}
+
+	indent := strings.Repeat(" ", tableMargin)
+	contentW := termWidth - tableMargin - 2 // "│ " prefix width
+	if contentW < 10 {
+		contentW = 10
+	}
+
+	borderS := lipgloss.NewStyle().Foreground(lipgloss.Color(p.TableBorder))
+	pipeS := borderS.Render("│")
+	top := indent + borderS.Render("┌"+strings.Repeat("─", termWidth-tableMargin-2)+"┐")
+	sep := indent + borderS.Render("├"+strings.Repeat("─", termWidth-tableMargin-2)+"┤")
+	bot := indent + borderS.Render("└"+strings.Repeat("─", termWidth-tableMargin-2)+"┘")
+
+	var parts []string
+	parts = append(parts, top)
+	for i, row := range rows {
+		if i > 0 {
+			parts = append(parts, sep)
+		}
+		for c, cell := range row {
+			if c >= len(headers) {
+				break
+			}
+			label := ParseInlineWithBase(headers[c], p.TableHeader, true, p) + ": "
+			value := ParseInlineWithBase(cell, p.TableRow, false, p)
+			combined := label + value
+			wrapped := WrapStyled(combined, contentW)
+			for j, wl := range wrapped {
+				prefix := "   "
+				if j == 0 {
+					prefix = " "
+				}
+				parts = append(parts, indent+pipeS+prefix+wl)
+			}
+		}
+	}
+	parts = append(parts, bot)
+	return strings.Join(parts, "\n")
 }
 
 func padSlice(s []string, n int) []string {

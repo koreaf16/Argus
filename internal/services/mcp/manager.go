@@ -22,8 +22,9 @@ type ServerConfig struct {
 }
 
 type ToolConfig struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"inputSchema,omitempty"`
 }
 
 type ResourceConfig struct {
@@ -221,8 +222,9 @@ func (m *Manager) DiscoverTools(ctx context.Context, cfg ServerConfig) ([]ToolCo
 
 	var result struct {
 		Tools []struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
+			Name        string         `json:"name"`
+			Description string         `json:"description"`
+			InputSchema map[string]any `json:"inputSchema"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
@@ -234,6 +236,7 @@ func (m *Manager) DiscoverTools(ctx context.Context, cfg ServerConfig) ([]ToolCo
 		tools = append(tools, ToolConfig{
 			Name:        t.Name,
 			Description: t.Description,
+			InputSchema: t.InputSchema,
 		})
 	}
 	return tools, nil

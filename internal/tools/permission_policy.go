@@ -41,13 +41,19 @@ var bashMutatingCommands = map[string]bool{
 	"rm": true, "mv": true, "cp": true, "touch": true, "mkdir": true, "rmdir": true,
 	"chmod": true, "chown": true, "chgrp": true, "sed": true, "perl": true, "git": true,
 	"npm": true, "pnpm": true, "yarn": true, "pip": true, "pip3": true, "go": true, "cargo": true,
+	// 프로세스 강제 종료
+	"kill": true, "pkill": true, "killall": true, "killpg": true,
+	// 시스템 종료/재시작
+	"shutdown": true, "reboot": true, "halt": true, "poweroff": true, "init": true, "telinit": true,
+	// 서비스 관리 (서브커맨드 기반으로 looksMutating에서 추가 처리)
+	"systemctl": true, "service": true,
 }
 
 var bashReadOnlyCommands = map[string]bool{
 	// 파일 조회
 	"ls": true, "cat": true, "head": true, "tail": true, "pwd": true, "echo": true,
 	"which": true, "whereis": true, "find": true, "grep": true, "rg": true, "ag": true,
-	"wc": true, "stat": true, "diff": true, "git": true, "gh": true, "python": true, "python3": true,
+	"wc": true, "stat": true, "diff": true, "git": true, "gh": true,
 	// 환경 조회 — export 는 파일시스템을 수정하지 않는 shell 내장 명령
 	"export": true, "env": true, "printenv": true,
 	// 프로세스 / 시스템 상태
@@ -60,11 +66,6 @@ var gitReadOnlySubcommands = map[string]bool{
 	"remote": true, "ls-files": true, "grep": true, "blame": true, "describe": true,
 	"rev-parse": true, "rev-list": true, "cat-file": true, "for-each-ref": true, "shortlog": true,
 	"reflog": true, "ls-tree": true, "merge-base": true,
-}
-
-var ghReadOnlySubcommands = map[string]bool{
-	"pr": true, "issue": true, "repo": true, "run": true, "workflow": true, "release": true,
-	"auth": true, "search": true, "label": true,
 }
 
 func PermissionModeFromState(ctx Context) types.PermissionMode {
@@ -249,6 +250,17 @@ func looksMutating(command string, shellKind string) bool {
 			sub := secondToken(lower)
 			return sub == "get" || sub == "mod"
 		}
+		if cmd == "systemctl" || cmd == "service" {
+			sub := secondToken(lower)
+			systemctlReadOnly := map[string]bool{
+				"status": true, "is-active": true, "is-enabled": true,
+				"list-units": true, "list-unit-files": true, "show": true, "cat": true,
+			}
+			return sub != "" && !systemctlReadOnly[sub]
+		}
+		return true
+	}
+	if cmd == "find" && findLooksMutating(lower) {
 		return true
 	}
 	return false
@@ -280,8 +292,10 @@ func segmentIsReadOnly(segment string, shellKind string) bool {
 		return sub != "" && gitReadOnlySubcommands[sub]
 	}
 	if cmd == "gh" {
-		sub := secondToken(strings.ToLower(segment))
-		return sub != "" && ghReadOnlySubcommands[sub]
+		return ghCommandIsReadOnly(segment)
+	}
+	if cmd == "find" {
+		return !findLooksMutating(strings.ToLower(segment))
 	}
 	return true
 }
@@ -314,6 +328,49 @@ func secondToken(s string) string {
 		return ""
 	}
 	return fields[1]
+}
+
+func thirdToken(s string) string {
+	fields := strings.Fields(s)
+	if len(fields) < 3 {
+		return ""
+	}
+	return fields[2]
+}
+
+func findLooksMutating(segment string) bool {
+	fields := strings.Fields(strings.ToLower(segment))
+	for _, field := range fields {
+		switch field {
+		case "-delete", "-exec", "-execdir", "-ok", "-okdir":
+			return true
+		}
+	}
+	return false
+}
+
+func ghCommandIsReadOnly(segment string) bool {
+	lower := strings.ToLower(segment)
+	sub := secondToken(lower)
+	action := thirdToken(lower)
+	if sub == "" {
+		return false
+	}
+	if sub == "search" {
+		return action != ""
+	}
+	allowed := map[string]map[string]bool{
+		"pr":       {"view": true, "list": true, "status": true, "checks": true, "diff": true},
+		"issue":    {"view": true, "list": true, "status": true},
+		"repo":     {"view": true, "list": true},
+		"run":      {"view": true, "list": true, "watch": true},
+		"workflow": {"view": true, "list": true},
+		"release":  {"view": true, "list": true},
+		"auth":     {"status": true},
+		"label":    {"list": true},
+	}
+	actions := allowed[sub]
+	return actions != nil && actions[action]
 }
 
 func ExtractStringInput(input json.RawMessage, field string) string {

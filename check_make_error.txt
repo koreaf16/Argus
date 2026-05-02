@@ -1,3 +1,0 @@
-/server connect sandbox-server
-Welcome1!@#$
-bash 도구 server="sandbox-server" 으로 make 오류 상세 확인: (1) echo "=== make error in install log ===" && grep -A 20 "ins_rdbms.mk\|Error\|error:" /tmp/InstallActions2026-04-26_11-12-48AM/installActions2026-04-26_11-12-48AM.log 2>&1 | head -60. (2) echo "=== make log ===" && find /tmp/InstallActions2026-04-26_11-12-48AM/ -name "make*.log" -o -name "*make*" 2>&1 | head -5 | xargs -I{} tail -50 {} 2>&1 || true. (3) echo "=== installed packages ===" && rpm -q gcc gcc-c++ glibc-devel libaio libaio-devel libstdc++ libstdc++-devel libnsl make 2>&1. (4) echo "=== libaio check ===" && ldconfig -p | grep -E "libaio|libnsl" 2>&1.

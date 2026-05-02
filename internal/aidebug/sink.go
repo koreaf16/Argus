@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/koreaf16/argus/internal/query"
 )
@@ -17,6 +19,8 @@ type Sink struct {
 	ch        chan query.TraceRecord
 	done      chan struct{}
 	closeOnce sync.Once
+	dropped   atomic.Int64
+	lastDrop  atomic.Int64
 }
 
 func NewSink(out io.Writer, filePath string) (*Sink, error) {
@@ -66,8 +70,21 @@ func (s *Sink) Emit(record query.TraceRecord) {
 	select {
 	case s.ch <- record:
 	default:
-		// 채널이 가득 찬 경우 성능 보호를 위해 드랍하거나
-		// 나중에 재시도할 수 있지만, 여기서는 단순히 로그이므로 드랍합니다.
+		count := s.dropped.Add(1)
+		now := time.Now().UnixMilli()
+		last := s.lastDrop.Load()
+		// 1초마다 한 번만 sink.dropped 메타 trace를 발행해 drop 사실을 기록합니다.
+		if now-last >= 1000 && s.lastDrop.CompareAndSwap(last, now) {
+			drop := query.TraceRecord{
+				TS:   time.Now().UTC().Format(time.RFC3339Nano),
+				Type: "sink.dropped",
+				Data: map[string]any{"count": count},
+			}
+			select {
+			case s.ch <- drop:
+			default:
+			}
+		}
 	}
 }
 

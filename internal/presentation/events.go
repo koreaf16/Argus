@@ -39,6 +39,7 @@ const (
 	EventPlanDecision     EventKind = "plan_decision"
 	EventPlanResult       EventKind = "plan_result"
 	EventViewCleared      EventKind = "clear_view"
+	EventParallelBatch    EventKind = "parallel_batch"
 )
 
 type FooterState struct {
@@ -62,6 +63,13 @@ type FooterState struct {
 	DiffAdded          int
 	DiffRemoved        int
 	TokensUsed         int
+	TokensIn           int
+	TokensOut          int
+	TokensThinking     int
+	WorkflowCategory   string
+	WorkflowPhase      string
+	WorkflowProgress   string
+	WorkflowTitle      string
 }
 
 type Event struct {
@@ -73,6 +81,10 @@ type Event struct {
 	Input    string
 	Prompt   string
 
+	InputTokens    int
+	OutputTokens   int
+	ThinkingTokens int
+
 	Decision string
 
 	Count     int
@@ -82,6 +94,7 @@ type Event struct {
 	InputResponse chan string
 
 	AskUserBatchResponse chan tool.AskUserBatchResponse
+	BatchTaskIDs         []string
 
 	Footer FooterState
 }
@@ -125,12 +138,38 @@ func BuildFooterState(app *state.AppState, cwd string) FooterState {
 	if workspace == "" {
 		workspace = "local"
 	}
+	target := app.ActiveTarget()
+	if target.Alias != "" && target.Alias == workspace {
+		if user := target.EffectiveUser(); user != "" {
+			workspace = workspace + ":" + user
+		}
+		if cwd := strings.TrimSpace(target.CWD); cwd != "" {
+			out.CWD = cwd
+		}
+	}
 	out.Workspace = workspace
 	sessionID := out.SessionID
 	if sessionID == "" {
 		sessionID = "default"
 	}
-	out.TodoCount = len(app.Todos(sessionID))
+	todos := app.Todos(sessionID)
+	out.TodoCount = len(todos)
+	if card := app.WorkflowCard(); card != nil {
+		out.WorkflowCategory = strings.TrimSpace(card.Category)
+		out.WorkflowPhase = strings.TrimSpace(card.Phase)
+		out.WorkflowTitle = strings.TrimSpace(card.Title)
+		completed := 0
+		for _, t := range todos {
+			if t.Status == "completed" {
+				completed++
+			}
+		}
+		total := len(todos)
+		if total == 0 {
+			total = 6
+		}
+		out.WorkflowProgress = fmt.Sprintf("%d/%d", completed, total)
+	}
 	if out.CWD == "" {
 		out.CWD = "."
 	}
@@ -181,9 +220,21 @@ func ReplayEvents(messages []llm.Message) []Event {
 func FromUIEvent(evt query.UIEvent) (Event, bool) {
 	switch evt.Kind {
 	case query.UIEventAssistantDelta:
-		return Event{Kind: EventAssistantDelta, Text: evt.Delta}, true
+		return Event{
+			Kind:           EventAssistantDelta,
+			Text:           evt.Delta,
+			InputTokens:    evt.InputTokens,
+			OutputTokens:   evt.OutputTokens,
+			ThinkingTokens: evt.ThinkingTokens,
+		}, true
 	case query.UIEventThinkingDelta:
-		return Event{Kind: EventThinkingDelta, Text: evt.Delta}, true
+		return Event{
+			Kind:           EventThinkingDelta,
+			Text:           evt.Delta,
+			InputTokens:    evt.InputTokens,
+			OutputTokens:   evt.OutputTokens,
+			ThinkingTokens: evt.ThinkingTokens,
+		}, true
 	case query.UIEventThinkingDone:
 		return Event{Kind: EventThinkingDone}, true
 	case query.UIEventToolUse:
@@ -251,6 +302,12 @@ func FromUIEvent(evt query.UIEvent) (Event, bool) {
 		}, true
 	case query.UIEventPlanExecutionReady:
 		return Event{Kind: EventPlanReady, Count: len(evt.PlanSteps)}, true
+	case query.UIEventParallelBatch:
+		return Event{
+			Kind:         EventParallelBatch,
+			Input:        strings.Join(evt.BatchTaskIDs, ","),
+			BatchTaskIDs: append([]string(nil), evt.BatchTaskIDs...),
+		}, true
 	default:
 		return Event{}, false
 	}
@@ -266,7 +323,7 @@ func CanonicalStateLine(s FooterState) string {
 		plan = "on"
 	}
 	return fmt.Sprintf(
-		"state: permission=%s plan=%s model=%s todo=%d mcp=%d skills=%d workspace=%s session=%s cwd=%s",
+		"state: permission=%s plan=%s model=%s todo=%d mcp=%d skills=%d workspace=%s session=%s cwd=%s workflow=%s:%s/%s",
 		emptyDefault(s.PermissionMode, "default"),
 		plan,
 		emptyDefault(s.Model, "unconfigured"),
@@ -276,6 +333,9 @@ func CanonicalStateLine(s FooterState) string {
 		emptyDefault(s.Workspace, "local"),
 		emptyDefault(s.SessionID, "-"),
 		emptyDefault(s.CWD, "."),
+		emptyDefault(s.WorkflowCategory, "-"),
+		emptyDefault(s.WorkflowPhase, "-"),
+		emptyDefault(s.WorkflowProgress, "-"),
 	)
 }
 

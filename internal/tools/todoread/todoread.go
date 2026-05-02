@@ -47,10 +47,17 @@ func (t *TodoReadTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 			sessionID = ctx.State.SessionID()
 		}
 
-		todos, err := todostore.Load(sessionID)
-		if err != nil {
-			events <- tool.NewErrorEvent(err)
-			return
+		var todos []types.TodoItem
+		if ctx.State != nil {
+			todos = ctx.State.Todos(sessionID)
+		}
+		if len(todos) == 0 {
+			var err error
+			todos, err = todostore.Load(sessionID)
+			if err != nil {
+				events <- tool.NewErrorEvent(err)
+				return
+			}
 		}
 
 		if todos == nil {

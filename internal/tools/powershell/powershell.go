@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -47,11 +49,24 @@ func (t *PowerShellTool) IsVisible(ctx tool.Context) bool {
 	if err != nil {
 		return true
 	}
+	if targetInfo.Platform == workspace.PlatformUnknown {
+		return runtime.GOOS == "windows" // 플랫폼 미확인 시 로컬 OS 기준 fallback
+	}
 	return targetInfo.Platform == workspace.PlatformWindows
 }
 
 func (t *PowerShellTool) Description(ctx tool.Context) string {
-	return "Execute PowerShell commands"
+	base := "Execute PowerShell commands. " +
+		"CRITICAL: Always use SINGLE QUOTES (') for passwords, URLs, or any string with special characters like '!', '&', etc. to avoid shell expansion. "
+	if tool.RequiresExplicitServerAlias(ctx) {
+		aliases := tool.RegisteredWorkspaceAliases(ctx)
+		base += "Multiple workspaces are registered (" + strings.Join(aliases, ", ") + "); the `server` parameter is REQUIRED. "
+	}
+	base += "\n\nMULTI-CHANNEL & ISOLATION:\n" +
+		"- This tool routes commands through a multi-channel SSH backbone. Commands are isolated\n" +
+		"  by (server, role, channel) triplets. Use different roles/channels to run tasks in parallel\n" +
+		"  without sharing environment or current directory."
+	return base
 }
 
 func (t *PowerShellTool) InputSchema() tool.ToolInputJSONSchema {
@@ -77,6 +92,14 @@ func (t *PowerShellTool) InputSchema() tool.ToolInputJSONSchema {
 			"server": map[string]any{
 				"type":        "string",
 				"description": "Optional workspace alias. Defaults to active workspace.",
+			},
+			"role": map[string]any{
+				"type":        "string",
+				"description": "Optional workflow role (e.g. source_db, target_app). Used to isolate session state (PTY/CWD/ENV).",
+			},
+			"channel": map[string]any{
+				"type":        "string",
+				"description": "Optional workflow channel (source, target, transfer, verify). Used to isolate session state.",
 			},
 			"password": map[string]any{
 				"type":        "string",
@@ -114,6 +137,8 @@ func (t *PowerShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 		TimeoutMS  int    `json:"timeout_ms"`
 		WorkDir    string `json:"workdir"`
 		Server     string `json:"server"`
+		Role       string `json:"role"`
+		Channel    string `json:"channel"`
 		Password   string `json:"password"`
 		Background *bool  `json:"background"`
 	}
@@ -126,6 +151,25 @@ func (t *PowerShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 		command := strings.TrimSpace(req.Command)
 		if command == "" {
 			events <- tool.NewErrorEvent(fmt.Errorf("command cannot be empty"))
+			return
+		}
+
+		if err := tool.ValidateTextOnlyCapable("powershell", command); err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
+		if err := tool.ValidateCommandIntegrity("powershell", command); err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
+		roleCtx, err := tool.ResolveExecutionRole(ctx, req.Server, req.Role, req.Channel, "powershell")
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
+		req.Server = roleCtx.Server
+		if err := tool.ValidateRoleMutation(roleCtx, "powershell", command, false); err != nil {
+			events <- tool.NewErrorEvent(err)
 			return
 		}
 
@@ -144,8 +188,14 @@ func (t *PowerShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 			return
 		}
 
-		if ctx.Workspace != nil && strings.TrimSpace(req.Password) != "" {
-			ctx.Workspace.SetPassword(targetAlias, "ssh", req.Password)
+		// 시스템에 저장된 인증 정보(ID/PW) 자동 연동
+		if ctx.Workspace != nil && tool.IsRemoteWorkspace(ctx, targetAlias) {
+			if req.Password == "" {
+				req.Password = ctx.Workspace.GetPassword(targetAlias, "ssh")
+			}
+			if req.Password != "" {
+				ctx.Workspace.SetPassword(targetAlias, "ssh", req.Password)
+			}
 		}
 
 		if tool.IsRemoteWorkspace(ctx, targetAlias) {
@@ -314,6 +364,18 @@ func executeCommand(
 			outputBuffer = appendShellTail(outputBuffer, chunk, maxShellTailChars)
 			events <- tool.NewChunkEvent(chunk)
 		case res := <-resultCh:
+			if res.ActiveUser == "" {
+				res.ActiveUser = os.Getenv("USERNAME")
+				if res.ActiveUser == "" {
+					res.ActiveUser = os.Getenv("USER")
+				}
+			}
+			if res.ActiveCWD == "" {
+				res.ActiveCWD = workDir
+			}
+			if res.ActiveLane == "" {
+				res.ActiveLane = "local"
+			}
 			return res, nil
 		case <-autoBgCh:
 			if result, ok := startLocalBackgroundJob(ctx, cmd, targetAlias, command, outputBuffer, false); ok {
@@ -426,7 +488,21 @@ func executeRemotePowerShellCommand(
 			if !ok {
 				return utils.ExecResult{Code: 1, Stderr: "remote command ended unexpectedly"}, fmt.Errorf("remote command ended unexpectedly")
 			}
-			return utils.ExecResult{Stdout: res.Stdout, Stderr: res.Stderr, Code: res.Code}, nil
+			laneKey := "default"
+			if ctx.Workspace != nil {
+				priv := ctx.Workspace.ActivePrivilege(targetAlias)
+				if priv != "" {
+					laneKey = string(priv)
+				}
+			}
+			return utils.ExecResult{
+				Stdout:     res.Stdout,
+				Stderr:     res.Stderr,
+				Code:       res.Code,
+				ActiveLane: laneKey,
+				ActiveUser: res.User,
+				ActiveCWD:  res.CWD,
+			}, nil
 
 		case <-autoBgCh:
 			if result, ok := startRemoteBackgroundJob(ctx, handle, streamCh, resultCh, targetAlias, command, outputBuffer, false); ok {
@@ -578,6 +654,13 @@ func appendShellTail(current, chunk string, maxChars int) string {
 
 func (t *PowerShellTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
 	rawServer := tool.ExtractStringInput(input, "server")
+	rawRole := tool.ExtractStringInput(input, "role")
+	rawChannel := tool.ExtractStringInput(input, "channel")
+	roleCtx, err := tool.ResolveExecutionRole(ctx, rawServer, rawRole, rawChannel, "powershell")
+	if err != nil {
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+	}
+	rawServer = roleCtx.Server
 	targetInfo, err := tool.ResolveShellTargetInfo(ctx, rawServer, false)
 	if err != nil {
 		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
@@ -588,6 +671,9 @@ func (t *PowerShellTool) CheckPermission(ctx tool.Context, input json.RawMessage
 		}
 	}
 	command := tool.ExtractStringInput(input, "command")
+	if err := tool.ValidateRoleMutation(roleCtx, "powershell", command, false); err != nil {
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+	}
 	return tool.EvaluateShellCommandPermission(ctx, command, "powershell"), nil
 }
 

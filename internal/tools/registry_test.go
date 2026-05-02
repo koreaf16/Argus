@@ -61,3 +61,13 @@ func TestRegistryToolSpecsUseCanonicalNames(t *testing.T) {
 		t.Fatalf("unexpected tool spec name: %s", specs[0].Name)
 	}
 }
+
+func TestRegistryLookupUsesCanonicalAliases(t *testing.T) {
+	reg := NewRegistry()
+	if err := reg.Register(&registryTestTool{name: "webfetch"}); err != nil {
+		t.Fatalf("register webfetch: %v", err)
+	}
+	if _, ok := reg.Lookup("web_fetch"); !ok {
+		t.Fatalf("expected web_fetch alias lookup to resolve to webfetch")
+	}
+}

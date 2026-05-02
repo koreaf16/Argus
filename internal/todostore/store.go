@@ -69,20 +69,24 @@ func SyncForSteps(existing []types.TodoItem, steps []Step) []types.TodoItem {
 	out := make([]types.TodoItem, 0, len(steps))
 	if len(existing) == len(steps) {
 		for i := range steps {
-			out = append(out, types.TodoItem{
-				Content:    existing[i].Content,
-				ActiveForm: existing[i].ActiveForm,
-				Status:     types.TodoStatusPending,
-			})
+			next := todoForStep(i, steps[i])
+			if existing[i].Content == next.Content {
+				next.ActiveForm = existing[i].ActiveForm
+			}
+			out = append(out, next)
 		}
 		return out
 	}
 	for i, step := range steps {
-		out = append(out, types.TodoItem{
-			Content:    fmt.Sprintf("%s: %s", step.Tool, step.Prompt),
-			ActiveForm: fmt.Sprintf("running step %d", i+1),
-			Status:     types.TodoStatusPending,
-		})
+		out = append(out, todoForStep(i, step))
 	}
 	return out
+}
+
+func todoForStep(index int, step Step) types.TodoItem {
+	return types.TodoItem{
+		Content:    fmt.Sprintf("%s: %s", step.Tool, step.Prompt),
+		ActiveForm: fmt.Sprintf("running step %d", index+1),
+		Status:     types.TodoStatusPending,
+	}
 }

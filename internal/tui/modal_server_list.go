@@ -20,7 +20,10 @@ func visibleActions(st workspace.StatusEntry) []serverAction {
 	} else {
 		actions = append(actions, actionConnect)
 	}
-	actions = append(actions, actionEdit, actionDelete)
+	if st.Kind != workspace.ServerKindAccount {
+		actions = append(actions, actionEdit)
+	}
+	actions = append(actions, actionDelete)
 	return actions
 }
 

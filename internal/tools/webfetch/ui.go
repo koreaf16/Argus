@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/koreaf16/argus/internal/tui/toolui"
 )
 
@@ -21,39 +20,10 @@ func (r *WebFetchRenderer) CreateInteractiveModel(args map[string]any, theme too
 }
 
 func (r *WebFetchRenderer) RenderToolUse(args map[string]any, _ string, theme toolui.ThemeContext) string {
+	// claude_cli: renderToolUseMessage는 url 자체만 반환. headline 형태는 render.go가
+	// `● WebFetch(url)` 으로 합성한다.
 	rawURL, _ := args["url"].(string)
-	prompt, _ := args["prompt"].(string)
-
-	titleStyle := theme.Style(theme.ToolUseColor()).Bold(true)
-	bodyStyle := theme.Style(theme.BodyColor())
-	mutedStyle := theme.Style(theme.MutedColor())
-
-	var sb strings.Builder
-	sb.WriteString(titleStyle.Render("  Fetch URL: "))
-	sb.WriteString(bodyStyle.Render(rawURL))
-
-	if strings.TrimSpace(prompt) != "" {
-		sb.WriteString("\n")
-		sb.WriteString(mutedStyle.Render("  Prompt:    "))
-
-		promptSingle := strings.ReplaceAll(prompt, "\n", " ")
-		if len(promptSingle) > 60 {
-			promptSingle = promptSingle[:57] + "..."
-		}
-		sb.WriteString(mutedStyle.Render(promptSingle))
-	}
-
-	boxW := theme.Width() - 4
-	if boxW < 30 {
-		boxW = 30
-	}
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(theme.BorderColor())).
-		PaddingRight(1).
-		Width(boxW).
-		Render(sb.String())
+	return toolui.FormatToolCall("WebFetch", rawURL, 160, theme)
 }
 
 func (r *WebFetchRenderer) RenderToolResult(resultText string, durationMs int64, theme toolui.ThemeContext) string {
@@ -62,31 +32,31 @@ func (r *WebFetchRenderer) RenderToolResult(resultText string, durationMs int64,
 		return resultText
 	}
 
-	status := "OK"
-	if out.Code != 200 && out.Code != 0 {
-		status = fmt.Sprintf("%d %s", out.Code, out.CodeText)
+	// claude_cli WebFetchTool/UI.tsx renderToolResultMessage:
+	//   `Received <bold>{formattedSize}</bold> ({code} {codeText})`
+	// formatFileSize: 1024^2 ≥ "X.XMB", 1024 ≥ "X.XKB", else "N bytes"
+	sizeDisp := formatFileSize(out.Bytes)
+	statusPart := ""
+	switch {
+	case out.Code == 0:
+		statusPart = "(OK)"
+	case strings.TrimSpace(out.CodeText) != "":
+		statusPart = fmt.Sprintf("(%d %s)", out.Code, strings.TrimSpace(out.CodeText))
+	default:
+		statusPart = fmt.Sprintf("(%d)", out.Code)
 	}
+	msg := fmt.Sprintf("Received %s %s", sizeDisp, statusPart)
+	_ = durationMs
+	return toolui.FormatResultLines([]string{msg}, true, false, theme)
+}
 
-	sizeDisp := ""
-	if out.Bytes > 1024*1024 {
-		sizeDisp = fmt.Sprintf("%.1fMB", float64(out.Bytes)/(1024*1024))
-	} else if out.Bytes > 1024 {
-		sizeDisp = fmt.Sprintf("%.1fKB", float64(out.Bytes)/1024)
-	} else {
-		sizeDisp = fmt.Sprintf("%d bytes", out.Bytes)
+func formatFileSize(bytes int) string {
+	switch {
+	case bytes >= 1024*1024:
+		return fmt.Sprintf("%.1fMB", float64(bytes)/(1024*1024))
+	case bytes >= 1024:
+		return fmt.Sprintf("%.1fKB", float64(bytes)/1024)
+	default:
+		return fmt.Sprintf("%d bytes", bytes)
 	}
-
-	durDisp := ""
-	if durationMs > 0 {
-		durDisp = fmt.Sprintf("%dms", durationMs)
-	} else if out.DurationMS > 0 {
-		durDisp = fmt.Sprintf("%dms", out.DurationMS)
-	}
-
-	msg := fmt.Sprintf("Received %s [%s]", sizeDisp, status)
-	if durDisp != "" {
-		msg += " in " + durDisp
-	}
-
-	return theme.Style(theme.ToolResultColor()).Render("  [done] " + msg)
 }

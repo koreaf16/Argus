@@ -21,7 +21,7 @@ func (t *EnterPlanModeTool) Name() string {
 }
 
 func (t *EnterPlanModeTool) Description(ctx tool.Context) string {
-	return "Enter plan mode for structured planning"
+	return "Enter plan mode for structured planning. Use once, draft the plan, then call exit_plan_mode with the completed plan text; do not loop on TodoWrite."
 }
 
 func (t *EnterPlanModeTool) InputSchema() tool.ToolInputJSONSchema {
@@ -33,6 +33,10 @@ func (t *EnterPlanModeTool) InputSchema() tool.ToolInputJSONSchema {
 
 func (t *EnterPlanModeTool) IsReadOnly() bool {
 	return true
+}
+
+func (t *EnterPlanModeTool) IsConcurrencySafe(input json.RawMessage) bool {
+	return false
 }
 
 func (t *EnterPlanModeTool) MaxResultSizeChars() int {

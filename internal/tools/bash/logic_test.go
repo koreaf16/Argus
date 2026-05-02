@@ -16,6 +16,11 @@ func TestParseTargetUser(t *testing.T) {
 		{"sudo -u oracle id", "oracle", "id"},
 		{"sudo ls /root", "root", "ls /root"},
 		{"ls -al", "", ""},
+		// compound sudo su — the real target user should be extracted
+		{`sudo su - oracle -c "sqlplus -s / as sysdba"`, "oracle", "sqlplus -s / as sysdba"},
+		{`sudo su oracle -c "whoami"`, "oracle", "whoami"},
+		{`sudo su - postgres -c "psql -l"`, "postgres", "psql -l"},
+		{`sudo su - -c "id"`, "root", "id"},
 	}
 
 	for _, tt := range tests {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode"
 
@@ -62,6 +63,13 @@ func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
+		if runtime.GOOS == "windows" {
+			if removeErr := os.Remove(path); removeErr == nil || os.IsNotExist(removeErr) {
+				if retryErr := os.Rename(tmp, path); retryErr == nil {
+					return nil
+				}
+			}
+		}
 		_ = os.Remove(tmp)
 		return err
 	}

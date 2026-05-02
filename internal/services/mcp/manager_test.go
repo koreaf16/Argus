@@ -15,7 +15,7 @@ func TestManagerLoadListAndRead(t *testing.T) {
     {
       "name": "alpha",
       "command": "node",
-      "tools": [{"name": "search"}],
+      "tools": [{"name": "search", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}}}],
       "resources": [{"uri": "mem://a", "content": "hello"}]
     }
   ]
@@ -34,6 +34,10 @@ func TestManagerLoadListAndRead(t *testing.T) {
 	tools := m.ListTools("alpha")
 	if len(tools) != 1 || tools[0] != "mcp__alpha__search" {
 		t.Fatalf("unexpected tools: %v", tools)
+	}
+	configs := m.ToolConfigs("alpha")
+	if len(configs) != 1 || configs[0].InputSchema["type"] != "object" {
+		t.Fatalf("unexpected tool configs: %+v", configs)
 	}
 	resources := m.ListResources("alpha")
 	if len(resources) != 1 || resources[0] != "mem://a" {

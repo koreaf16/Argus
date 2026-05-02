@@ -1,0 +1,11 @@
+		rendered := m.renderTranscriptEntryAt(-1, sub)
+		if rendered == "" { continue }
+		lines := strings.Split(rendered, "\n")
+		for i, line := range lines {
+			prefix := "    "
+			if i == 0 { prefix = "  ⎿ " }
+			sb.WriteString("\n" + prefix + line)
+		}
+	}
+	return sb.String()
+}

@@ -52,7 +52,8 @@ const (
 
 // serverFormField enumerates the focusable fields in the server-add form.
 // Fields for identity file, password, and savePassword are conditionally shown
-// depending on the selected authMode.
+// depending on the selected authMode. Elevation fields are conditionally shown
+// depending on AllowElevation.
 type serverFormField int
 
 const (
@@ -65,25 +66,46 @@ const (
 	sfPassword
 	sfSavePassword
 	sfDefaultCWD
+	sfAllowElevation
+	sfElevationMethod
+	sfRootPassword
+	sfTargetBase // Start of dynamic target user fields
 	sfSubmit
 	sfFieldCount
 )
+
+type targetUserState struct {
+	User         string
+	Password     string
+	PwRegistered bool
+}
 
 // serverFormState holds all mutable state for the server-registration form modal.
 type serverFormState struct {
 	EditAlias    string // non-empty when editing an existing server
 	FocusIdx     serverFormField
+	TargetIdx    int // index of the currently focused target user (when FocusIdx >= sfTargetBase)
 	Alias        string
 	Host         string
 	PortStr      string
 	User         string
 	AuthMode     serverFormAuthMode
 	IdentityFile string
-	Password     string
-	SavePassword bool
-	DefaultCWD   string
-	ErrorMsg     string
-	ErrorField   serverFormField
+	Password          string
+	SavePassword      bool
+	PasswordRegistered bool // true in edit mode when an SSH password is already stored
+	DefaultCWD        string
+
+	// Elevation section
+	AllowElevation   bool
+	ElevationMethod  string
+	RootPassword     string
+	RootPwRegistered bool
+	Targets          []targetUserState
+
+	ErrorMsg   string
+	ErrorField serverFormField
+	ErrorTargetIdx int
 }
 
 // serverAction enumerates actions available in the server list action sub-menu.
@@ -537,18 +559,32 @@ func (m *uiModel) handleAskUserBatchModalKey(msg tea.KeyMsg) {
 		return
 	}
 
+	q := m.currentAskBatchQuestion()
+	isText := q != nil && normalizeAskQuestionType(q) == "text"
+
 	switch msg.String() {
 	case "esc":
 		m.finishAskUserBatch(tool.AskUserBatchResponse{Canceled: true})
 		return
-	case "tab", "right":
+	case "tab":
 		m.commitAskBatchDraft()
 		m.moveAskBatchTab(1)
 		return
-	case "shift+tab", "left":
+	case "shift+tab":
 		m.commitAskBatchDraft()
 		m.moveAskBatchTab(-1)
 		return
+	case "right", "left":
+		// 텍스트 입력 중일 때는 화살표 키로 탭 전환을 막음 (입력창 커서 이동용)
+		if !isText {
+			m.commitAskBatchDraft()
+			delta := 1
+			if msg.String() == "left" {
+				delta = -1
+			}
+			m.moveAskBatchTab(delta)
+			return
+		}
 	}
 
 	if m.isAskBatchReviewTab() {
@@ -558,7 +594,6 @@ func (m *uiModel) handleAskUserBatchModalKey(msg tea.KeyMsg) {
 		return
 	}
 
-	q := m.currentAskBatchQuestion()
 	if q == nil {
 		return
 	}
@@ -635,11 +670,10 @@ func (m *uiModel) handleAskUserBatchModalKey(msg tea.KeyMsg) {
 		case "enter":
 			if isMulti {
 				values := make([]string, 0, len(m.modal.AskSelected))
-				for idx := range m.modal.AskSelected {
-					if idx < 0 || idx >= len(options) {
-						continue
+				for i, opt := range options {
+					if m.modal.AskSelected != nil && m.modal.AskSelected[i] {
+						values = append(values, optionAnswerValue(opt))
 					}
-					values = append(values, optionAnswerValue(options[idx]))
 				}
 				if len(values) == 0 && q.Required {
 					m.modal.AskError = "at least one choice is required"

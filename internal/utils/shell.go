@@ -29,17 +29,20 @@ import (
 
 // ExecResult 는 셸 명령 실행 결과를 담는다.
 type ExecResult struct {
-	Stdout                    string
-	Stderr                    string
-	Code                      int
-	Interrupted               bool
-	BackgroundTaskID          string
-	OutputFilePath            string
-	OutputFileSize            int64
-	OutputTaskID              string
-	PreSpawnError             string
-	AssistantAutoBackgrounded bool
-	BackgroundedByUser        bool
+	Stdout                    string `json:"stdout"`
+	Stderr                    string `json:"stderr"`
+	Code                      int    `json:"code"`
+	Interrupted               bool   `json:"interrupted"`
+	ActiveLane                string `json:"active_lane"`
+	ActiveUser                string `json:"active_user"`
+	ActiveCWD                 string `json:"active_cwd"`
+	BackgroundTaskID          string `json:"background_task_id,omitempty"`
+	OutputFilePath            string `json:"output_file_path,omitempty"`
+	OutputFileSize            int64  `json:"output_file_size,omitempty"`
+	OutputTaskID              string `json:"output_task_id,omitempty"`
+	PreSpawnError             string `json:"pre_spawn_error,omitempty"`
+	AssistantAutoBackgrounded bool   `json:"assistant_auto_backgrounded"`
+	BackgroundedByUser        bool   `json:"backgrounded_by_user"`
 }
 
 // ShellConfig 는 세션에서 사용할 셸 프로바이더를 보유한다.

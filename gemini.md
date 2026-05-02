@@ -11,6 +11,7 @@
 - **UI 구현 시 `AltScreen`(fullscreen TUI) 모드를 사용하지 않습니다. 터미널 스크롤백이 유지되면서 하단 상태바가 고정되고 답변이 흐르듯이 출력되는 Dynamic Inline Rendering 방식을 사용해야 합니다. (gemini_cli / claude_cli 방식)**
 - 연속 실행/검증 시 `session_id`와 `--resume`(`-r`)를 사용해 세션 맥락을 유지합니다.
 - 자동화 테스트성 출력이 필요할 때는 `--aidebug`를 사용합니다.
+- **`--aidebug`로 확인하라는 지시를 받으면, 코드를 먼저 열어보지 말고 반드시 `./Argus.exe --aidebug -p "<메시지>"` 를 실행해 실제 출력값을 먼저 확인한 뒤 판단합니다.**
 
 ## 상세 규칙 참조
 - 구현/아키텍처/문서 동기화 규칙은 `agent.md`를 기준으로 따릅니다.

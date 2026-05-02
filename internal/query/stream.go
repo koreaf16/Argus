@@ -21,17 +21,26 @@ const (
 	UIEventPasswordPrompt     UIEventKind = "password_prompt"
 	UIEventAskUserPrompt      UIEventKind = "ask_user_prompt"
 	UIEventAskUserBatchPrompt UIEventKind = "ask_user_batch_prompt"
+	UIEventParallelBatch      UIEventKind = "parallel_batch"
 )
 
 type PlannedStep struct {
-	Tool   string
-	Prompt string
+	Tool            string
+	Prompt          string
+	Server          string
+	Role            string
+	Channel         string
+	AsUser          string
+	PrivilegeMethod string
 }
 
 type UIEvent struct {
 	Kind UIEventKind
 
 	Delta                string
+	InputTokens          int // 누적 입력 토큰
+	OutputTokens         int // 누적 출력 토큰
+	ThinkingTokens       int // 누적 Thinking 토큰
 	ToolUse              *llm.ToolUseStart
 	ToolName             string
 	TaskID               string
@@ -47,4 +56,5 @@ type UIEvent struct {
 	Questions            []tool.AskUserQuestion
 	AskUserBatchResponse chan tool.AskUserBatchResponse
 	InputResponse        chan string
+	BatchTaskIDs         []string
 }

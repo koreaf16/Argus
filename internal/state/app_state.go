@@ -1,32 +1,27 @@
-// Package state — Application state management.
-//
-// 파일 역할: Defines AppState struct that holds all application state including
-//
-//	messages, mode, and permissions.
-//
-// 포함 모듈:
-//   - AppState: Main state struct
-//
-// 호출/사용 방식:
-//   - Internal state management
-//
-// 연결:
-//   - internal/state
-//   - 원본: src/state/ state types
 package state
 
 import (
 	"sync"
 	"time"
+
+	"github.com/koreaf16/argus/internal/types"
 )
 
 // AppState represents the entire application state.
 type AppState struct {
-	mu          sync.RWMutex
-	Messages    []Message
-	Mode        string // "normal", "plan"
-	Permissions string // "ask", "allow", "deny"
-	metadata    map[string]interface{}
+	mu            sync.RWMutex
+	Messages      []Message
+	Mode          string // "normal", "plan"
+	Permissions   string // "ask", "allow", "deny"
+	Metadata      map[string]interface{}
+	onStateChange func(field, before, after string)
+}
+
+// SetStateChangeHook registers a callback invoked after any state field changes.
+func (s *AppState) SetStateChangeHook(fn func(field, before, after string)) {
+	s.mu.Lock()
+	s.onStateChange = fn
+	s.mu.Unlock()
 }
 
 // Message represents a single message in the conversation.
@@ -43,7 +38,7 @@ func NewAppState() *AppState {
 		Messages:    make([]Message, 0),
 		Mode:        "normal",
 		Permissions: "ask",
-		metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]interface{}),
 	}
 }
 
@@ -69,9 +64,13 @@ func (s *AppState) GetMessages() []Message {
 // SetMode sets the application mode.
 func (s *AppState) SetMode(mode string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	before := s.Mode
 	s.Mode = mode
+	hook := s.onStateChange
+	s.mu.Unlock()
+	if hook != nil && before != mode {
+		hook("plan_mode", before, mode)
+	}
 }
 
 // GetMode returns the current mode.
@@ -102,15 +101,62 @@ func (s *AppState) GetPermissions() string {
 func (s *AppState) SetMetadata(key string, value interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.metadata[key] = value
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
+	}
+	s.Metadata[key] = value
 }
 
 // GetMetadata retrieves a metadata value.
 func (s *AppState) GetMetadata(key string) (interface{}, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	val, ok := s.metadata[key]
+	if s.Metadata == nil {
+		return nil, false
+	}
+	val, ok := s.Metadata[key]
 	return val, ok
+}
+
+// MetadataSnapshot returns a detached copy of session metadata for persistence.
+func (s *AppState) MetadataSnapshot() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.Metadata == nil {
+		return nil
+	}
+	out := make(map[string]interface{}, len(s.Metadata))
+	for key, val := range s.Metadata {
+		out[key] = cloneMetadataValue(val)
+	}
+	return out
+}
+
+func cloneMetadataValue(v interface{}) interface{} {
+	switch x := v.(type) {
+	case *WorkflowCard:
+		return cloneWorkflowCard(x)
+	case WorkflowCard:
+		return cloneWorkflowCard(&x)
+	case []string:
+		return append([]string(nil), x...)
+	case []types.PermissionRule:
+		return append([]types.PermissionRule(nil), x...)
+	case []types.TodoItem:
+		return append([]types.TodoItem(nil), x...)
+	case map[string][]types.TodoItem:
+		cp := make(map[string][]types.TodoItem, len(x))
+		for key, items := range x {
+			cp[key] = append([]types.TodoItem(nil), items...)
+		}
+		return cp
+	case map[string]interface{}:
+		cp := make(map[string]interface{}, len(x))
+		for key, val := range x {
+			cp[key] = cloneMetadataValue(val)
+		}
+		return cp
+	default:
+		return x
+	}
 }

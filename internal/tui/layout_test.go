@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/koreaf16/argus/internal/presentation"
 	tool "github.com/koreaf16/argus/internal/tools"
+	"github.com/koreaf16/argus/internal/types"
 )
 
 func TestRenderFooterIncludesPlanAndTodo(t *testing.T) {
@@ -165,6 +166,40 @@ func TestViewKeepsPromptAnchorWhenStreamHeightChanges(t *testing.T) {
 	}
 	if baseModeIdx != largeModeIdx {
 		t.Fatalf("prompt anchor shifted by stream growth: base=%d large=%d", baseModeIdx, largeModeIdx)
+	}
+}
+
+func TestViewRendersTaskListAboveThinking(t *testing.T) {
+	m := newOverlayLayoutModelForTest()
+	// 최근에 시작된 것으로 설정하여 "Thinking..."이 표시되도록 함
+	m.busyStartedAt = time.Now().Add(-1 * time.Second)
+	m.latestTodos = []types.TodoItem{
+		{Content: "Task 1", Status: types.TodoStatusCompleted},
+		{Content: "Task 2", Status: types.TodoStatusInProgress},
+	}
+
+	rendered := m.View()
+	lines := strings.Split(stripANSI(rendered), "\n")
+
+	task1Idx := findLineContaining(lines, "Task 1")
+	task2Idx := findLineContaining(lines, "Task 2")
+	thinkingIdx := findLineContaining(lines, "Thinking")
+
+	if task1Idx == -1 || task2Idx == -1 || thinkingIdx == -1 {
+		t.Fatalf("expected tasks and thinking row in output:\n%s", rendered)
+	}
+
+	if task1Idx >= task2Idx {
+		t.Errorf("Task 1 should be above Task 2: task1=%d task2=%d", task1Idx, task2Idx)
+	}
+
+	if task2Idx >= thinkingIdx {
+		t.Errorf("Task 2 should be above Thinking: task2=%d thinking=%d", task2Idx, thinkingIdx)
+	}
+
+	// 가독성을 위한 빈 줄 확인 (태스크 리스트와 Thinking 라인 사이)
+	if thinkingIdx-task2Idx != 2 {
+		t.Errorf("expected exactly one blank line between tasks and thinking, got gap of %d", thinkingIdx-task2Idx-1)
 	}
 }
 

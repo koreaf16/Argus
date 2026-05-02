@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/reflow/wordwrap"
+	"github.com/mattn/go-runewidth"
 )
 
 // Render converts markdown text to ANSI-styled terminal output.
@@ -37,23 +37,54 @@ func blockParse(lines []string, termWidth int, p Palette) []string {
 
 	addPart := func(s string) { parts = append(parts, s) }
 
+	// ensureBlankBefore는 직전 part가 빈 줄이 아닐 때만 빈 줄을 삽입한다.
+	// 첫 번째 블록 앞에는 삽입하지 않는다.
+	ensureBlankBefore := func() {
+		if len(parts) > 0 && parts[len(parts)-1] != "" {
+			parts = append(parts, "")
+		}
+	}
+
+	// ensureBlankAfter는 직후 빈 줄을 보장한다.
+	ensureBlankAfter := func() {
+		parts = append(parts, "")
+	}
+
 	flushCode := func() {
+		ensureBlankBefore()
 		addPart(RenderCodeBlock(codeLang, codeLines, p))
+		ensureBlankAfter()
 		codeLines = codeLines[:0]
 		codeLang = ""
 	}
 
 	flushTable := func() {
 		if len(tableHeaders) > 0 && len(tableRows) > 0 {
+			ensureBlankBefore()
 			addPart(RenderTable(tableHeaders, tableRows, termWidth, p))
+			ensureBlankAfter()
 		}
 		inTable = false
 		tableHeaders = nil
 		tableRows = nil
 	}
 
-	for i, line := range lines {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
+
+		// ── Box-drawing block (LLM-rendered tables/figures) ────────────────
+		if !inCode && !inTable && IsBoxDrawingLine(trimmed) {
+			if inTable {
+				flushTable()
+			}
+			for i < len(lines) && IsBoxDrawingLine(strings.TrimSpace(lines[i])) {
+				addPart(lines[i])
+				i++
+			}
+			i-- // compensate for the outer i++ at loop end
+			continue
+		}
 
 		// ── Inside code block ──────────────────────────────────────────────
 		if inCode {
@@ -69,7 +100,6 @@ func blockParse(lines []string, termWidth int, p Palette) []string {
 
 		// ── Detect code fence start ────────────────────────────────────────
 		if f, lang, ok := parseFence(trimmed); ok {
-			// Close any open table first
 			if inTable {
 				flushTable()
 			}
@@ -84,7 +114,6 @@ func blockParse(lines []string, termWidth int, p Palette) []string {
 		isSep := isTableSepLine(trimmed)
 
 		if isTableRow && !inTable {
-			// Check if next line is a separator → start table
 			if i+1 < len(lines) && isTableSepLine(strings.TrimSpace(lines[i+1])) {
 				inTable = true
 				tableHeaders = splitTableRow(trimmed)
@@ -97,7 +126,6 @@ func blockParse(lines []string, termWidth int, p Palette) []string {
 
 		if inTable {
 			if isSep {
-				// Skip separator
 				continue
 			}
 			if isTableRow {
@@ -109,7 +137,6 @@ func blockParse(lines []string, termWidth int, p Palette) []string {
 				tableRows = append(tableRows, cells)
 				continue
 			}
-			// Non-table line → flush table, then process current line
 			flushTable()
 			if trimmed != "" {
 				addPart(renderInlineLine(line, termWidth, p))
@@ -119,7 +146,9 @@ func blockParse(lines []string, termWidth int, p Palette) []string {
 
 		// ── Headings ───────────────────────────────────────────────────────
 		if level, heading, ok := parseHeading(trimmed); ok {
+			ensureBlankBefore()
 			addPart(renderHeading(heading, level, termWidth, p))
+			ensureBlankAfter()
 			continue
 		}
 
@@ -129,10 +158,22 @@ func blockParse(lines []string, termWidth int, p Palette) []string {
 			continue
 		}
 
-		// ── Blockquote ─────────────────────────────────────────────────────
+		// ── Blockquote (연속 > 라인을 한 블록으로 통합) ────────────────────
 		if strings.HasPrefix(trimmed, "> ") {
-			inner := strings.TrimSpace(strings.TrimPrefix(trimmed, "> "))
-			addPart(lipgloss.NewStyle().Foreground(lipgloss.Color(p.Quote)).Render("│ " + ParseInline(inner, p)))
+			ensureBlankBefore()
+			quoteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(p.Quote)).Italic(true)
+			for i < len(lines) {
+				t := strings.TrimSpace(lines[i])
+				if after, ok := strings.CutPrefix(t, "> "); ok {
+					inner := strings.TrimSpace(after)
+					addPart(quoteStyle.Render("▌ " + ParseInline(inner, p)))
+					i++
+				} else {
+					break
+				}
+			}
+			i-- // 바깥 루프 i++ 보정
+			ensureBlankAfter()
 			continue
 		}
 
@@ -168,45 +209,36 @@ func blockParse(lines []string, termWidth int, p Palette) []string {
 func renderInlineLine(line string, termWidth int, p Palette) string {
 	styled := lipgloss.NewStyle().Foreground(lipgloss.Color(p.Body)).
 		Render(ParseInline(line, p))
-	return wordwrap.String(styled, termWidth)
+	return strings.Join(WrapStyled(styled, termWidth), "\n")
 }
 
 func renderHeading(text string, level int, termWidth int, p Palette) string {
-	var color string
-	var bold bool
+	var s lipgloss.Style
 	switch level {
 	case 1:
-		color, bold = p.Heading1, true
+		s = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Heading1)).Bold(true).Underline(true)
 	case 2:
-		color, bold = p.Heading2, true
+		s = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Heading2)).Bold(true)
 	case 3:
-		color, bold = p.Heading3, true
+		s = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Heading3)).Bold(true)
 	default:
-		color = p.Heading4
-	}
-	s := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-	if bold {
-		s = s.Bold(true)
-	} else {
-		s = s.Italic(true)
+		s = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Heading4)).Italic(true)
 	}
 	rendered := s.Render(ParseInline(text, p))
-	return wordwrap.String(rendered, termWidth)
+	return strings.Join(WrapStyled(rendered, termWidth), "\n")
 }
 
 func renderListItem(marker, text, indent string, termWidth int, p Palette) string {
 	prefix := marker + " "
-	prefixW := len(prefix)
+	prefixW := runewidth.StringWidth(prefix)
 
-	bodyW := termWidth - len(indent) - prefixW
+	bodyW := termWidth - runewidth.StringWidth(indent) - prefixW
 	if bodyW < 10 {
 		bodyW = 10
 	}
 
 	bodyStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(p.Body)).Render(ParseInline(text, p))
-	bodyWrapped := wordwrap.String(bodyStyled, bodyW)
-
-	lines := strings.Split(bodyWrapped, "\n")
+	lines := WrapStyled(bodyStyled, bodyW)
 	if len(lines) == 0 {
 		return indent + lipgloss.NewStyle().Foreground(lipgloss.Color(p.Body)).Render(prefix)
 	}
@@ -316,6 +348,9 @@ func StableStreamingPrefix(text string) string {
 	inTable := false
 	tableStart := -1
 
+	inBox := false
+	boxStart := -1
+
 	for i := 0; i < n; i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
@@ -336,8 +371,29 @@ func StableStreamingPrefix(text string) string {
 			continue
 		}
 
+		// Track box-drawing blocks: hold back until the block closes.
+		if IsBoxDrawingLine(trimmed) {
+			if !inBox {
+				inBox = true
+				boxStart = i
+			}
+			continue
+		}
+		if inBox {
+			inBox = false
+			boxStart = -1
+		}
+
 		if inTable {
 			if isTableSepLine(trimmed) || isTableRowLine(trimmed) {
+				continue
+			}
+			// 이 비-표 라인이 분석 범위의 마지막 완성 라인이면, 표가 아직 닫히지
+			// 않았을 수 있으므로 보수적으로 표 진행 중으로 유지한다.
+			// (스트리밍 중 표 직후 다음 단락의 첫 토큰이 단독 라인으로 올 때
+			//  해당 라인이 더 늘어날 수 있으므로, 최소 1개 후속 완성 라인을
+			//  확인할 때까지 표를 닫지 않는다.)
+			if i >= n-1 {
 				continue
 			}
 			inTable = false
@@ -366,6 +422,9 @@ func StableStreamingPrefix(text string) string {
 	}
 	if inTable && tableStart >= 0 && tableStart < cutoff {
 		cutoff = tableStart
+	}
+	if inBox && boxStart >= 0 && boxStart < cutoff {
+		cutoff = boxStart
 	}
 
 	if cutoff >= len(lines) {

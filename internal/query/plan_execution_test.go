@@ -43,12 +43,18 @@ func (f *fakeShellTool) Call(_ tool.Context, input json.RawMessage) (<-chan tool
 }
 
 func TestParsePlanExecutionReady(t *testing.T) {
-	steps := parsePlanExecutionReady("exit_plan_mode", `{"allowed_prompts":[{"tool":"bash","prompt":"echo 1"},{"tool":"powershell","prompt":"Get-Date"},{"tool":"python","prompt":"print(1)"}]}`, false)
+	steps := parsePlanExecutionReady("exit_plan_mode", `{"allowed_prompts":[{"tool":"bash","prompt":"echo 1","server":"oracle-server","role":"source_mysql","channel":"source","as_user":"oracle","privilege_method":"sudo"},{"tool":"powershell","prompt":"Get-Date"},{"tool":"python","prompt":"print(1)"}]}`, false)
 	if len(steps) != 2 {
 		t.Fatalf("expected 2 steps, got %d", len(steps))
 	}
 	if steps[0].Tool != "bash" || steps[0].Prompt != "echo 1" {
 		t.Fatalf("unexpected first step: %+v", steps[0])
+	}
+	if steps[0].Server != "oracle-server" {
+		t.Fatalf("unexpected first step server: %+v", steps[0])
+	}
+	if steps[0].Role != "source_mysql" || steps[0].Channel != "source" || steps[0].AsUser != "oracle" || steps[0].PrivilegeMethod != "sudo" {
+		t.Fatalf("unexpected first step execution context: %+v", steps[0])
 	}
 	if steps[1].Tool != "powershell" || steps[1].Prompt != "Get-Date" {
 		t.Fatalf("unexpected second step: %+v", steps[1])
@@ -85,8 +91,11 @@ func TestExecutePlannedStepAutoApprovesAsk(t *testing.T) {
 	})
 
 	out, err := engine.ExecutePlannedStep(context.Background(), PlannedStep{
-		Tool:   "bash",
-		Prompt: "echo hello",
+		Tool:    "bash",
+		Prompt:  "echo hello",
+		Server:  "oracle-server",
+		Role:    "source_mysql",
+		Channel: "source",
 	})
 	if err != nil {
 		t.Fatalf("execute planned step: %v", err)
@@ -99,6 +108,12 @@ func TestExecutePlannedStepAutoApprovesAsk(t *testing.T) {
 	}
 	if fake.lastInput["workdir"] != "C:\\repo" {
 		t.Fatalf("unexpected workdir input: %+v", fake.lastInput)
+	}
+	if fake.lastInput["server"] != "oracle-server" {
+		t.Fatalf("unexpected server input: %+v", fake.lastInput)
+	}
+	if fake.lastInput["role"] != "source_mysql" || fake.lastInput["channel"] != "source" {
+		t.Fatalf("unexpected role/channel input: %+v", fake.lastInput)
 	}
 }
 
@@ -239,5 +254,83 @@ func TestInvokeToolAskPromptAllowExecutes(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("expected approval prompt to be called")
+	}
+}
+
+func TestExecutePlannedStepBypassesWorkflowPhaseGate(t *testing.T) {
+	reg := tool.NewRegistry()
+	fake := &fakeShellTool{
+		name:       "bash",
+		permission: types.BehaviorAllow,
+	}
+	if err := reg.Register(fake); err != nil {
+		t.Fatalf("register fake tool: %v", err)
+	}
+
+	st := state.NewAppState()
+	st.SetWorkflowCard(&state.WorkflowCard{
+		Title:    "install",
+		Category: state.WorkflowCategoryInstall,
+		Phase:    state.WorkflowPhasePlan,
+	})
+
+	engine := NewEngine(nil, reg, st, nil)
+	out, err := engine.ExecutePlannedStep(context.Background(), PlannedStep{
+		Tool:   "bash",
+		Prompt: "echo approved",
+	})
+	if err != nil {
+		t.Fatalf("planned step should bypass workflow phase gate after explicit approval: %v", err)
+	}
+	if out != "ok" {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
+func TestRepeatedIdenticalToolCallsStopsTurn(t *testing.T) {
+	stopToolUse := llm.StopReasonToolUse
+	raw := mustRawJSON(t, map[string]any{"value": "same"})
+	llmScript := &scriptedLLM{
+		sequences: [][]llm.Event{
+			{{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "t1", Name: "repeat_tool", Input: raw}}, {Kind: llm.EventStop, Stop: &stopToolUse}},
+			{{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "t2", Name: "repeat_tool", Input: raw}}, {Kind: llm.EventStop, Stop: &stopToolUse}},
+			{{Kind: llm.EventToolUseStart, ToolUse: &llm.ToolUseStart{ID: "t3", Name: "repeat_tool", Input: raw}}, {Kind: llm.EventStop, Stop: &stopToolUse}},
+		},
+	}
+
+	reg := tool.NewRegistry()
+	if err := reg.Register(&scriptedTool{
+		name:       "repeat_tool",
+		permission: types.BehaviorAllow,
+		output:     "ok",
+	}); err != nil {
+		t.Fatalf("register repeat tool: %v", err)
+	}
+
+	engine := NewEngine(llmScript, reg, state.NewAppState(), nil)
+	cfg := DefaultConfig()
+	cfg.MaxToolIterations = 10
+	cfg.PersistenceEnabled = false
+	engine.SetConfig(cfg)
+
+	stream, err := engine.SubmitMessage(context.Background(), "loop")
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	var gotErr error
+	toolUses := 0
+	for evt := range stream {
+		if evt.Kind == UIEventToolUse {
+			toolUses++
+		}
+		if evt.Kind == UIEventError {
+			gotErr = evt.Err
+		}
+	}
+	if gotErr == nil || !strings.Contains(gotErr.Error(), "repeated identical tool calls") {
+		t.Fatalf("expected repeated tool-call error, got %v", gotErr)
+	}
+	if toolUses != repeatedToolCallLimit {
+		t.Fatalf("expected %d tool uses before stop, got %d", repeatedToolCallLimit, toolUses)
 	}
 }

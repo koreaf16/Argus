@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/koreaf16/argus/internal/services/workspace"
@@ -27,6 +28,44 @@ func ResolveWorkspaceAlias(ctx Context, requested string) string {
 		return ctx.Workspace.ActiveAlias()
 	}
 	return ctx.Workspace.ResolveAlias(requested)
+}
+
+func RegisteredWorkspaceAliases(ctx Context) []string {
+	if ctx.Workspace == nil || ctx.Workspace.Registry() == nil {
+		return []string{workspace.LocalAlias}
+	}
+	entries := ctx.Workspace.Registry().List()
+	aliases := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		aliases = append(aliases, entry.Alias)
+	}
+	sort.Strings(aliases)
+	return aliases
+}
+
+func RequiresExplicitServerAlias(ctx Context) bool {
+	if ctx.Workspace == nil || ctx.Workspace.Registry() == nil {
+		return false
+	}
+	entries := ctx.Workspace.Registry().List()
+	remoteCount := 0
+	for _, entry := range entries {
+		if entry.Kind == workspace.ServerKindSSH {
+			remoteCount++
+		}
+	}
+	return remoteCount >= 2
+}
+
+func RequireExplicitServerAlias(ctx Context, requested, toolName string) error {
+	if strings.TrimSpace(requested) != "" {
+		return nil
+	}
+	if !RequiresExplicitServerAlias(ctx) {
+		return nil
+	}
+	aliases := RegisteredWorkspaceAliases(ctx)
+	return fmt.Errorf("explicit `server` is required for %s when multiple remote workspaces are registered. Available aliases: %s", toolName, strings.Join(aliases, ", "))
 }
 
 func ResolveValidatedWorkspaceAlias(ctx Context, requested string) (string, error) {

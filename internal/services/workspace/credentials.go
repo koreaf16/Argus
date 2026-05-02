@@ -14,6 +14,7 @@ import (
 
 type credEntry struct {
 	Kind       string    `json:"kind"`
+	TargetUser string    `json:"target_user,omitempty"`
 	BlobBase64 string    `json:"blob_base64"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -69,15 +70,22 @@ func (c *CredentialStore) Load() error {
 // SetPassword encrypts password and stores it under alias+kind.
 // Call Save() afterwards to persist to disk.
 func (c *CredentialStore) SetPassword(alias, kind, plaintext string) error {
+	return c.SetPasswordForTarget(alias, kind, "", plaintext)
+}
+
+// SetPasswordForTarget encrypts password and stores it under alias+kind+targetUser.
+// targetUser may be empty for legacy alias+kind credentials.
+func (c *CredentialStore) SetPasswordForTarget(alias, kind, targetUser, plaintext string) error {
 	blob, err := c.enc.Encrypt([]byte(plaintext))
 	if err != nil {
 		return fmt.Errorf("encrypt credential for %s: %w", alias, err)
 	}
 
-	key := alias + "\x00" + kind
+	key := credentialKey(alias, kind, targetUser)
 	c.mu.Lock()
 	c.entries[key] = credEntry{
 		Kind:       kind,
+		TargetUser: targetUser,
 		BlobBase64: base64.StdEncoding.EncodeToString(blob),
 		UpdatedAt:  time.Now().UTC(),
 	}
@@ -88,14 +96,23 @@ func (c *CredentialStore) SetPassword(alias, kind, plaintext string) error {
 // GetPassword retrieves and decrypts the stored password for alias+kind.
 // Returns ("", false, nil) when no entry exists.
 func (c *CredentialStore) GetPassword(alias, kind string) (string, bool, error) {
-	key := alias + "\x00" + kind
+	return c.GetPasswordForTarget(alias, kind, "")
+}
+
+// GetPasswordForTarget retrieves alias+kind+targetUser first, then falls back
+// to the legacy alias+kind credential when targetUser is non-empty.
+func (c *CredentialStore) GetPasswordForTarget(alias, kind, targetUser string) (string, bool, error) {
+	key := credentialKey(alias, kind, targetUser)
 
 	c.mu.RLock()
 	entry, ok := c.entries[key]
 	c.mu.RUnlock()
 
 	if !ok {
-		return "", false, nil
+		if targetUser == "" {
+			return "", false, nil
+		}
+		return c.GetPasswordForTarget(alias, kind, "")
 	}
 
 	blob, err := base64.StdEncoding.DecodeString(entry.BlobBase64)
@@ -108,6 +125,14 @@ func (c *CredentialStore) GetPassword(alias, kind string) (string, bool, error) 
 		return "", true, fmt.Errorf("decrypt credential for %s: %w", alias, err)
 	}
 	return string(plain), true, nil
+}
+
+func credentialKey(alias, kind, targetUser string) string {
+	key := alias + "\x00" + kind
+	if targetUser != "" {
+		key += "\x00" + targetUser
+	}
+	return key
 }
 
 // Delete removes all stored entries for the given alias.

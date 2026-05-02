@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"bytes"
 	"encoding/json"
 	"regexp"
 	"sort"
@@ -46,11 +47,24 @@ func RedactJSON(raw json.RawMessage) json.RawMessage {
 		return json.RawMessage([]byte(RedactText(string(raw))))
 	}
 	redacted := redactAny(payload)
-	out, err := json.Marshal(redacted)
+	out, err := marshalNoHTMLEscape(redacted)
 	if err != nil {
 		return json.RawMessage([]byte(RedactText(string(raw))))
 	}
 	return out
+}
+
+// marshalNoHTMLEscape는 &, <, > 를 & / < / > 로 이스케이프하지 않고
+// JSON을 직렬화한다. 권한 승인 모달 등 사람이 읽는 입력 미리보기에서 `&&`가
+// `&&`으로 노출되는 문제를 막기 위함.
+func marshalNoHTMLEscape(v any) (json.RawMessage, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return json.RawMessage(bytes.TrimRight(buf.Bytes(), "\n")), nil
 }
 
 func RedactJSONWithSecrets(raw json.RawMessage, secrets []string) json.RawMessage {

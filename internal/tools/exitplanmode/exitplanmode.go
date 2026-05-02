@@ -22,20 +22,34 @@ func (t *ExitPlanModeTool) Name() string {
 }
 
 func (t *ExitPlanModeTool) Description(ctx tool.Context) string {
-	return "Exit plan mode"
+	return "Submit the completed plan and exit plan mode. In workflow plan phase, call this after drafting the plan; do not repeat TodoWrite while the plan todo is still in progress."
 }
 
 func (t *ExitPlanModeTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
+			"plan": map[string]any{
+				"type":        "string",
+				"description": "Optional completed plan text to persist and present for approval before leaving plan mode.",
+			},
+			"planText": map[string]any{
+				"type":        "string",
+				"description": "Alias for plan.",
+			},
 			"allowedPrompts": map[string]any{
-				"type": "array",
+				"type":        "array",
+				"description": "Optional executable shell steps derived from the plan. Use only bash or powershell, with workspace role/server metadata when relevant.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"tool":   map[string]any{"type": "string"},
-						"prompt": map[string]any{"type": "string"},
+						"tool":             map[string]any{"type": "string"},
+						"prompt":           map[string]any{"type": "string"},
+						"server":           map[string]any{"type": "string"},
+						"role":             map[string]any{"type": "string"},
+						"channel":          map[string]any{"type": "string"},
+						"as_user":          map[string]any{"type": "string"},
+						"privilege_method": map[string]any{"type": "string"},
 					},
 					"required": []string{"tool", "prompt"},
 				},
@@ -46,6 +60,10 @@ func (t *ExitPlanModeTool) InputSchema() tool.ToolInputJSONSchema {
 
 func (t *ExitPlanModeTool) IsReadOnly() bool {
 	return true
+}
+
+func (t *ExitPlanModeTool) IsConcurrencySafe(input json.RawMessage) bool {
+	return false
 }
 
 func (t *ExitPlanModeTool) MaxResultSizeChars() int {
@@ -62,9 +80,16 @@ func (t *ExitPlanModeTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 		}
 
 		var req struct {
+			Plan           string `json:"plan"`
+			PlanText       string `json:"planText"`
 			AllowedPrompts []struct {
-				Tool   string `json:"tool"`
-				Prompt string `json:"prompt"`
+				Tool            string `json:"tool"`
+				Prompt          string `json:"prompt"`
+				Server          string `json:"server"`
+				Role            string `json:"role"`
+				Channel         string `json:"channel"`
+				AsUser          string `json:"as_user"`
+				PrivilegeMethod string `json:"privilege_method"`
 			} `json:"allowedPrompts"`
 		}
 		_ = json.Unmarshal(input, &req)
@@ -78,6 +103,14 @@ func (t *ExitPlanModeTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 		if err != nil {
 			events <- tool.NewErrorEvent(err)
 			return
+		}
+		if submittedPlan := strings.TrimSpace(firstNonEmpty(req.Plan, req.PlanText)); submittedPlan != "" {
+			planText = mergeSubmittedPlan(planText, submittedPlan)
+			planPath, err = toolfs.WritePlan(sessionID, planText)
+			if err != nil {
+				events <- tool.NewErrorEvent(err)
+				return
+			}
 		}
 		if len(allowedPrompts) > 0 {
 			planText = renderPlanSteps(planText, allowedPrompts)
@@ -111,17 +144,33 @@ func (t *ExitPlanModeTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 }
 
 func (t *ExitPlanModeTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
-	return tool.DefaultAllowPermission(), nil
+	if ctx.State != nil && ctx.State.InYoloMode() {
+		return tool.DefaultAllowPermission(), nil
+	}
+	return tool.PermissionResult{
+		Behavior: types.BehaviorAsk,
+		Message:  "Present plan for approval",
+	}, nil
 }
 
 type allowedPrompt struct {
-	Tool   string `json:"tool"`
-	Prompt string `json:"prompt"`
+	Tool            string `json:"tool"`
+	Prompt          string `json:"prompt"`
+	Server          string `json:"server,omitempty"`
+	Role            string `json:"role,omitempty"`
+	Channel         string `json:"channel,omitempty"`
+	AsUser          string `json:"as_user,omitempty"`
+	PrivilegeMethod string `json:"privilege_method,omitempty"`
 }
 
 func normalizeAllowedPrompts(items []struct {
-	Tool   string `json:"tool"`
-	Prompt string `json:"prompt"`
+	Tool            string `json:"tool"`
+	Prompt          string `json:"prompt"`
+	Server          string `json:"server"`
+	Role            string `json:"role"`
+	Channel         string `json:"channel"`
+	AsUser          string `json:"as_user"`
+	PrivilegeMethod string `json:"privilege_method"`
 }) []allowedPrompt {
 	out := make([]allowedPrompt, 0, len(items))
 	for _, item := range items {
@@ -133,15 +182,64 @@ func normalizeAllowedPrompts(items []struct {
 		if prompt == "" {
 			continue
 		}
-		out = append(out, allowedPrompt{Tool: toolName, Prompt: prompt})
+		out = append(out, allowedPrompt{
+			Tool:            toolName,
+			Prompt:          prompt,
+			Server:          strings.TrimSpace(item.Server),
+			Role:            strings.TrimSpace(item.Role),
+			Channel:         strings.TrimSpace(item.Channel),
+			AsUser:          strings.TrimSpace(item.AsUser),
+			PrivilegeMethod: strings.TrimSpace(item.PrivilegeMethod),
+		})
 	}
 	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func mergeSubmittedPlan(existing, submitted string) string {
+	existing = strings.TrimSpace(existing)
+	submitted = strings.TrimSpace(submitted)
+	if existing == "" {
+		return submitted
+	}
+	if submitted == "" || strings.Contains(existing, submitted) {
+		return existing
+	}
+	return existing + "\n\n" + submitted
 }
 
 func renderPlanSteps(existing string, prompts []allowedPrompt) string {
 	lines := make([]string, 0, len(prompts))
 	for i, item := range prompts {
-		lines = append(lines, fmt.Sprintf("%d. [%s] %s", i+1, item.Tool, item.Prompt))
+		label := item.Tool
+		var tags []string
+		if strings.TrimSpace(item.Server) != "" {
+			tags = append(tags, strings.TrimSpace(item.Server))
+		}
+		if strings.TrimSpace(item.Role) != "" {
+			tags = append(tags, "role="+strings.TrimSpace(item.Role))
+		}
+		if strings.TrimSpace(item.Channel) != "" {
+			tags = append(tags, "channel="+strings.TrimSpace(item.Channel))
+		}
+		if strings.TrimSpace(item.AsUser) != "" {
+			tags = append(tags, "as="+strings.TrimSpace(item.AsUser))
+		}
+		if strings.TrimSpace(item.PrivilegeMethod) != "" {
+			tags = append(tags, "via="+strings.TrimSpace(item.PrivilegeMethod))
+		}
+		if len(tags) > 0 {
+			label = fmt.Sprintf("%s@%s", item.Tool, strings.Join(tags, ","))
+		}
+		lines = append(lines, fmt.Sprintf("%d. [%s] %s", i+1, label, item.Prompt))
 	}
 	body := strings.TrimSpace(existing)
 	if body == "" {

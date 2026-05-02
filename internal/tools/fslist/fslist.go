@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/koreaf16/argus/internal/services/workspace"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/tui/toolui"
 	"github.com/koreaf16/argus/internal/types"
@@ -24,19 +25,34 @@ func (r *FSListRenderer) CreateInteractiveModel(args map[string]any, theme toolu
 
 func (r *FSListRenderer) RenderToolUse(args map[string]any, _ string, theme toolui.ThemeContext) string {
 	path, _ := args["path"].(string)
-	server, _ := args["server"].(string)
+	target := renderTargetAlias(args)
 	recursive, _ := args["recursive"].(bool)
 
 	var sb strings.Builder
 	sb.WriteString(theme.Style(theme.ToolUseColor()).Bold(true).Render("  List: "))
 	sb.WriteString(theme.Style(theme.BodyColor()).Render(path))
-	if server != "" {
-		sb.WriteString(theme.Style(theme.MutedColor()).Render(" on " + server))
-	}
+	sb.WriteString(theme.Style(theme.MutedColor()).Render(" on " + target))
 	if recursive {
 		sb.WriteString(theme.Style(theme.MutedColor()).Render(" (recursive)"))
 	}
 	return sb.String()
+}
+
+func renderTargetAlias(args map[string]any) string {
+	server := "local"
+	if s, ok := args["server"].(string); ok && strings.TrimSpace(s) != "" {
+		server = strings.TrimSpace(s)
+	} else if active, ok := args["_active_workspace"].(string); ok && strings.TrimSpace(active) != "" {
+		server = strings.TrimSpace(active)
+	}
+	label := server
+	if ch, ok := args["channel"].(string); ok && strings.TrimSpace(ch) != "" {
+		label += "/" + strings.TrimSpace(ch)
+	}
+	if role, ok := args["role"].(string); ok && strings.TrimSpace(role) != "" {
+		label += " role=" + strings.TrimSpace(role)
+	}
+	return label
 }
 
 func (r *FSListRenderer) RenderToolResult(resultText string, durationMs int64, theme toolui.ThemeContext) string {
@@ -68,6 +84,8 @@ func (t *FSListTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"path":      map[string]any{"type": "string", "description": "Directory path to list"},
 			"server":    map[string]any{"type": "string", "description": "Optional workspace alias. Defaults to active workspace."},
+			"role":      map[string]any{"type": "string", "description": "Optional workflow role."},
+			"channel":   map[string]any{"type": "string", "description": "Optional workflow channel."},
 			"recursive": map[string]any{"type": "boolean", "description": "Whether to recursively list descendants"},
 			"depth":     map[string]any{"type": "integer", "description": "Maximum recursive depth. 0 means unlimited when recursive=true"},
 		},
@@ -92,6 +110,8 @@ func (t *FSListTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.
 	var req struct {
 		Path      string `json:"path"`
 		Server    string `json:"server"`
+		Role      string `json:"role"`
+		Channel   string `json:"channel"`
 		Recursive bool   `json:"recursive"`
 		Depth     int    `json:"depth"`
 	}
@@ -101,19 +121,22 @@ func (t *FSListTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.
 
 	go func() {
 		defer close(events)
-		alias := tool.ResolveWorkspaceAlias(ctx, req.Server)
-		if strings.TrimSpace(req.Server) != "" {
-			if _, ok := ctx.Workspace.Registry().Get(alias); !ok {
-				events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", alias))
-				return
-			}
-		}
-
-		targetPath := strings.TrimSpace(req.Path)
-		if targetPath == "" {
-			events <- tool.NewErrorEvent(fmt.Errorf("path is required"))
+		alias, _, err := tool.ResolveExecutionRoleServer(ctx, req.Server, req.Role, req.Channel, "fs_list")
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
 			return
 		}
+		targetPath := strings.TrimSpace(req.Path)
+
+		// [개선] ParseEndpointPathV2를 사용하여 대상 OS context 획득
+		ep, err := workspace.ParseEndpointPathV2(ctx.Workspace, targetPath, alias)
+		if err != nil {
+			events <- tool.NewErrorEvent(err)
+			return
+		}
+		alias = ep.Alias
+		targetPath = ep.RawPath
+
 		if !tool.IsRemoteWorkspace(ctx, alias) {
 			resolved, err := tool.ResolvePathForRead(ctx, targetPath)
 			if err != nil {
@@ -142,8 +165,13 @@ func (t *FSListTool) CheckPermission(ctx tool.Context, input json.RawMessage) (t
 	}
 
 	rawServer := tool.ExtractStringInput(input, "server")
-	alias := tool.ResolveWorkspaceAlias(ctx, rawServer)
-	if strings.TrimSpace(rawServer) != "" {
+	rawRole := tool.ExtractStringInput(input, "role")
+	rawChannel := tool.ExtractStringInput(input, "channel")
+	alias, _, err := tool.ResolveExecutionRoleServer(ctx, rawServer, rawRole, rawChannel, "fs_list")
+	if err != nil {
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: err.Error()}, nil
+	}
+	if strings.TrimSpace(alias) != "" && alias != "local" {
 		if _, ok := ctx.Workspace.Registry().Get(alias); !ok {
 			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("unknown server alias: %s", alias)}, nil
 		}

@@ -1,13 +1,14 @@
-// Package todowrite ??TodoWrite tool implementation.
 package todowrite
 
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/koreaf16/argus/internal/todostore"
 	tool "github.com/koreaf16/argus/internal/tools"
+	"github.com/koreaf16/argus/internal/tools/taskplaninit"
 	"github.com/koreaf16/argus/internal/types"
 )
 
@@ -22,7 +23,7 @@ func (t *TodoWriteTool) Name() string {
 }
 
 func (t *TodoWriteTool) Description(ctx tool.Context) string {
-	return "Manage TODO list"
+	return "Manage TODO list and workflow phases"
 }
 
 func (t *TodoWriteTool) InputSchema() tool.ToolInputJSONSchema {
@@ -41,6 +42,11 @@ func (t *TodoWriteTool) InputSchema() tool.ToolInputJSONSchema {
 					},
 					"required": []string{"content", "status", "activeForm"},
 				},
+			},
+			"phase": map[string]any{
+				"type":        "string",
+				"description": "Optional: Update the current workflow phase",
+				"enum":        []string{"discover", "research", "interview", "plan", "execute", "verify", "done"},
 			},
 		},
 		"required": []string{"todos"},
@@ -62,6 +68,7 @@ func (t *TodoWriteTool) Call(ctx tool.Context, input json.RawMessage) (<-chan to
 
 		var req struct {
 			Todos []types.TodoItem `json:"todos"`
+			Phase string           `json:"phase"`
 		}
 		if err := json.Unmarshal(input, &req); err != nil {
 			events <- tool.NewErrorEvent(err)
@@ -99,6 +106,30 @@ func (t *TodoWriteTool) Call(ctx tool.Context, input json.RawMessage) (<-chan to
 		}
 
 		storedTodos := todostore.NormalizeForStorage(req.Todos)
+		appliedPhase := strings.TrimSpace(req.Phase)
+		previousPhase := ""
+		if ctx.State != nil {
+			if card := ctx.State.WorkflowCard(); card != nil {
+				previousPhase = strings.ToLower(strings.TrimSpace(card.Phase))
+			}
+			// req.Phase 가 비어 있으면 in_progress todo 로부터 phase 를 자동 추론한다.
+			// 이 폴백이 없으면 LLM 이 todo status 만 갱신하고 phase 필드를 누락했을 때
+			// 워크플로우가 plan 단계에 영원히 묶여 다음 도구가 모두 차단되는 데드락이 발생한다.
+			if appliedPhase == "" && ctx.State.WorkflowCard() != nil {
+				if inferred := taskplaninit.InferPhaseFromTodos(storedTodos); inferred != "" {
+					if current := strings.ToLower(ctx.State.WorkflowCard().Phase); current != inferred {
+						appliedPhase = inferred
+					}
+				}
+			}
+		}
+
+		phaseChanged := appliedPhase != "" && !strings.EqualFold(strings.TrimSpace(appliedPhase), previousPhase)
+		if reflect.DeepEqual(todostore.NormalizeForStorage(oldTodos), storedTodos) && !phaseChanged {
+			events <- tool.NewErrorEvent(fmt.Errorf("TodoWrite made no changes. Do not repeat the same todo update; use the next appropriate tool (for example exit_plan_mode in plan mode) or change phase/todos explicitly."))
+			return
+		}
+
 		if err := todostore.Save(sessionID, storedTodos); err != nil {
 			events <- tool.NewErrorEvent(err)
 			return
@@ -106,11 +137,15 @@ func (t *TodoWriteTool) Call(ctx tool.Context, input json.RawMessage) (<-chan to
 
 		if ctx.State != nil {
 			ctx.State.SetTodos(sessionID, storedTodos)
+			if appliedPhase != "" {
+				ctx.State.SetWorkflowPhase(appliedPhase)
+			}
 		}
 
 		payload, _ := json.Marshal(map[string]any{
 			"oldTodos": oldTodos,
 			"newTodos": storedTodos,
+			"phase":    appliedPhase,
 		})
 		events <- tool.NewOutputEvent(string(payload))
 		events <- tool.NewDoneEvent()

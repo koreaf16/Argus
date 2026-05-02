@@ -39,6 +39,7 @@ func (t *AskUserTool) InputSchema() tools.ToolInputJSONSchema {
 			"default":      map[string]any{"type": "string"},
 			"multi_select": map[string]any{"type": "boolean"},
 			"required":     map[string]any{"type": "boolean"},
+			"preview":      map[string]any{"type": "string"},
 			"options": map[string]any{
 				"type": "array",
 				"items": map[string]any{
@@ -88,6 +89,18 @@ func (t *AskUserTool) Call(ctx tools.Context, input json.RawMessage) (<-chan too
 			return
 		}
 
+		if ctx.State != nil && ctx.State.InYoloMode() && ctx.ExecuteSubQuery != nil {
+			// [YOLO] LLM 이 스스로 답변을 결정하도록 Sub-query 수행
+			events <- tools.NewChunkEvent("\n[YOLO] 자율 모드: LLM 이 답변을 결정 중입니다...\n")
+			batchResp, subErr := t.decideAnswersYolo(ctx, questions)
+			if subErr != nil {
+				events <- tools.NewErrorEvent(subErr)
+				return
+			}
+			t.processAndEmitAnswers(ctx, events, questions, batchResp)
+			return
+		}
+
 		respCh := make(chan tools.AskUserBatchResponse, 1)
 		prompt := &tools.AskUserBatchPrompt{
 			Questions: append([]tools.AskUserQuestion(nil), questions...),
@@ -119,45 +132,109 @@ func (t *AskUserTool) Call(ctx tools.Context, input json.RawMessage) (<-chan too
 			return
 		}
 
-		answersByIndex := make(map[string]string, len(questions))
-		answersByID := make(map[string]string, len(questions))
-		responses := make([]map[string]string, 0, len(questions))
-		for i, q := range questions {
-			index := fmt.Sprintf("%d", i)
-			value := ""
-			if batchResp.AnswersByIndex != nil {
-				value = strings.TrimSpace(batchResp.AnswersByIndex[index])
-			}
-			if value == "" && q.ID != "" && batchResp.AnswersByID != nil {
-				value = strings.TrimSpace(batchResp.AnswersByID[q.ID])
-			}
-			if value == "" {
-				value = strings.TrimSpace(q.Default)
-			}
-			if q.Type == "yesno" {
-				value = normalizeYesNo(value)
-			}
-			if q.Required && value == "" {
-				events <- tools.NewErrorEvent(fmt.Errorf("question %q requires an answer", q.Question))
-				return
-			}
-
-			answersByIndex[index] = value
-			if q.ID != "" {
-				answersByID[q.ID] = value
-			}
-			responses = append(responses, map[string]string{
-				"index":    index,
-				"id":       q.ID,
-				"question": q.Question,
-				"value":    value,
-			})
-		}
-
-		emitResult(events, answersByIndex, answersByID, responses, false)
-		events <- tools.NewDoneEvent()
+		t.processAndEmitAnswers(ctx, events, questions, batchResp)
 	}()
 	return events, nil
+}
+
+func (t *AskUserTool) decideAnswersYolo(ctx tools.Context, questions []tools.AskUserQuestion) (tools.AskUserBatchResponse, error) {
+	var sb strings.Builder
+	sb.WriteString("You are the YOLO-mode autonomous decision maker for Argus. ")
+	sb.WriteString("You must decide the most appropriate answers for the following questions on behalf of the user to ensure the task proceeds without interruption. ")
+	sb.WriteString("Consider the system environment, project context, and best practices. ")
+	sb.WriteString("If a default value is provided and seems reasonable, prefer it. ")
+	sb.WriteString("Return your decisions as a JSON object where keys are question IDs or indices (\"0\", \"1\", ...) and values are the chosen answers.\n\n")
+
+	for i, q := range questions {
+		sb.WriteString(fmt.Sprintf("Question %d (ID: %s):\n", i, q.ID))
+		sb.WriteString(fmt.Sprintf("  Text: %s\n", q.Question))
+		sb.WriteString(fmt.Sprintf("  Type: %s\n", q.Type))
+		if q.Default != "" {
+			sb.WriteString(fmt.Sprintf("  Default: %s\n", q.Default))
+		}
+		if len(q.Options) > 0 {
+			sb.WriteString("  Options:\n")
+			for _, opt := range q.Options {
+				sb.WriteString(fmt.Sprintf("    - %s (%s): %s\n", opt.Label, opt.Value, opt.Description))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	systemPrompt := "You are a senior systems engineer acting as a proxy for the user. Provide concise, expert-level decisions in JSON format."
+	userPrompt := sb.String()
+
+	resp, err := ctx.ExecuteSubQuery(ctx.Context, systemPrompt, userPrompt)
+	if err != nil {
+		return tools.AskUserBatchResponse{}, fmt.Errorf("YOLO decision sub-query failed: %w", err)
+	}
+
+	// JSON 추출 (LLM 이 마크다운으로 감쌀 경우 대비)
+	jsonStr := resp
+	if start := strings.Index(jsonStr, "{"); start != -1 {
+		if end := strings.LastIndex(jsonStr, "}"); end != -1 && end > start {
+			jsonStr = jsonStr[start : end+1]
+		}
+	}
+
+	var answers map[string]string
+	if err := json.Unmarshal([]byte(jsonStr), &answers); err != nil {
+		// 파싱 실패 시 기본값이나 빈 값으로 대체 (중단 방지)
+		return tools.AskUserBatchResponse{
+			AnswersByIndex: make(map[string]string),
+		}, nil
+	}
+
+	return tools.AskUserBatchResponse{
+		AnswersByIndex: answers,
+		AnswersByID:    answers,
+	}, nil
+}
+
+func (t *AskUserTool) processAndEmitAnswers(ctx tools.Context, events chan<- tools.ToolEvent, questions []tools.AskUserQuestion, batchResp tools.AskUserBatchResponse) {
+	answersByIndex := make(map[string]string, len(questions))
+	answersByID := make(map[string]string, len(questions))
+	responses := make([]map[string]string, 0, len(questions))
+
+	for i, q := range questions {
+		index := fmt.Sprintf("%d", i)
+		value := ""
+		if batchResp.AnswersByIndex != nil {
+			value = strings.TrimSpace(batchResp.AnswersByIndex[index])
+		}
+		if value == "" && q.ID != "" && batchResp.AnswersByID != nil {
+			value = strings.TrimSpace(batchResp.AnswersByID[q.ID])
+		}
+		if value == "" {
+			value = strings.TrimSpace(q.Default)
+		}
+		if q.Type == "yesno" {
+			value = normalizeYesNo(value)
+		}
+		// YOLO 모드이거나 기본값이 있으면 필수 체크 통과
+		if q.Required && value == "" && !ctx.State.InYoloMode() {
+			events <- tools.NewErrorEvent(fmt.Errorf("question %q requires an answer", q.Question))
+			return
+		}
+
+		answersByIndex[index] = value
+		if q.ID != "" {
+			answersByID[q.ID] = value
+		}
+		responses = append(responses, map[string]string{
+			"index":    index,
+			"id":       q.ID,
+			"question": q.Question,
+			"value":    value,
+		})
+	}
+
+	if ctx.State != nil {
+		ctx.State.SetWorkflowApproved(true)
+	}
+
+	emitResult(events, answersByIndex, answersByID, responses, false)
+	events <- tools.NewDoneEvent()
 }
 
 func (t *AskUserTool) CheckPermission(ctx tools.Context, input json.RawMessage) (tools.PermissionResult, error) {
@@ -176,6 +253,7 @@ type askUserRequest struct {
 	Default     string             `json:"default"`
 	MultiSelect bool               `json:"multi_select"`
 	Required    *bool              `json:"required"`
+	Preview     string             `json:"preview"`
 	Options     []askUserOptionReq `json:"options"`
 	Questions   []askUserQuestion  `json:"questions"`
 }
@@ -189,6 +267,7 @@ type askUserQuestion struct {
 	Default     string             `json:"default"`
 	MultiSelect bool               `json:"multi_select"`
 	Required    *bool              `json:"required"`
+	Preview     string             `json:"preview"`
 	Options     []askUserOptionReq `json:"options"`
 }
 
@@ -215,6 +294,7 @@ func parseQuestions(input json.RawMessage) ([]tools.AskUserQuestion, error) {
 			Default:     req.Default,
 			MultiSelect: req.MultiSelect,
 			Required:    req.Required,
+			Preview:     req.Preview,
 			Options:     req.Options,
 		})
 	}
@@ -285,6 +365,7 @@ func normalizeQuestion(index int, q askUserQuestion) (tools.AskUserQuestion, err
 		Default:     strings.TrimSpace(q.Default),
 		MultiSelect: q.MultiSelect && questionType == "choice",
 		Required:    required,
+		Preview:     strings.TrimSpace(q.Preview),
 		Options:     options,
 	}, nil
 }
