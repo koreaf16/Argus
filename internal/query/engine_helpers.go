@@ -9,8 +9,44 @@ import (
 	"github.com/koreaf16/argus/internal/constants"
 	"github.com/koreaf16/argus/internal/services/llm"
 	"github.com/koreaf16/argus/internal/state"
-	"github.com/koreaf16/argus/internal/tools/taskplaninit"
+	tool "github.com/koreaf16/argus/internal/tools"
 )
+
+// buildModelCaps constructs tool.ModelCaps from the active LLM client and app state.
+func buildModelCaps(client llm.LLM, appState *state.AppState) tool.ModelCaps {
+	caps := client.Capabilities()
+	ctxWin := 0
+	if appState != nil {
+		_, _, ctxWin = appState.ActiveModel()
+	}
+	return tool.ModelCaps{
+		Thinking:    caps.Thinking,
+		Vision:      caps.Vision,
+		WebSearch:   caps.WebSearch,
+		PromptCache: client.Provider() == string(llm.ProviderAnthropic),
+		ContextWin:  ctxWin,
+		Provider:    client.Provider(),
+	}
+}
+
+// buildContextMode derives the mode string for tool.Context from app state.
+// Returns "plan", "bypass", or the raw permission mode string.
+func buildContextMode(appState *state.AppState) string {
+	if appState == nil {
+		return "normal"
+	}
+	if appState.InPlanMode() {
+		return "plan"
+	}
+	if appState.InYoloMode() {
+		return "bypass"
+	}
+	mode := string(appState.GetPermissionMode())
+	if mode == "" {
+		return "normal"
+	}
+	return mode
+}
 
 func buildPlannedStepToolCallInput(step PlannedStep, workingDir string) (json.RawMessage, error) {
 	body := map[string]any{
@@ -48,60 +84,8 @@ func activeModelContextWindow(appState *state.AppState) int {
 	return appState.ActiveModelContext()
 }
 
-func isSimpleGreeting(text string) bool {
-	s := strings.ToLower(strings.TrimSpace(text))
-	if len(s) == 0 || len([]rune(s)) > 20 {
-		return false
-	}
-	greetings := []string{
-		"하이", "안녕", "hi", "hello", "hey", "안녕하세", "반가워",
-		"굿모닝", "굿애프터눈", "굿이브닝", "ㅎㅇ", "방가", "반갑습니",
-		"좋은 아침", "좋은 하루", "요즘 어때", "뭐해", "누구니",
-	}
-	for _, g := range greetings {
-		if strings.Contains(s, g) {
-			return true
-		}
-	}
-	return false
-}
-
-func filterToolSpecs(specs []llm.ToolSpec, appState *state.AppState) []llm.ToolSpec {
-	if len(specs) == 0 || appState == nil {
-		return specs
-	}
-	card := appState.WorkflowCard()
-	if card == nil {
-		if appState.PendingWorkflowInit() {
-			return filterToolSpecsByAllowed(specs, []string{taskplaninit.ToolName})
-		}
-		return specs
-	}
-	phase := strings.ToLower(strings.TrimSpace(card.Phase))
-	if phase == "" {
-		phase = state.WorkflowPhaseDiscover
-	}
-	allowed := taskplaninit.PhaseAllowedTools(phase)
-	if appState.InPlanMode() && strings.EqualFold(phase, state.WorkflowPhasePlan) {
-		allowed = []string{"exit_plan_mode", "TodoRead", taskplaninit.ToolName, "ask_user", "ask_user_batch", "tool_search"}
-	}
-	if allowed == nil {
-		return specs
-	}
-	return filterToolSpecsByAllowed(specs, allowed)
-}
-
-func filterToolSpecsByAllowed(specs []llm.ToolSpec, allowed []string) []llm.ToolSpec {
-	if len(allowed) == 0 {
-		return nil
-	}
-	out := make([]llm.ToolSpec, 0, len(specs))
-	for _, spec := range specs {
-		if isToolInList(spec.Name, allowed) {
-			out = append(out, spec)
-		}
-	}
-	return out
+func filterToolSpecs(specs []llm.ToolSpec, _ *state.AppState) []llm.ToolSpec {
+	return specs
 }
 
 func parsePlanExecutionReady(toolName, result string, isErr bool) []PlannedStep {
@@ -219,7 +203,7 @@ func extractOutputTaskID(output string) string {
 
 func isPlanModeWriteException(toolName string) bool {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "todowrite", "exitplanmode", "exit_plan_mode":
+	case "exitplanmode", "exit_plan_mode":
 		return true
 	default:
 		return false

@@ -20,7 +20,7 @@ func (t *ShellJobControlTool) Name() string {
 }
 
 func (t *ShellJobControlTool) Description(ctx tool.Context) string {
-	return "Control background shell jobs. Actions: stop, send_input."
+	return "백그라운드 쉘 작업을 제어합니다. 액션: stop, send_input."
 }
 
 func (t *ShellJobControlTool) IsVisible(ctx tool.Context) bool {
@@ -33,15 +33,15 @@ func (t *ShellJobControlTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"description": "One of: stop, send_input.",
+				"description": "다음 중 하나: stop, send_input.",
 			},
 			"job_id": map[string]any{
 				"type":        "string",
-				"description": "Target job id.",
+				"description": "대상 작업 ID.",
 			},
 			"input": map[string]any{
 				"type":        "string",
-				"description": "Input text for send_input action.",
+				"description": "send_input 액션을 위한 입력 텍스트.",
 			},
 		},
 		"required": []string{"action", "job_id"},
@@ -59,7 +59,7 @@ func (t *ShellJobControlTool) MaxResultSizeChars() int {
 func (t *ShellJobControlTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
 	out := make(chan tool.ToolEvent, 2)
 	if ctx.ShellJobs == nil {
-		return nil, fmt.Errorf("shell job manager is unavailable")
+		return nil, fmt.Errorf("쉘 작업 관리자를 사용할 수 없습니다")
 	}
 
 	var req struct {
@@ -76,7 +76,7 @@ func (t *ShellJobControlTool) Call(ctx tool.Context, input json.RawMessage) (<-c
 		action := strings.ToLower(strings.TrimSpace(req.Action))
 		jobID := strings.TrimSpace(req.JobID)
 		if jobID == "" {
-			out <- tool.NewErrorEvent(fmt.Errorf("job_id is required"))
+			out <- tool.NewErrorEvent(fmt.Errorf("job_id가 필요합니다"))
 			return
 		}
 
@@ -86,7 +86,7 @@ func (t *ShellJobControlTool) Call(ctx tool.Context, input json.RawMessage) (<-c
 				out <- tool.NewErrorEvent(err)
 				return
 			}
-			out <- tool.NewOutputEvent(fmt.Sprintf("stop requested for %s", jobID))
+			out <- tool.NewOutputEvent(fmt.Sprintf("%s에 대해 중지가 요청되었습니다", jobID))
 			out <- tool.NewDoneEvent()
 			return
 		case "send_input":
@@ -94,11 +94,11 @@ func (t *ShellJobControlTool) Call(ctx tool.Context, input json.RawMessage) (<-c
 				out <- tool.NewErrorEvent(err)
 				return
 			}
-			out <- tool.NewOutputEvent(fmt.Sprintf("input sent to %s", jobID))
+			out <- tool.NewOutputEvent(fmt.Sprintf("%s에 입력이 전송되었습니다", jobID))
 			out <- tool.NewDoneEvent()
 			return
 		default:
-			out <- tool.NewErrorEvent(fmt.Errorf("unknown action: %s", action))
+			out <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 액션: %s", action))
 			return
 		}
 	}()
@@ -109,6 +109,6 @@ func (t *ShellJobControlTool) Call(ctx tool.Context, input json.RawMessage) (<-c
 func (t *ShellJobControlTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
 	return tool.PermissionResult{
 		Behavior: types.BehaviorAsk,
-		Message:  "shell_job_control requires confirmation",
+		Message:  "shell_job_control은 확인이 필요합니다",
 	}, nil
 }

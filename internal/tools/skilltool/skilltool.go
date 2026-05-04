@@ -18,14 +18,14 @@ func NewSkillTool(r *skills.Registry) *SkillTool {
 
 func (t *SkillTool) Name() string { return "skill" }
 
-func (t *SkillTool) Description(ctx tool.Context) string { return "Run a registered skill" }
+func (t *SkillTool) Description(ctx tool.Context) string { return "등록된 스킬을 실행합니다." }
 
 func (t *SkillTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"name": map[string]any{"type": "string", "description": "The name of the skill to run"},
-			"args": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Arguments to pass to the skill"},
+			"name": map[string]any{"type": "string", "description": "실행할 스킬 이름"},
+			"args": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "스킬에 전달할 인자"},
 		},
 		"required": []string{"name"},
 	}
@@ -54,7 +54,7 @@ func (t *SkillTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.T
 		defer close(ch)
 
 		if t.registry == nil {
-			ch <- tool.NewErrorEvent(fmt.Errorf("skill registry is unavailable"))
+			ch <- tool.NewErrorEvent(fmt.Errorf("스킬 레지스트리를 사용할 수 없습니다"))
 			return
 		}
 

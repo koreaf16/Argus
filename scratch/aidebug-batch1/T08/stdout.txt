@@ -1,0 +1,7 @@
+  The user said "sandbox-server에서" which translates to "on sandbox-server". This is an incomplete sentence. It seems the user is about to give a command or ask a question related to the `sandbox-server`.
+  First, I should check what `sandbox-server` is using `server_inspect`.
+  Wait, the user didn't provide a full request. I should acknowledge and wait for the command, or ask what they want to do on `sandbox-server`.
+  Wait, looking at the available tools, I have `server_inspect`.
+  I'll ask the user what they want to do on `sandbox-server`.
+  sandbox-server에서 어떤 작업을 수행하시겠습니까? 명령어나 요청 사항을 말씀해 주세요.                             
+

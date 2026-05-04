@@ -4,6 +4,7 @@ import "github.com/koreaf16/argus/internal/types"
 
 const (
 	metaPrePlanMode            = "pre_plan_mode"
+	metaPreYoroMode            = "pre_yoro_mode"
 	metaExtraDirs              = "additional_working_directories"
 	metaSessionPermissionRules = "session_permission_rules"
 )
@@ -37,6 +38,39 @@ func (s *AppState) ClearPrePlanMode() {
 		return
 	}
 	delete(s.Metadata, metaPrePlanMode)
+}
+
+// SetPreYoroMode 는 Ctrl+Y 로 YORO 진입 시 직전 모드를 저장한다.
+// Ctrl+Y 토글 해제 시 PreYoroMode() 로 복원한다.
+func (s *AppState) SetPreYoroMode(mode types.PermissionMode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]interface{})
+	}
+	s.Metadata[metaPreYoroMode] = string(mode)
+}
+
+func (s *AppState) PreYoroMode() types.PermissionMode {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.Metadata == nil {
+		return types.PermissionModeDefault
+	}
+	v, _ := s.Metadata[metaPreYoroMode].(string)
+	if v == "" {
+		return types.PermissionModeDefault
+	}
+	return types.PermissionMode(v)
+}
+
+func (s *AppState) ClearPreYoroMode() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Metadata == nil {
+		return
+	}
+	delete(s.Metadata, metaPreYoroMode)
 }
 
 func (s *AppState) SetAdditionalWorkingDirectories(dirs []string) {

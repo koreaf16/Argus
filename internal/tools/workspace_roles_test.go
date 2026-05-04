@@ -47,27 +47,29 @@ func testRoleContext(t *testing.T) Context {
 	}
 }
 
-func TestResolveExecutionRoleUsesProfileServer(t *testing.T) {
+func TestResolveExecutionRoleDynamicFallback(t *testing.T) {
 	ctx := testRoleContext(t)
-	alias, role, err := ResolveExecutionRoleServer(ctx, "", "source_mysql", "", "bash")
+	// unregistered role + explicit server → dynamic AsUser fallback
+	alias, role, err := ResolveExecutionRoleServer(ctx, "oracle-server", "ora19c", "", "bash")
 	if err != nil {
 		t.Fatalf("resolve role: %v", err)
 	}
 	if alias != "oracle-server" {
 		t.Fatalf("alias = %q, want oracle-server", alias)
 	}
-	if role.Channel != "source" || role.AsUser != "oracle" || role.MutationPolicy != "read_only" {
-		t.Fatalf("unexpected role profile: %+v", role)
+	if role.AsUser != "ora19c" {
+		t.Fatalf("AsUser = %q, want ora19c", role.AsUser)
 	}
 }
 
-func TestResolveExecutionRoleRejectsMismatchedServer(t *testing.T) {
+func TestResolveExecutionRoleRequiresServerForDynamicRole(t *testing.T) {
 	ctx := testRoleContext(t)
-	_, _, err := ResolveExecutionRoleServer(ctx, "sandbox-server", "source_mysql", "", "bash")
+	// unregistered role without explicit server → "explicit server required"
+	_, _, err := ResolveExecutionRoleServer(ctx, "", "ora19c", "", "bash")
 	if err == nil {
-		t.Fatal("expected role/server mismatch")
+		t.Fatal("expected explicit server required error")
 	}
-	if !strings.Contains(err.Error(), "bound to server oracle-server") {
+	if !strings.Contains(err.Error(), "explicit") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

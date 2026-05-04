@@ -21,14 +21,14 @@ func workspaceSystemBlocks(manager *workspace.Manager) []llm.SystemBlock {
 	}
 
 	active := manager.ActiveAlias()
-	lines := []string{"Available workspaces (registered aliases):"}
+	lines := []string{"사용 가능한 워크스페이스 (등록된 별칭):"}
 	remoteCount := 0
 	hasDisabledElevation := false
 	for _, entry := range entries {
 		if entry.Kind == workspace.ServerKindLocal {
-			label := "local (kind=local)"
+			label := "로컬 (kind=local)"
 			if entry.Alias == active {
-				label += " [active]"
+				label += " [활성]"
 			}
 			lines = append(lines, "- "+label)
 			continue
@@ -43,7 +43,7 @@ func workspaceSystemBlocks(manager *workspace.Manager) []llm.SystemBlock {
 			entry.Port,
 		)
 		if entry.Alias == active {
-			desc += " [active]"
+			desc += " [활성]"
 		}
 		lines = append(lines, "- "+desc)
 		// Elevation status line
@@ -51,26 +51,21 @@ func workspaceSystemBlocks(manager *workspace.Manager) []llm.SystemBlock {
 		if e.Allowed && e.Mode != "none" {
 			targets := strings.Join(e.TargetUsers, ", ")
 			if targets == "" {
-				targets = "any"
+				targets = "모두"
 			}
-			lines = append(lines, fmt.Sprintf("               elevation: ENABLED   mode=%s   targets=%s", e.Mode, targets))
+			lines = append(lines, fmt.Sprintf("               권한 상승(elevation): 활성화됨(ENABLED)   mode=%s   targets=%s", e.Mode, targets))
 		} else {
-			lines = append(lines, fmt.Sprintf("               elevation: DISABLED  (sudo/su will be refused)"))
+			lines = append(lines, fmt.Sprintf("               권한 상승(elevation): 비활성화됨(DISABLED)  (sudo/su가 거부됩니다)"))
 			hasDisabledElevation = true
 		}
 	}
-	lines = append(lines, "CONNECTION INTENT: When the user asks to connect to, switch to, or access a server (e.g. '접속해', '접속', 'connect to X', 'switch to X', 'X로 바꿔', 'X 워크스페이스로'), you MUST call the `server_connect` tool with `server`=alias. NEVER use bash/powershell with an ssh command for this purpose.")
-	lines = append(lines, "If the alias is registered (listed above) but not yet connected, call `server_connect` with just the `server` field.")
-	lines = append(lines, "If the alias is NOT registered but the user provides host/user info, call `server_connect` with `server`, `host`, and `user` fields to auto-register and connect.")
-	lines = append(lines, "When the user mentions one of these aliases (for example `oracle-server`), call the tool with that `server` alias directly instead of asking the user again.")
-	lines = append(lines, "If the user mentions a server alias that does NOT appear in the list above, do NOT call server_connect or any other tool. Instead, immediately tell the user (in Korean) that the server is not registered and list the available server aliases.")
-	lines = append(lines, "If the user explicitly says local machine / my PC / local workspace, set `server` to `local` on shell and file tools.")
 	if remoteCount >= 2 {
-		lines = append(lines, "MULTI-WORKSPACE SAFETY: two or more remote workspaces are registered. You MUST explicitly set `server` on shell/file/search/inspect/metrics/account-shell tools; calls without `server` will be rejected.")
-		lines = append(lines, "If an active workflow defines a role profile, you may set `role`/`channel` instead; the role must resolve to exactly one server and mismatched server+role calls will be rejected.")
-		lines = append(lines, "For `server_copy`, you MUST explicitly provide both source and destination aliases (either alias:path on both sides or both `src_server` and `dst_server`).")
+		lines = append(lines, "For server_copy, provide explicit source and destination aliases. Prefer alias:path for both endpoints, for example local:docs/README.md -> sandbox-server:/tmp/README.md; alternatively set both src_server and dst_server.")
+		lines = append(lines, "다중 워크스페이스 안전 규칙: 두 개 이상의 원격 워크스페이스가 등록되어 있습니다. 쉘/파일/검색/검사/메트릭/계정-쉘 도구에서 반드시 `server`를 명시적으로 설정해야 합니다. `server` 없이 호출하면 거부됩니다.")
+		lines = append(lines, "활성 워크플로우가 역할 프로필을 정의하는 경우, 대신 `role`/`channel`을 설정할 수 있습니다. 역할은 정확히 하나의 서버로 해석되어야 하며 일치하지 않는 서버+역할 호출은 거부됩니다.")
+		lines = append(lines, "‘server_copy’의 경우, 반드시 소스 및 대상 별칭을 모두 명시적으로 제공해야 합니다 (양쪽에 alias:path를 사용하거나 `src_server` 및 `dst_server`를 모두 사용).")
 	}
-	lines = append(lines, "Never include or request stored password values in your response.")
+	lines = append(lines, "응답에 저장된 비밀번호 값을 포함하거나 요청하지 마십시오.")
 
 	// Elevation policy section (only added when there are remote servers)
 	if remoteCount > 0 {
@@ -95,45 +90,45 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string, strictMultiW
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Active environment:\n")
-	fmt.Fprintf(&sb, "  workspace: %s\n", active)
+	fmt.Fprintf(&sb, "활성 환경(Active environment):\n")
+	fmt.Fprintf(&sb, "  워크스페이스: %s\n", active)
 
 	if entry.Kind == workspace.ServerKindLocal {
-		fmt.Fprintf(&sb, "  kind: local\n")
+		fmt.Fprintf(&sb, "  유형(kind): 로컬(local)\n")
 		fmt.Fprintf(&sb, "  os: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 
 		if runtime.GOOS == "windows" {
-			fmt.Fprintf(&sb, "  preferred shell tool: powershell\n")
+			fmt.Fprintf(&sb, "  선호하는 쉘 도구: powershell\n")
 			if sh, err := utils.FindSuitableShell(); err == nil && sh != "" {
-				fmt.Fprintf(&sb, "  bash compatibility shell: %s\n", sh)
+				fmt.Fprintf(&sb, "  bash 호환 쉘: %s\n", sh)
 			}
 		} else if sh, err := utils.FindSuitableShell(); err == nil && sh != "" {
-			fmt.Fprintf(&sb, "  preferred shell tool: bash\n")
-			fmt.Fprintf(&sb, "  shell: %s\n", sh)
+			fmt.Fprintf(&sb, "  선호하는 쉘 도구: bash\n")
+			fmt.Fprintf(&sb, "  쉘: %s\n", sh)
 		}
 
 		if user := os.Getenv("USERNAME"); user != "" {
-			fmt.Fprintf(&sb, "  user: %s\n", user)
+			fmt.Fprintf(&sb, "  사용자: %s\n", user)
 		} else if user := os.Getenv("USER"); user != "" {
-			fmt.Fprintf(&sb, "  user: %s\n", user)
+			fmt.Fprintf(&sb, "  사용자: %s\n", user)
 		}
 
-		sb.WriteString("\nBehavior rules:\n")
+		sb.WriteString("\n동작 규칙:\n")
 		if runtime.GOOS == "windows" {
-			sb.WriteString("  - Active OS is Windows. Use the 'powershell' tool for LOCAL system operations.\n")
-			sb.WriteString("  - Do NOT use 'bash' for local Windows commands. Use 'bash' only when the tool call explicitly targets a Unix-like remote workspace via `server` or `role`.\n")
-			sb.WriteString("  - Do NOT issue Linux-only commands (e.g. apt, yum, systemctl).\n")
+			sb.WriteString("  - 활성 OS는 Windows입니다. 로컬 시스템 작업에는 'powershell' 도구를 사용하십시오.\n")
+			sb.WriteString("  - 로컬 Windows 명령에 'bash'를 사용하지 마십시오. 'bash'는 도구 호출이 `server` 또는 `role`을 통해 유닉스 계열 원격 워크스페이스를 명시적으로 대상으로 하는 경우에만 사용하십시오.\n")
+			sb.WriteString("  - 리눅스 전용 명령(예: apt, yum, systemctl)을 내리지 마십시오.\n")
 		} else {
-			sb.WriteString("  - Active OS is Unix-like. Use the 'bash' tool for LOCAL system operations.\n")
-			sb.WriteString("  - Do NOT use 'powershell' for local Unix-like commands. Use 'powershell' only when the tool call explicitly targets a Windows workspace via `server` or `role`.\n")
+			sb.WriteString("  - 활성 OS는 유닉스 계열입니다. 로컬 시스템 작업에는 'bash' 도구를 사용하십시오.\n")
+			sb.WriteString("  - 로컬 유닉스 계열 명령에 'powershell'을 사용하지 마십시오. 'powershell'은 도구 호출이 `server` 또는 `role`을 통해 Windows 워크스페이스를 명시적으로 대상으로 하는 경우에만 사용하십시오.\n")
 		}
-		sb.WriteString("  - Shell tools execute on the LOCAL machine unless you specify a `server` parameter.\n")
+		sb.WriteString("  - `server` 매개변수를 지정하지 않는 한 쉘 도구는 로컬 머신에서 실행됩니다.\n")
 		return sb.String()
 	}
 
 	// Remote (SSH)
-	fmt.Fprintf(&sb, "  kind: ssh\n")
-	fmt.Fprintf(&sb, "  host: %s@%s:%d\n",
+	fmt.Fprintf(&sb, "  유형(kind): ssh\n")
+	fmt.Fprintf(&sb, "  호스트: %s@%s:%d\n",
 		strings.TrimSpace(entry.User),
 		strings.TrimSpace(entry.Host),
 		entry.Port,
@@ -141,14 +136,14 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string, strictMultiW
 
 	snap, hasSnap := manager.GetInspectSnapshot(active)
 	if !hasSnap {
-		sb.WriteString("  environment: not yet inspected — run server_inspect to gather OS/service/port info\n")
-		sb.WriteString("\nBehavior rules:\n")
+		sb.WriteString("  환경: 아직 검사되지 않음 — server_inspect를 실행하여 OS/서비스/포트 정보를 수집하십시오\n")
+		sb.WriteString("\n동작 규칙:\n")
 		if strictMultiWorkspace {
-			sb.WriteString("  - Multiple remote workspaces are registered. You MUST set `server` explicitly on each shell/file/search/inspect/metrics call.\n")
+			sb.WriteString("  - 여러 원격 워크스페이스가 등록되어 있습니다. 각 쉘/파일/검색/검사/메트릭 호출 시 반드시 `server`를 명시적으로 설정해야 합니다.\n")
 		} else {
-			sb.WriteString("  - Shell tools execute on the REMOTE server by default (no `server` param needed).\n")
+			sb.WriteString("  - 쉘 도구는 기본적으로 원격 서버에서 실행됩니다 (`server` 매개변수 불필요).\n")
 		}
-		sb.WriteString("  - To run commands on the LOCAL machine, specify server=\"local\" in the tool call.\n")
+		sb.WriteString("  - 로컬 머신에서 명령을 실행하려면 도구 호출 시 server=\"local\"을 지정하십시오.\n")
 		return sb.String()
 	}
 
@@ -156,46 +151,46 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string, strictMultiW
 		fmt.Fprintf(&sb, "  os: %s\n", firstLine(snap.OS))
 	}
 	if snap.Shell != "" {
-		fmt.Fprintf(&sb, "  shell: %s\n", firstLine(snap.Shell))
+		fmt.Fprintf(&sb, "  쉘: %s\n", firstLine(snap.Shell))
 	}
 	if snap.User != "" {
-		fmt.Fprintf(&sb, "  user: %s\n", snap.User)
+		fmt.Fprintf(&sb, "  사용자: %s\n", snap.User)
 	}
 	if snap.CWD != "" {
-		fmt.Fprintf(&sb, "  cwd: %s\n", snap.CWD)
+		fmt.Fprintf(&sb, "  현재 디렉토리(cwd): %s\n", snap.CWD)
 	}
 	if snap.Uptime != "" {
-		fmt.Fprintf(&sb, "  uptime: %s\n", snap.Uptime)
+		fmt.Fprintf(&sb, "  업타임: %s\n", snap.Uptime)
 	}
 	if snap.Memory != "" {
-		fmt.Fprintf(&sb, "  memory:\n%s\n", indent(snap.Memory, "    "))
+		fmt.Fprintf(&sb, "  메모리:\n%s\n", indent(snap.Memory, "    "))
 	}
 	if snap.Listeners != "" {
-		fmt.Fprintf(&sb, "  listening ports:\n%s\n", indent(truncateLines(snap.Listeners, 15), "    "))
+		fmt.Fprintf(&sb, "  리스닝 포트:\n%s\n", indent(truncateLines(snap.Listeners, 15), "    "))
 	}
 	if snap.Services != "" {
-		fmt.Fprintf(&sb, "  running services:\n%s\n", indent(truncateLines(snap.Services, 20), "    "))
+		fmt.Fprintf(&sb, "  실행 중인 서비스:\n%s\n", indent(truncateLines(snap.Services, 20), "    "))
 	}
 	if snap.Docker != "" {
-		fmt.Fprintf(&sb, "  docker containers:\n%s\n", indent(snap.Docker, "    "))
+		fmt.Fprintf(&sb, "  도커 컨테이너:\n%s\n", indent(snap.Docker, "    "))
 	}
 
-	sb.WriteString("\nBehavior rules:\n")
+	sb.WriteString("\n동작 규칙:\n")
 	if strings.Contains(strings.ToLower(snap.OS), "windows") {
-		sb.WriteString("  - Active OS is Windows. Use the 'powershell' tool for this workspace.\n")
-		sb.WriteString("  - Do NOT use 'bash' for this Windows workspace. Use 'bash' only when explicitly targeting a different Unix-like workspace.\n")
+		sb.WriteString("  - 활성 OS는 Windows입니다. 이 워크스페이스에는 'powershell' 도구를 사용하십시오.\n")
+		sb.WriteString("  - 이 Windows 워크스페이스에 'bash'를 사용하지 마십시오. 'bash'는 다른 유닉스 계열 워크스페이스를 명시적으로 대상으로 하는 경우에만 사용하십시오.\n")
 	} else {
-		sb.WriteString("  - Active OS is Unix-like. Use the 'bash' tool for this workspace.\n")
-		sb.WriteString("  - Do NOT use 'powershell' for this Unix-like workspace. Use 'powershell' only when explicitly targeting a different Windows workspace.\n")
+		sb.WriteString("  - 활성 OS는 유닉스 계열입니다. 이 워크스페이스에는 'bash' 도구를 사용하십시오.\n")
+		sb.WriteString("  - 이 유닉스 계열 워크스페이스에 'powershell'을 사용하지 마십시오. 'powershell'은 다른 Windows 워크스페이스를 명시적으로 대상으로 하는 경우에만 사용하십시오.\n")
 	}
 	if strictMultiWorkspace {
-		sb.WriteString("  - Multiple remote workspaces are registered. You MUST set `server` explicitly on each shell/file/search/inspect/metrics call.\n")
+		sb.WriteString("  - 여러 원격 워크스페이스가 등록되어 있습니다. 각 쉘/파일/검색/검사/메트릭 호출 시 반드시 `server`를 명시적으로 설정해야 합니다.\n")
 	} else {
-		sb.WriteString("  - Shell tools execute on the REMOTE server by default (no `server` param needed).\n")
+		sb.WriteString("  - 쉘 도구는 기본적으로 원격 서버에서 실행됩니다 (`server` 매개변수 불필요).\n")
 	}
-	sb.WriteString("  - To run commands on the LOCAL machine, specify server=\"local\" in the tool call.\n")
-	sb.WriteString("  - Check the 'elevation' line in the workspace list before ANY sudo/su command.\n")
-	sb.WriteString("    If elevation is DISABLED for this server, STOP and guide the user to /server edit <alias>.\n")
+	sb.WriteString("  - 로컬 머신에서 명령을 실행하려면 도구 호출 시 server=\"local\"을 지정하십시오.\n")
+	sb.WriteString("  - sudo/su 명령을 내리기 전에 워크스페이스 목록에서 '권한 상승(elevation)' 라인을 확인하십시오.\n")
+	sb.WriteString("    이 서버에 대해 권한 상승이 DISABLED인 경우, 중지하고 사용자를 /server edit <alias>로 안내하십시오.\n")
 
 	return sb.String()
 }
@@ -205,44 +200,42 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string, strictMultiW
 // bash with a sudo/su command.
 func elevationPolicyPrompt(anyDisabled bool) string {
 	sb := &strings.Builder{}
-	sb.WriteString("\nELEVATION POLICY (per-server, enforced — STOP AND ASK BEFORE TRYING):\n")
-	sb.WriteString("Each server has its own elevation policy. Before running ANY sudo/su\n")
-	sb.WriteString("command, look at the alias's elevation line above and decide:\n\n")
+	sb.WriteString("\n권한 상승 정책 (ELEVATION POLICY - 서버별 강제 적용 — 시도 전 중단 및 확인):\n")
+	sb.WriteString("각 서버에는 고유한 권한 상승 정책이 있습니다. sudo/su 명령을 실행하기 전에\n")
+	sb.WriteString("위의 별칭별 권한 상승 라인을 확인하고 결정하십시오:\n\n")
 
-	sb.WriteString("  Case 1) elevation: DISABLED\n")
-	sb.WriteString("    ► STOP. Do NOT call any tool. Do NOT attempt the sudo command even\n")
-	sb.WriteString("      \"to see what happens\". Respond to the user in Korean with:\n")
-	sb.WriteString("        - which command needed root (quote the command)\n")
-	sb.WriteString("        - why you stopped (the server's elevation policy is OFF)\n")
-	sb.WriteString("        - how to enable it: \"`/server edit <alias>` 명령으로 elevation을\n")
+	sb.WriteString("  Case 1) 권한 상승(elevation): 비활성화됨(DISABLED)\n")
+	sb.WriteString("    ► 중단하십시오. 어떤 도구도 호출하지 마십시오. \"어떻게 되는지 보기 위해\"\n")
+	sb.WriteString("      sudo 명령을 시도하지 마십시오. 사용자에게 한국어로 다음과 같이 응답하십시오:\n")
+	sb.WriteString("        - 어떤 명령에 루트 권한이 필요했는지 (명령 인용)\n")
+	sb.WriteString("        - 왜 중단했는지 (서버의 권한 상승 정책이 OFF임)\n")
+	sb.WriteString("        - 활성화 방법: \"`/server edit <alias>` 명령으로 elevation을\n")
 	sb.WriteString("          켜고 sudo 비밀번호를 등록하신 뒤 다시 요청해 주세요\"\n")
-	sb.WriteString("      End the turn. Do not retry until the user re-requests after\n")
-	sb.WriteString("      registering the policy.\n\n")
+	sb.WriteString("      턴을 종료하십시오. 사용자가 정책을 등록한 후 다시 요청할 때까지 재시도하지 마십시오.\n\n")
 
-	sb.WriteString("  Case 2) elevation: ENABLED, target user is in targets (or targets=any)\n")
-	sb.WriteString("    ► Proceed normally. The channel injects the sudo password from the\n")
-	sb.WriteString("      credential store (mode=password) or SSH login password\n")
-	sb.WriteString("      (mode=reuse_login). Do not ask the user for the password.\n\n")
+	sb.WriteString("  Case 2) 권한 상승(elevation): 활성화됨(ENABLED), 대상 사용자가 targets에 있음 (또는 targets=모두)\n")
+	sb.WriteString("    ► 정상적으로 진행하십시오. 채널이 자격 증명 저장소(mode=password)의 sudo 비밀번호 또는\n")
+	sb.WriteString("      SSH 로그인 비밀번호(mode=reuse_login)를 자동으로 주입합니다.\n")
+	sb.WriteString("      사용자에게 비밀번호를 묻지 마십시오.\n\n")
 
-	sb.WriteString("  Case 3) elevation: ENABLED but the requested target user is NOT in targets\n")
-	sb.WriteString("    ► STOP. Tell the user (in Korean) which target user was requested\n")
-	sb.WriteString("      and that it is outside the allow-list. Suggest /server edit <alias>.\n")
-	sb.WriteString("      Do not call the tool.\n\n")
+	sb.WriteString("  Case 3) 권한 상승(elevation): 활성화됨(ENABLED)이지만 요청된 대상 사용자가 targets에 없음\n")
+	sb.WriteString("    ► 중단하십시오. 사용자에게 한국어로 어떤 대상 사용자가 요청되었으며\n")
+	sb.WriteString("      허용 목록을 벗어났음을 알리십시오. /server edit <alias>를 제안하십시오.\n")
+	sb.WriteString("      도구를 호출하지 마십시오.\n\n")
 
-	sb.WriteString("- NEVER ask the user for a sudo/su password directly. Passwords are\n")
-	sb.WriteString("  registered through `/server edit <alias>`.\n")
-	sb.WriteString("- The channel router has its own reject layer as a safety net. If you\n")
-	sb.WriteString("  hit it, treat it as a bug in your reasoning — you should have stopped\n")
-	sb.WriteString("  earlier based on the policy above.")
+	sb.WriteString("- 사용자에게 sudo/su 비밀번호를 직접 묻지 마십시오. 비밀번호는\n")
+	sb.WriteString("  `/server edit <alias>`를 통해 등록됩니다.\n")
+	sb.WriteString("- 채널 라우터에는 안전망으로서 자체 거부 계층이 있습니다. 만약 여기에\n")
+	sb.WriteString("  걸린다면, 당신의 추론에 오류가 있는 것으로 간주하십시오. 위의 정책에 따라\n")
+	sb.WriteString("  더 일찍 중단했어야 합니다.")
 
 	if anyDisabled {
-		sb.WriteString("\n\nIMPORTANT: One or more servers have elevation DISABLED. For those\n")
-		sb.WriteString("servers you MUST stop and guide the user to /server edit <alias> before any\n")
-		sb.WriteString("sudo/su attempt. This is a hard stop, not a suggestion.\n")
-		sb.WriteString("MIGRATION NOTE: If this is an existing setup that used sudo without\n")
-		sb.WriteString("an explicit policy, the user can set ARGUS_ELEVATION_LEGACY=1 in their\n")
-		sb.WriteString("environment as a temporary fallback (reuse_login for all servers) while\n")
-		sb.WriteString("they register explicit policies via /server edit <alias>.")
+		sb.WriteString("\n\n중요: 하나 이상의 서버에서 권한 상승이 비활성화됨(DISABLED)으로 설정되어 있습니다.\n")
+		sb.WriteString("해당 서버의 경우 sudo/su 시도 전에 반드시 중단하고 사용자를 /server edit <alias>로\n")
+		sb.WriteString("안내해야 합니다. 이는 제안이 아닌 강제 사항입니다.\n")
+		sb.WriteString("마이그레이션 참고: 명시적 정책 없이 sudo를 사용하던 기존 설정인 경우, 사용자는\n")
+		sb.WriteString("환경 변수에 ARGUS_ELEVATION_LEGACY=1을 설정하여 임시로 (/server edit <alias>를 통해\n")
+		sb.WriteString("명시적 정책을 등록하는 동안 모든 서버에 대해 reuse_login 적용) 폴백으로 사용할 수 있습니다.")
 	}
 
 	return sb.String()

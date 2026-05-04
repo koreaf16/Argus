@@ -1,0 +1,17 @@
+  The user's input is "sandbox-server에서" (In/From sandbox-server). This is an incomplete sentence. It seems the user is setting the context or preparing to give a command related to the `sandbox-server`.
+  Looking at the available tools and instructions:
+  1.  The user mentioned a specific server alias: `sandbox-server`.
+  2.  The input is a fragment in Korean.
+  3.  I need to wait for the actual request or ask for clarification if it's just a prefix.
+  However, as an AI assistant, if the user just says "In sandbox-server", I should acknowledge and ask what they want me to do there. But looking at the "Output Efficiency" rule, I should be concise.
+  Wait, the user might be about to type something or might have hit enter too early. Or they want me to check something on `sandbox-server`.
+  Let's check what `sandbox-server` is.
+  `sandbox-server (kind=ssh, user=sandbox, host=192.168.0.130, port=22, elevation: ENABLED mode=reuse_login targets=root)`
+  Since the input is just "sandbox-server에서" (In sandbox-server), I will respond by asking what they want to do on that server.
+  Wait, if I just say "What do you want to do?", it's a bit too brief. I'll acknowledge the context.
+  "sandbox-server에서 어떤 작업을 도와드릴까요?" (What task can I help you with on sandbox-server?)
+  Actually, I can't do anything until a command is given. I'll simply ask for the command or the task.
+  Wait, I should also consider if they want me to *connect* or *inspect* it. But they haven't asked.
+  I'll respond: "sandbox-server에서 무엇을 도와드릴까요? 명령이나 요청 사항을 말씀해 주세요." (How can I help you on sandbox-server? Please tell me the command or request.)
+  sandbox-server에서 어떤 작업을 도와드릴까요? 수행할 명령이나 요청 사항을 말씀해 주세요.                          
+

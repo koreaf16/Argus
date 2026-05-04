@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/koreaf16/argus/internal/presentation"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/types"
@@ -203,6 +205,31 @@ func TestViewRendersTaskListAboveThinking(t *testing.T) {
 	}
 }
 
+func TestViewKeepsThinkingRowWhileViewThinkingStreams(t *testing.T) {
+	m := newOverlayLayoutModelForTest()
+	m.ui.ViewThinking = true
+	m.ui.Motion.Enabled = false
+	m.busyStartedAt = time.Now().Add(-1 * time.Second)
+	m.activeTokenKind = "thinking"
+	m.entries = []transcriptEntry{
+		{Kind: "thinking", Body: "reasoning body\npartial"},
+	}
+	m.thinkingOpen = true
+	m.thinkingStreamIdx = 0
+	m.lastPrintedIdx = 0
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "reasoning body") {
+		t.Fatalf("expected live thinking body in output:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "partial") {
+		t.Fatalf("expected incomplete thinking line to stay hidden:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Thinking...") {
+		t.Fatalf("expected bottom Thinking row to remain visible:\n%s", rendered)
+	}
+}
+
 func newOverlayLayoutModelForTest() uiModel {
 	in := textarea.New()
 	in.Placeholder = "Type your message or @path/to/file"
@@ -227,6 +254,48 @@ func findLineContaining(lines []string, needle string) int {
 		}
 	}
 	return -1
+}
+
+func TestExtractHintTruncatesLongQuery(t *testing.T) {
+	longQuery := "huggingface gemma 4 uncensored unfiltered abliterated"
+	input := fmt.Sprintf(`{"query":%q}`, longQuery)
+	hint := extractHint("websearch", input)
+	if len([]rune(hint)) > 43 {
+		t.Fatalf("hint too long: %d runes: %s", len([]rune(hint)), hint)
+	}
+	if !strings.Contains(hint, "…") {
+		t.Fatalf("expected ellipsis in truncated hint: %s", hint)
+	}
+}
+
+func TestExtractHintTruncatesLongPattern(t *testing.T) {
+	longPattern := "very_long_function_name_that_exceeds_thirty_characters_pattern"
+	input := fmt.Sprintf(`{"pattern":%q,"path":"/some/deep/directory/path/file.go"}`, longPattern)
+	hint := extractHint("grep", input)
+	if len(hint) > 55 {
+		t.Fatalf("hint too long: %d chars: %s", len(hint), hint)
+	}
+	if !strings.Contains(hint, "…") {
+		t.Fatalf("expected ellipsis in truncated pattern hint: %s", hint)
+	}
+}
+
+func TestRenderToolGroupHeaderFitsTerminalWidth(t *testing.T) {
+	m := newOverlayLayoutModelForTest()
+	m.width = 80
+	e := transcriptEntry{
+		Kind:        "tool_group",
+		Collapsed:   true,
+		IsActive:    false,
+		SearchCount: 1,
+		LastHint:    `"huggingface gemma 4 uncensored unfiltered abliterated"`,
+	}
+	rendered := m.renderToolGroup(e, m.width-5)
+	firstLine := strings.Split(rendered, "\n")[0]
+	plainWidth := lipgloss.Width(firstLine)
+	if plainWidth > m.width {
+		t.Fatalf("tool_group header wider than terminal: %d > %d: %q", plainWidth, m.width, stripANSI(firstLine))
+	}
 }
 
 func assertModalRendersBelowDivider(t *testing.T, rendered, modalNeedle string) {

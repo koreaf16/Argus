@@ -146,6 +146,8 @@ func TestClassifyBashCommandWithMockLLM(t *testing.T) {
 				context.Background(), "some-unique-command-"+tc.name,
 				permissions.NewDenialTrackingState(),
 				permissions.SubQueryFunc(mockSubQuery),
+				nil,
+				nil,
 			)
 			if tc.wantUnavail && !result.Unavailable {
 				t.Errorf("expected Unavailable=true, got false (behavior=%s)", result.Behavior)
@@ -171,6 +173,8 @@ func TestClassifyBashCommandCache(t *testing.T) {
 			context.Background(), cmd,
 			permissions.NewDenialTrackingState(),
 			permissions.SubQueryFunc(mockSubQuery),
+			nil,
+			nil,
 		)
 	}
 	if callCount.Load() != 1 {
@@ -182,6 +186,8 @@ func TestClassifyBashCommandNilSubQuery(t *testing.T) {
 	result := permissions.ClassifyBashCommand(
 		context.Background(), "ps aux",
 		permissions.NewDenialTrackingState(),
+		nil,
+		nil,
 		nil,
 	)
 	if !result.Unavailable {

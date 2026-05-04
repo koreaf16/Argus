@@ -14,13 +14,13 @@ func NewMcpAuthTool() *McpAuthTool { return &McpAuthTool{} }
 func (t *McpAuthTool) Name() string { return "mcp_auth" }
 
 func (t *McpAuthTool) Description(ctx tool.Context) string {
-	return "Start MCP auth flow (placeholder)"
+	return "MCP 서버 인증 흐름을 시작합니다."
 }
 
 func (t *McpAuthTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type":       "object",
-		"properties": map[string]any{"server": map[string]any{"type": "string"}},
+		"properties": map[string]any{"server": map[string]any{"type": "string", "description": "인증할 서버 이름"}},
 	}
 }
 

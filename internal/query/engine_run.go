@@ -15,6 +15,7 @@ import (
 	"github.com/koreaf16/argus/internal/state"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/types"
+	"github.com/koreaf16/argus/internal/utils/permissions"
 )
 
 const subQueryMaxTokens = 512
@@ -50,6 +51,53 @@ func (e *Engine) ExecuteSubQuery(ctx context.Context, systemPrompt string, userP
 		}
 	}
 	return sb.String(), nil
+}
+
+func (e *Engine) classificationFunctions(ctx context.Context, turnIndex int) (permissions.SubQueryFunc, permissions.SearchFunc, permissions.FetchFunc) {
+	subQuery := func(tCtx context.Context, systemPrompt, userPrompt string) (string, error) {
+		return e.ExecuteSubQuery(tCtx, systemPrompt, userPrompt)
+	}
+	search := func(tCtx context.Context, query string) (string, error) {
+		searchToolNames := []string{"google_web_search", "web_search", "mcp__google_search__search"}
+		var targetName string
+		var ok bool
+		for _, name := range searchToolNames {
+			if _, ok = e.registry.Lookup(name); ok {
+				targetName = name
+				break
+			}
+		}
+		if !ok {
+			return "", fmt.Errorf("search tool not found")
+		}
+		input, _ := json.Marshal(map[string]any{"query": query})
+		out, isErr := e.invokeTool(tCtx, nil, llm.ToolUseStart{Name: targetName, Input: input, ID: "icsa-search"}, e.registry, e.state, e.deps, true, turnIndex)
+		if isErr {
+			return "", fmt.Errorf("search failed: %s", out)
+		}
+		return out, nil
+	}
+	fetch := func(tCtx context.Context, url string) (string, error) {
+		fetchToolNames := []string{"web_fetch", "webfetch", "mcp__web_fetch__fetch"}
+		var targetName string
+		var ok bool
+		for _, name := range fetchToolNames {
+			if _, ok = e.registry.Lookup(name); ok {
+				targetName = name
+				break
+			}
+		}
+		if !ok {
+			return "", fmt.Errorf("fetch tool not found")
+		}
+		input, _ := json.Marshal(map[string]any{"url": url})
+		out, isErr := e.invokeTool(tCtx, nil, llm.ToolUseStart{Name: targetName, Input: input, ID: "icsa-fetch"}, e.registry, e.state, e.deps, true, turnIndex)
+		if isErr {
+			return "", fmt.Errorf("fetch failed: %s", out)
+		}
+		return out, nil
+	}
+	return subQuery, search, fetch
 }
 
 func (e *Engine) ExecutePlannedStep(ctx context.Context, step PlannedStep) (string, error) {
@@ -138,14 +186,10 @@ func (e *Engine) SubmitMessage(ctx context.Context, userInput string) (<-chan UI
 	appState := e.state
 	deps := e.deps
 	if appState != nil {
-		if appState.WorkflowCard() == nil && triggerWorkflowHeuristic(text) {
-			appState.SetPendingWorkflowInit(true)
-		}
 	}
 	stopHooksCopy := append([]StopHook(nil), e.stopHooks...)
 	hookDispatcher := e.hookDispatcher
 	currentUserText := text
-	recentConversation := buildRecentConversationHint(e.messages, 1200)
 	if turnIndex == 0 && deps.AIDebug.Enabled && deps.AIDebug.Emitter != nil {
 		e.debugTurn++
 		turnIndex = e.debugTurn
@@ -158,7 +202,7 @@ func (e *Engine) SubmitMessage(ctx context.Context, userInput string) (<-chan UI
 	cfg = applyPersistenceDefaults(cfg)
 
 	out := make(chan UIEvent, 64)
-	go e.run(ctx, out, client, cfg, systemFn, registry, appState, deps, stopHooksCopy, hookDispatcher, currentUserText, recentConversation, turnIndex)
+	go e.run(ctx, out, client, cfg, systemFn, registry, appState, deps, stopHooksCopy, hookDispatcher, currentUserText, turnIndex)
 	return out, nil
 }
 
@@ -174,7 +218,6 @@ func (e *Engine) run(
 	stopHooks []StopHook,
 	hookDispatcher *hooks.HookDispatcher,
 	currentUserText string,
-	recentConversation string,
 	turnIndex int,
 ) {
 	defer close(out)
@@ -210,27 +253,22 @@ func (e *Engine) run(
 
 	lastStop := llm.StopReasonUnknown
 	lastToolCalls := 0
-	e.mu.RLock()
-	recentHint := buildRecentConversationHint(e.messages, 800)
-	e.mu.RUnlock()
-	persistPolicy := classifyPersistencePolicy(ctx, e.ExecuteSubQuery, currentUserText, recentHint, cfg)
+	persistPolicy := classifyPersistencePolicy(cfg)
 	persistState := persistenceState{}
 	repeatGuard := newRepeatedToolCallGuard(repeatedToolCallLimit)
 	evidenceActive := evidenceToolExposureEnabled(cfg, registry)
 	evidenceProgress := evidenceState{}
 	evidenceSelectedTools := make(map[string]bool)
+	if evidenceActive {
+		e.mu.RLock()
+		msgs := e.messages
+		e.mu.RUnlock()
+		prefillEvidenceFromHistory(ctx, &evidenceProgress, msgs, registry)
+	}
+	contextWarnEmitted := false
 
 	for iter := 0; iter < cfg.MaxToolIterations; iter++ {
-		e.mu.RLock()
-		sysBlocks := JoinSystemBlocks(systemFn(), workspaceSystemBlocks(deps.Workspace), laneSystemBlocks(deps.Workspace), workflowSystemBlocks(appState))
-		systemTokens := estimateSystemTokens(sysBlocks)
-		contextWin := activeModelContextWindow(appState)
-		if contextWin <= 0 {
-			contextWin = cfg.ContextWindowFallback
-		}
-		messages := ctxpkg.RenderForLLM(e.graph, e.est, systemTokens, contextWin, currentUserText)
-		e.mu.RUnlock()
-
+		// toolCtx는 sysBlocks(SystemGuides) 조립에도 필요하므로 먼저 구성한다.
 		toolCtx := tool.Context{
 			Context:         ctx,
 			State:           appState,
@@ -239,12 +277,25 @@ func (e *Engine) run(
 			ShellJobs:       deps.ShellJobs,
 			Registry:        registry,
 			ExecuteSubQuery: e.ExecuteSubQuery,
+			Caps:            buildModelCaps(client, appState),
+			Mode:            buildContextMode(appState),
+			MCPEnabled:      registry.HasMCPTools(),
+			Workspaces:      tool.BuildWorkspaceSummary(deps.Workspace),
 		}
+
+		e.mu.RLock()
+		guideBlocks := registry.SystemGuides(toolCtx)
+		sysBlocks := JoinSystemBlocks(systemFn(), workspaceSystemBlocks(deps.Workspace), laneSystemBlocks(deps.Workspace))
+		sysBlocks = append(sysBlocks, guideBlocks...)
+		systemTokens := estimateSystemTokens(sysBlocks)
+		contextWin := activeModelContextWindow(appState)
+		if contextWin <= 0 {
+			contextWin = cfg.ContextWindowFallback
+		}
+		messages := ctxpkg.RenderForLLM(e.graph, e.est, systemTokens, contextWin, currentUserText)
+		e.mu.RUnlock()
 		toolSpecs := registry.ToolSpecs(toolCtx)
 
-		if isSimpleGreeting(currentUserText) {
-			toolSpecs = nil
-		}
 		toolSpecs = filterToolSpecs(toolSpecs, appState)
 		evidencePlan := evidencePlan{}
 		var exposedToolNames map[string]bool
@@ -266,7 +317,16 @@ func (e *Engine) run(
 			estimatedTokens = tokens
 			if contextWin > 0 {
 				if appState != nil {
-					appState.SetContextUsedPercent((tokens * 100) / contextWin)
+					pct := (tokens * 100) / contextWin
+					appState.SetContextUsedPercent(pct)
+					if pct >= 70 && !contextWarnEmitted {
+						contextWarnEmitted = true
+						out <- UIEvent{Kind: UIEventNotice, Notice: fmt.Sprintf("⚠ 컨텍스트 %d%% 사용 중 (%d / %d 토큰). 세션 분리를 고려하세요.", pct, tokens, contextWin)}
+						e.emitTrace(turnIndex, "notice", client.Provider(), "", "", map[string]any{
+							"category": "context_warning",
+							"message":  fmt.Sprintf("컨텍스트 %d%% 사용 중 (%d / %d 토큰)", pct, tokens, contextWin),
+						})
+					}
 				}
 				if tokens >= contextWin {
 					beforeTokens := tokens
@@ -347,6 +407,7 @@ func (e *Engine) run(
 		thinkingOpen := false
 		bufferAssistantText := shouldBufferPersistenceAssistantText(persistPolicy, persistState) ||
 			(evidenceActive && shouldBufferEvidenceAssistantText(evidencePlan, evidenceProgress))
+		subQueryFn, searchFn, fetchFn := e.classificationFunctions(ctx, turnIndex)
 		streamingTools := tools.NewStreamingToolExecutor(ctx, registry, e.hookRegistry, hookDispatcher, func(tCtx context.Context, call llm.ToolUseStart) (string, bool) {
 			if evidenceActive && !isToolExposed(call.Name, exposedToolNames) {
 				msg := hiddenToolCallMessage(call.Name)
@@ -358,7 +419,7 @@ func (e *Engine) run(
 				return msg, true
 			}
 			if evidenceActive {
-				if blocked, msg := evidenceBlocksPrematureMutation(call, evidencePlan, evidenceProgress, registry); blocked {
+				if blocked, msg := evidenceBlocksPrematureMutation(tCtx, call, evidencePlan, evidenceProgress, registry, subQueryFn, searchFn, fetchFn); blocked {
 					e.emitTrace(turnIndex, "error", client.Provider(), "", call.ID, map[string]any{
 						"stage": "tool.evidence_prerequisite_block",
 						"error": msg,
@@ -434,12 +495,26 @@ func (e *Engine) run(
 						"input": json.RawMessage(safeToolUse.Input),
 					})
 					toolCalls = append(toolCalls, *evt.ToolUse)
-					out <- UIEvent{
-						Kind:    UIEventToolUse,
-						ToolUse: &safeToolUse,
-						TaskID:  strings.TrimSpace(evt.ToolUse.ID),
+					// Shell tools are displayed only after Shell Guard has
+					// normalized the command and selected the execution context.
+					if !isShellTool(evt.ToolUse.Name) {
+						out <- UIEvent{
+							Kind:    UIEventToolUse,
+							ToolUse: &safeToolUse,
+							TaskID:  strings.TrimSpace(evt.ToolUse.ID),
+						}
 					}
 					streamingTools.Add(*evt.ToolUse)
+				}
+			case llm.EventUsage:
+				if evt.Usage != nil {
+					u := evt.Usage
+					e.emitTrace(turnIndex, "llm.usage", client.Provider(), "", "", map[string]any{
+						"input_tokens":                u.InputTokens,
+						"output_tokens":               u.OutputTokens,
+						"cache_creation_input_tokens": u.CacheCreationInputTokens,
+						"cache_read_input_tokens":     u.CacheReadInputTokens,
+					})
 				}
 			case llm.EventStop:
 				if evt.Stop != nil {
@@ -491,8 +566,9 @@ func (e *Engine) run(
 		turnStop = stopReason
 
 		assistantTextValue := assistantText.String()
+		assistantFinalText, assistantFinalDelta := assistantFinalTextForStop(assistantTextValue, stopReason)
 		recordAssistant := true
-		recordedAssistantText := assistantTextValue
+		recordedAssistantText := assistantFinalText
 		if bufferAssistantText {
 			if len(toolCalls) == 0 {
 				recordAssistant = false
@@ -515,6 +591,7 @@ func (e *Engine) run(
 		}
 
 		if len(toolCalls) == 0 {
+			persistState.NoteAssistantTurnText(assistantTextValue)
 			if shouldForcePersistenceContinuation(persistPolicy, persistState) {
 				persistState.ForcedContinuations++
 				persistState.Web.ForcedRetries++
@@ -544,53 +621,17 @@ func (e *Engine) run(
 				})
 				continue
 			}
-			if iter == 0 && strings.TrimSpace(assistantTextValue) != "" && lastToolCalls == 0 && len(req.Tools) > 0 {
-				forceMsg := "CRITICAL: You responded with text only instead of using tools. This is unacceptable for task requests. You MUST immediately use the appropriate tool calls to perform the task. Do NOT provide instructions or explanations — execute NOW using tool calls."
-				e.mu.Lock()
-				e.messages = append(e.messages, newUserTextMessage(forceMsg))
-				e.graph.AppendUser(forceMsg)
-				e.mu.Unlock()
-				continue
-			}
 			if shouldBufferPersistenceAssistantText(persistPolicy, persistState) {
 				failure := buildPersistenceFailureMessage(persistPolicy, persistState)
-				e.mu.Lock()
-				e.messages = append(e.messages, newAssistantMessage(failure, nil))
-				e.graph.AppendAssistant(failure)
-				e.mu.Unlock()
-				out <- UIEvent{Kind: UIEventAssistantDelta, Delta: failure}
-				e.emitTrace(turnIndex, "assistant.final", client.Provider(), "", "", map[string]any{
-					"text":        failure,
-					"chars":       len(failure),
-					"stop_reason": string(stopReason),
-				})
-				out <- UIEvent{Kind: UIEventDone, StopReason: stopReason}
-				e.callStopHooks(ctx, stopHooks, stopReason, len(toolCalls))
+				e.finishAssistantFinal(ctx, out, client, turnIndex, stopHooks, stopReason, len(toolCalls), failure, true, failure)
 				return
 			}
 			if evidenceActive && shouldBufferEvidenceAssistantText(evidencePlan, evidenceProgress) {
 				failure := buildEvidenceFailureMessage(evidencePlan, evidenceProgress)
-				e.mu.Lock()
-				e.messages = append(e.messages, newAssistantMessage(failure, nil))
-				e.graph.AppendAssistant(failure)
-				e.mu.Unlock()
-				out <- UIEvent{Kind: UIEventAssistantDelta, Delta: failure}
-				e.emitTrace(turnIndex, "assistant.final", client.Provider(), "", "", map[string]any{
-					"text":        failure,
-					"chars":       len(failure),
-					"stop_reason": string(stopReason),
-				})
-				out <- UIEvent{Kind: UIEventDone, StopReason: stopReason}
-				e.callStopHooks(ctx, stopHooks, stopReason, len(toolCalls))
+				e.finishAssistantFinal(ctx, out, client, turnIndex, stopHooks, stopReason, len(toolCalls), failure, true, failure)
 				return
 			}
-			e.emitTrace(turnIndex, "assistant.final", client.Provider(), "", "", map[string]any{
-				"text":        assistantTextValue,
-				"chars":       len(assistantTextValue),
-				"stop_reason": string(stopReason),
-			})
-			out <- UIEvent{Kind: UIEventDone, StopReason: stopReason}
-			e.callStopHooks(ctx, stopHooks, stopReason, len(toolCalls))
+			e.finishAssistantFinal(ctx, out, client, turnIndex, stopHooks, stopReason, len(toolCalls), assistantFinalText, false, assistantFinalDelta)
 			return
 		}
 
@@ -609,7 +650,7 @@ func (e *Engine) run(
 		for _, res := range results {
 			persistState.ObserveToolResult(res.Call, res.Output, res.IsError, registry)
 			if evidenceActive {
-				evidenceProgress.ObserveToolResult(res.Call, res.IsError, registry)
+				evidenceProgress.ObserveToolResult(ctx, res.Call, res.IsError, registry, subQueryFn, searchFn, fetchFn)
 				if tool.CanonicalName(res.Call.Name) == "tool_search" && !res.IsError {
 					for _, name := range parseToolSearchResultNames(res.Output) {
 						evidenceSelectedTools[tool.CanonicalName(name)] = true
@@ -652,6 +693,7 @@ func (e *Engine) run(
 
 		if repeated, count, sig := repeatGuard.Observe(toolCalls); repeated {
 			turnError = true
+			turnStop = normalizeFinalStopReason(lastStop)
 			msg := fmt.Sprintf("repeated identical tool calls detected (%d times): %s. Stopping this turn to avoid a tool loop.", count, summarizeToolCallSignature(sig))
 			e.emitTrace(turnIndex, "error", client.Provider(), "", "", map[string]any{
 				"stage":     "engine.repeated_tool_calls",
@@ -659,12 +701,12 @@ func (e *Engine) run(
 				"signature": summarizeToolCallSignature(sig),
 				"count":     count,
 			})
+			e.finishAssistantFinal(ctx, out, client, turnIndex, stopHooks, lastStop, lastToolCalls, msg, true, msg)
 			out <- UIEvent{
 				Kind:       UIEventError,
 				Err:        errors.New(msg),
 				StopReason: lastStop,
 			}
-			e.callStopHooks(ctx, stopHooks, lastStop, lastToolCalls)
 			return
 		}
 	}
@@ -680,18 +722,74 @@ func (e *Engine) run(
 		e.state.SetEphemeralServers(ephemeral)
 	}
 
-	turnStop = lastStop
+	turnStop = normalizeFinalStopReason(lastStop)
 	turnError = true
 	e.emitTrace(turnIndex, "error", client.Provider(), "", "", map[string]any{
 		"stage": "engine.max_tool_iterations",
 		"error": fmt.Sprintf("max tool iterations reached (%d)", cfg.MaxToolIterations),
 	})
+	msg := fmt.Sprintf("max tool iterations reached (%d). Stopping this turn to avoid an endless tool loop.", cfg.MaxToolIterations)
+	e.finishAssistantFinal(ctx, out, client, turnIndex, stopHooks, lastStop, lastToolCalls, msg, true, msg)
 	out <- UIEvent{
 		Kind:       UIEventError,
 		Err:        fmt.Errorf("max tool iterations reached (%d)", cfg.MaxToolIterations),
 		StopReason: lastStop,
 	}
-	e.callStopHooks(ctx, stopHooks, lastStop, lastToolCalls)
+}
+
+func assistantFinalTextForStop(text string, stop llm.StopReason) (string, string) {
+	if stop != llm.StopReasonMaxTokens {
+		return text, ""
+	}
+	const notice = "[Argus] Output token limit reached before the model completed a final answer. The response above may be incomplete."
+	if strings.Contains(text, notice) {
+		return text, ""
+	}
+	if strings.TrimSpace(text) == "" {
+		return notice, notice
+	}
+	delta := "\n\n" + notice
+	return strings.TrimRight(text, "\r\n") + delta, delta
+}
+
+func normalizeFinalStopReason(stop llm.StopReason) llm.StopReason {
+	if stop == llm.StopReasonUnknown {
+		return llm.StopReasonEndTurn
+	}
+	return stop
+}
+
+func (e *Engine) finishAssistantFinal(
+	ctx context.Context,
+	out chan<- UIEvent,
+	client llm.LLM,
+	turnIndex int,
+	stopHooks []StopHook,
+	stop llm.StopReason,
+	toolCalls int,
+	text string,
+	recordMessage bool,
+	delta string,
+) {
+	stop = normalizeFinalStopReason(stop)
+	if recordMessage {
+		e.mu.Lock()
+		e.messages = append(e.messages, newAssistantMessage(text, nil))
+		if strings.TrimSpace(text) != "" {
+			e.graph.AppendAssistant(text)
+		}
+		e.mu.Unlock()
+	}
+	if strings.TrimSpace(delta) != "" {
+		out <- UIEvent{Kind: UIEventAssistantDelta, Delta: delta}
+	}
+	e.emitTrace(turnIndex, "assistant.final", client.Provider(), "", "", map[string]any{
+		"text":        text,
+		"chars":       len(text),
+		"stop_reason": string(stop),
+	})
+	out <- UIEvent{Kind: UIEventDone, StopReason: stop}
+	e.callStopHooks(ctx, stopHooks, stop, toolCalls)
 }
 
 func (e *Engine) invokeTool(
@@ -741,6 +839,27 @@ func (e *Engine) invokeTool(
 		Registry:        registry,
 		ExecuteSubQuery: e.ExecuteSubQuery,
 		EmitTrace:       e.EmitTrace,
+	}
+
+	if isShellTool(call.Name) {
+		prepared, blocked, reason := e.prepareShellToolCall(ctx, call, toolCtx, turnIndex)
+		call = prepared
+		safeToolUse := sanitizeToolUseForDisplay(call)
+		if out != nil {
+			out <- UIEvent{
+				Kind:    UIEventToolUse,
+				ToolUse: &safeToolUse,
+				TaskID:  strings.TrimSpace(call.ID),
+			}
+		}
+		if blocked {
+			e.emitTrace(turnIndex, "error", "", "", call.ID, map[string]any{
+				"stage": "tool.shell_guard",
+				"error": reason,
+				"tool":  call.Name,
+			})
+			return reason, true
+		}
 	}
 	toolSecrets := extractToolSecrets(call.Input)
 	safeInput := sanitizeToolInput(call.Input)
@@ -812,10 +931,14 @@ func (e *Engine) invokeTool(
 	}
 
 	startedAt := time.Now()
-	e.emitTrace(turnIndex, "tool.call.start", "", "", call.ID, map[string]any{
+	traceStartData := map[string]any{
 		"tool":  call.Name,
 		"input": json.RawMessage(safeInput),
-	})
+	}
+	if servers := extractTraceServers(call.Name, safeInput); len(servers) > 0 {
+		traceStartData["servers"] = servers
+	}
+	e.emitTrace(turnIndex, "tool.call.start", "", "", call.ID, traceStartData)
 	resultStream, err := toolImpl.Call(toolCtx, call.Input)
 	if err != nil {
 		e.emitTrace(turnIndex, "tool.call.finish", "", "", call.ID, map[string]any{

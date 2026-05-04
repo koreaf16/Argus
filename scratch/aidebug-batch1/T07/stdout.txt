@@ -1,0 +1,10 @@
+  The user said "sandbox-server에서" (In/on sandbox-server). This is an incomplete sentence in Korean. It implies they want to do something on the `sandbox-server`, but they haven't specified what.
+  The user is currently in the `local` workspace.
+  `sandbox-server` (kind=ssh, user=sandbox, host=192.168.0.130, port=22, elevation=ENABLED).
+  1.  Acknowledge the target server (`sandbox-server`).
+  2.  Ask the user what they want to do on that server.
+  Since the prompt is very short and incomplete, I should simply ask for clarification.
+  Wait, the user might be waiting for me to connect or check something. But without an instruction, I can't do anything.
+  I will respond by asking what they want to do on `sandbox-server`.
+  sandbox-server에서 어떤 작업을 수행할까요? 원하시는 명령이나 작업을 말씀해 주세요.                               
+

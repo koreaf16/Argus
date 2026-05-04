@@ -1,0 +1,5 @@
+  The user said "sandbox-server에서" (In/From sandbox-server). This is an incomplete sentence. It indicates the user wants to perform some operation on the `sandbox-server`.
+  Since the request is incomplete, I should ask the user what they want to do on the `sandbox-server`. However, I should also consider if there's any context I can gain. The available workspaces include `sandbox-server`.
+  I'll ask the user for clarification in a concise manner as per the "Output Efficiency" guidelines.
+  sandbox-server에서 어떤 작업을 수행할까요? 구체적인 명령이나 요청을 말씀해 주세요.                               
+

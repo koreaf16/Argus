@@ -1,0 +1,12 @@
+  The user said "sandbox-server에서" (In sandbox-server). This is an incomplete sentence in Korean. It looks like the user is about to give a command or ask a question related to the `sandbox-server`.
+  The available workspaces are:
+  - `a100-server`
+  - `local` (active)
+  - `oracle-server`
+  - `sandbox-server`
+  Since the user mentioned `sandbox-server`, they likely want to perform some operation on it. However, the prompt is just "In sandbox-server".
+  My task is to respond appropriately. Since it's an incomplete request, I should ask for clarification or wait for the rest of the command. However, the system instructions say: "Do not generate responses that only contain text descriptions of what you should do. Always use tools to execute. Only permitted text output is brief status updates, questions requiring user decision, or error descriptions."
+  The user's input is a fragment. I need to know *what* they want to do in the `sandbox-server`.
+  I will ask the user to clarify what they want to do on the `sandbox-server`.
+  sandbox-server에서 어떤 작업을 수행할까요? 명령어나 요청 사항을 말씀해 주세요.                                   
+

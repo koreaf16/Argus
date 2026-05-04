@@ -32,7 +32,7 @@ func (t *PowerShellTool) ensureProvider() error {
 	t.providerOnce.Do(func() {
 		psPath, pathErr := shell.GetCachedPowerShellPath()
 		if pathErr != nil {
-			t.providerErr = fmt.Errorf("powershell not found: %w", pathErr)
+			t.providerErr = fmt.Errorf("PowerShell을 찾을 수 없습니다: %w", pathErr)
 			return
 		}
 		t.provider = shell.CreatePowerShellProvider(psPath)
@@ -56,16 +56,15 @@ func (t *PowerShellTool) IsVisible(ctx tool.Context) bool {
 }
 
 func (t *PowerShellTool) Description(ctx tool.Context) string {
-	base := "Execute PowerShell commands. " +
-		"CRITICAL: Always use SINGLE QUOTES (') for passwords, URLs, or any string with special characters like '!', '&', etc. to avoid shell expansion. "
+	base := "PowerShell 명령을 실행합니다. " +
+		"중요: 쉘 확장을 방지하기 위해 비밀번호, URL 또는 '!', '&'와 같은 특수 문자가 포함된 모든 문자열에는 항상 작은따옴표(')를 사용하세요. "
 	if tool.RequiresExplicitServerAlias(ctx) {
 		aliases := tool.RegisteredWorkspaceAliases(ctx)
-		base += "Multiple workspaces are registered (" + strings.Join(aliases, ", ") + "); the `server` parameter is REQUIRED. "
+		base += "여러 워크스페이스가 등록되어 있습니다 (" + strings.Join(aliases, ", ") + "). `server` 파라미터가 필수입니다. "
 	}
-	base += "\n\nMULTI-CHANNEL & ISOLATION:\n" +
-		"- This tool routes commands through a multi-channel SSH backbone. Commands are isolated\n" +
-		"  by (server, role, channel) triplets. Use different roles/channels to run tasks in parallel\n" +
-		"  without sharing environment or current directory."
+	base += "\n\n멀티 채널 및 격리:\n" +
+		"- 이 도구는 멀티 채널 SSH 백본을 통해 명령을 라우팅합니다. 명령은 (server, role, channel) 트리플렛에 의해 격리됩니다. 환경이나 현재 디렉토리를 공유하지 않고 작업을 병렬로 실행하려면 다른 역할/채널을 사용하세요."
+	base += "\n\nShell Guard rule: select the execution account with `as_user`/role/channel when supported; do not use inline runas/elevation syntax in `command`."
 	return base
 }
 
@@ -75,39 +74,43 @@ func (t *PowerShellTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"command": map[string]any{
 				"type":        "string",
-				"description": "The PowerShell command to execute",
+				"description": "실행할 PowerShell 명령",
 			},
 			"timeout_ms": map[string]any{
 				"type":        "integer",
-				"description": "Optional timeout in milliseconds",
+				"description": "선택적인 타임아웃(밀리초)",
 			},
 			"workdir": map[string]any{
 				"type":        "string",
-				"description": "Optional working directory (must be inside allowed roots)",
+				"description": "선택적인 작업 디렉토리 (허용된 루트 내부에 있어야 함)",
 			},
 			"description": map[string]any{
 				"type":        "string",
-				"description": "Optional short summary of the command",
+				"description": "명령에 대한 선택적인 짧은 요약",
 			},
 			"server": map[string]any{
 				"type":        "string",
-				"description": "Optional workspace alias. Defaults to active workspace.",
+				"description": "선택적인 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다.",
 			},
 			"role": map[string]any{
 				"type":        "string",
-				"description": "Optional workflow role (e.g. source_db, target_app). Used to isolate session state (PTY/CWD/ENV).",
+				"description": "선택적인 워크플로우 역할 (예: source_db, target_app). 세션 상태(PTY/CWD/ENV)를 격리하는 데 사용됩니다.",
 			},
 			"channel": map[string]any{
 				"type":        "string",
-				"description": "Optional workflow channel (source, target, transfer, verify). Used to isolate session state.",
+				"description": "선택적인 워크플로우 채널 (source, target, transfer, verify). 세션 상태를 격리하는 데 사용됩니다.",
+			},
+			"as_user": map[string]any{
+				"type":        "string",
+				"description": "Optional execution account. Shell Guard validates the registered account channel before execution.",
 			},
 			"password": map[string]any{
 				"type":        "string",
-				"description": "Optional SSH password for remote server authentication.",
+				"description": "원격 서버 인증을 위한 선택적인 SSH 비밀번호.",
 			},
 			"background": map[string]any{
 				"type":        "boolean",
-				"description": "Run as a background job. Omit to auto-background after a few seconds for long-running commands.",
+				"description": "백그라운드 작업으로 실행합니다. 오래 걸리는 명령의 경우 생략하면 몇 초 후 자동으로 백그라운드로 전환됩니다.",
 			},
 		},
 		"required": []string{"command"},
@@ -139,6 +142,7 @@ func (t *PowerShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 		Server     string `json:"server"`
 		Role       string `json:"role"`
 		Channel    string `json:"channel"`
+		AsUser     string `json:"as_user"`
 		Password   string `json:"password"`
 		Background *bool  `json:"background"`
 	}
@@ -150,7 +154,7 @@ func (t *PowerShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 		defer close(events)
 		command := strings.TrimSpace(req.Command)
 		if command == "" {
-			events <- tool.NewErrorEvent(fmt.Errorf("command cannot be empty"))
+			events <- tool.NewErrorEvent(fmt.Errorf("명령은 비어 있을 수 없습니다"))
 			return
 		}
 
@@ -398,7 +402,7 @@ func executeRemotePowerShellCommand(
 	allowAutoBackground bool,
 ) (utils.ExecResult, error) {
 	if ctx.Workspace == nil {
-		return utils.ExecResult{}, fmt.Errorf("workspace manager is unavailable")
+		return utils.ExecResult{}, fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
 	}
 
 	timeout := clampPowerShellTimeout(timeoutMS)
@@ -486,7 +490,7 @@ func executeRemotePowerShellCommand(
 
 		case res, ok := <-resultCh:
 			if !ok {
-				return utils.ExecResult{Code: 1, Stderr: "remote command ended unexpectedly"}, fmt.Errorf("remote command ended unexpectedly")
+				return utils.ExecResult{Code: 1, Stderr: "원격 명령이 예기치 않게 종료되었습니다"}, fmt.Errorf("원격 명령이 예기치 않게 종료되었습니다")
 			}
 			laneKey := "default"
 			if ctx.Workspace != nil {
@@ -513,7 +517,7 @@ func executeRemotePowerShellCommand(
 			if handle.Kill != nil {
 				handle.Kill()
 			}
-			return utils.ExecResult{Code: 1, Stderr: "command timed out"}, fmt.Errorf("timeout")
+			return utils.ExecResult{Code: 1, Stderr: "명령 시간이 초과되었습니다"}, fmt.Errorf("타임아웃")
 		}
 	}
 }

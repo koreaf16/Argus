@@ -153,7 +153,7 @@ func (t *WebSearchTool) Call(ctx tool.Context, input json.RawMessage) (<-chan to
 				Query:           parsed.Query,
 				DurationSeconds: time.Since(started).Seconds(),
 			}
-			payload.Results = append(payload.Results, "No results found on the specified site. Try broader search terms or a different query.")
+			payload.Results = append(payload.Results, "지정된 사이트에서 결과를 찾을 수 없습니다. 더 넓은 검색어나 다른 쿼리를 시도해 보세요.")
 			encoded, _ := json.Marshal(payload)
 			out <- tool.NewOutputEvent(string(encoded))
 			out <- tool.NewDoneEvent()
@@ -177,10 +177,10 @@ func (t *WebSearchTool) Call(ctx tool.Context, input json.RawMessage) (<-chan to
 		}
 
 		if len(filtered) == 0 {
-			payload.Results = append(payload.Results, "No results found. Retry with broader terms or different keywords.")
+			payload.Results = append(payload.Results, "결과를 찾을 수 없습니다. 더 넓은 용어나 다른 키워드로 다시 시도하십시오.")
 		} else {
 			payload.Results = append(payload.Results, fmt.Sprintf(
-				"Found %d result(s). Use the webfetch tool with a selected URL and extraction prompt to read page content.",
+				"%d개의 결과를 찾았습니다. 선택한 URL과 추출 프롬프트와 함께 webfetch 도구를 사용하여 페이지 콘텐츠를 읽으십시오.",
 				len(filtered),
 			))
 			payload.Results = append(payload.Results, map[string]any{

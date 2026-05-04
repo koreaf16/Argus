@@ -1,0 +1,10 @@
+  The user said "sandbox-server에서" which translates to "in sandbox-server". This is an incomplete sentence. The user is pointing to a specific workspace (`sandbox-server`) but hasn't specified an action or a command.
+  According to the system instructions:
+  - "All task requests should immediately call appropriate tools."
+  - "The only allowed text output is brief status updates, questions requiring user decision, or error descriptions."
+  - "If the user's input requires a decision, use `ask_user`."
+  Since the user hasn't provided a command or a goal, I need to ask them what they want to do on `sandbox-server`. I should not just say "What do you want to do?" in a chatty way, but I can use `ask_user` or a direct question to clarify.
+  However, looking at the available tools, `server_inspect` can be used to get context about the server. But the user's intent is unknown.
+  I will ask the user what they want to do on the `sandbox-server`.
+  sandbox-server에서 어떤 작업을 수행할까요? 수행할 명령이나 요청 사항을 알려주세요.                               
+

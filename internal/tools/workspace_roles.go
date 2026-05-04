@@ -44,7 +44,9 @@ func ResolveExecutionRole(ctx Context, requestedServer, requestedRole, requested
 		resolved.Channel = channel
 	}
 	if roleName != "" && !hasProfile {
-		return ExecutionRole{}, fmt.Errorf("unknown workspace role: %s", roleName)
+		// Dynamic system account: treat role name as target user; EvaluateElevation handles authorization
+		resolved.AsUser = roleName
+		hasProfile = true
 	}
 	if channel != "" && resolved.Channel != "" && channel != resolved.Channel {
 		return ExecutionRole{}, fmt.Errorf("workspace role %s is bound to channel %s, not %s", resolved.Role, resolved.Channel, channel)

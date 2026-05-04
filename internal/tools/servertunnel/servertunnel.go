@@ -21,7 +21,7 @@ func (t *ServerTunnelTool) Name() string {
 }
 
 func (t *ServerTunnelTool) Description(ctx tool.Context) string {
-	return "Manage SSH local-forward tunnels on a remote workspace. Actions: open, close, list."
+	return "원격 워크스페이스에서 SSH 로컬 포워딩 터널을 관리합니다. 작업: open, close, list."
 }
 
 func (t *ServerTunnelTool) InputSchema() tool.ToolInputJSONSchema {
@@ -30,23 +30,23 @@ func (t *ServerTunnelTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"description": "open | close | list",
+				"description": "수행할 작업: open (열기), close (닫기), list (나열)",
 			},
 			"server": map[string]any{
 				"type":        "string",
-				"description": "Optional workspace alias. Defaults to active workspace.",
+				"description": "선택적 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다.",
 			},
 			"local_addr": map[string]any{
 				"type":        "string",
-				"description": "Local bind address, e.g. 127.0.0.1:15432. Optional for open; default is ephemeral 127.0.0.1:0.",
+				"description": "로컬 바인드 주소 (예: 127.0.0.1:15432). open 시 선택 사항이며 기본값은 임시 주소인 127.0.0.1:0입니다.",
 			},
 			"remote_addr": map[string]any{
 				"type":        "string",
-				"description": "Remote destination from the SSH server perspective, e.g. 127.0.0.1:5432.",
+				"description": "SSH 서버 관점에서의 원격 대상 주소 (예: 127.0.0.1:5432).",
 			},
 			"tunnel_id": map[string]any{
 				"type":        "string",
-				"description": "Tunnel ID to close.",
+				"description": "닫을 터널의 ID.",
 			},
 		},
 		"required": []string{"action"},
@@ -64,7 +64,7 @@ func (t *ServerTunnelTool) MaxResultSizeChars() int {
 func (t *ServerTunnelTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
 	events := make(chan tool.ToolEvent, 2)
 	if ctx.Workspace == nil {
-		return nil, fmt.Errorf("workspace manager is unavailable")
+		return nil, fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
 	}
 
 	var req struct {
@@ -83,18 +83,18 @@ func (t *ServerTunnelTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 
 		action := strings.ToLower(strings.TrimSpace(req.Action))
 		if action == "" {
-			events <- tool.NewErrorEvent(fmt.Errorf("action is required"))
+			events <- tool.NewErrorEvent(fmt.Errorf("작업(action)이 필요합니다"))
 			return
 		}
 
 		alias := tool.ResolveWorkspaceAlias(ctx, req.Server)
 		entry, ok := ctx.Workspace.Registry().Get(alias)
 		if !ok {
-			events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", alias))
+			events <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 서버 별칭: %s", alias))
 			return
 		}
 		if entry.Kind != workspace.ServerKindSSH {
-			events <- tool.NewErrorEvent(fmt.Errorf("server_tunnel requires an SSH workspace"))
+			events <- tool.NewErrorEvent(fmt.Errorf("server_tunnel은 SSH 워크스페이스가 필요합니다"))
 			return
 		}
 
@@ -110,14 +110,14 @@ func (t *ServerTunnelTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 			events <- tool.NewDoneEvent()
 		case "close":
 			if strings.TrimSpace(req.TunnelID) == "" {
-				events <- tool.NewErrorEvent(fmt.Errorf("tunnel_id is required for close"))
+				events <- tool.NewErrorEvent(fmt.Errorf("터널을 닫으려면 tunnel_id가 필요합니다"))
 				return
 			}
 			if err := ctx.Workspace.CloseTunnel(alias, req.TunnelID); err != nil {
 				events <- tool.NewErrorEvent(err)
 				return
 			}
-			events <- tool.NewOutputEvent(fmt.Sprintf("closed tunnel %s", req.TunnelID))
+			events <- tool.NewOutputEvent(fmt.Sprintf("터널 %s을(를) 닫았습니다", req.TunnelID))
 			events <- tool.NewDoneEvent()
 		case "list":
 			items, err := ctx.Workspace.ListTunnels(alias)
@@ -129,7 +129,7 @@ func (t *ServerTunnelTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 			events <- tool.NewOutputEvent(string(raw))
 			events <- tool.NewDoneEvent()
 		default:
-			events <- tool.NewErrorEvent(fmt.Errorf("unknown action: %s", action))
+			events <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 작업: %s", action))
 		}
 	}()
 
@@ -140,7 +140,7 @@ func (t *ServerTunnelTool) CheckPermission(ctx tool.Context, input json.RawMessa
 	if ctx.Workspace == nil {
 		return tool.PermissionResult{
 			Behavior: types.BehaviorDeny,
-			Message:  "workspace manager is unavailable",
+			Message:  "워크스페이스 관리자를 사용할 수 없습니다",
 		}, nil
 	}
 
@@ -148,7 +148,7 @@ func (t *ServerTunnelTool) CheckPermission(ctx tool.Context, input json.RawMessa
 	if action == "" {
 		return tool.PermissionResult{
 			Behavior: types.BehaviorDeny,
-			Message:  "action is required",
+			Message:  "작업(action)이 필요합니다",
 		}, nil
 	}
 
@@ -158,13 +158,13 @@ func (t *ServerTunnelTool) CheckPermission(ctx tool.Context, input json.RawMessa
 	if !ok {
 		return tool.PermissionResult{
 			Behavior: types.BehaviorDeny,
-			Message:  fmt.Sprintf("unknown server alias: %s", alias),
+			Message:  fmt.Sprintf("알 수 없는 서버 별칭: %s", alias),
 		}, nil
 	}
 	if entry.Kind != workspace.ServerKindSSH {
 		return tool.PermissionResult{
 			Behavior: types.BehaviorDeny,
-			Message:  "server_tunnel requires an SSH workspace",
+			Message:  "server_tunnel은 SSH 워크스페이스가 필요합니다",
 		}, nil
 	}
 
@@ -173,6 +173,6 @@ func (t *ServerTunnelTool) CheckPermission(ctx tool.Context, input json.RawMessa
 	}
 	return tool.PermissionResult{
 		Behavior: types.BehaviorAsk,
-		Message:  "opening or closing a tunnel requires approval",
+		Message:  "터널을 열거나 닫으려면 승인이 필요합니다",
 	}, nil
 }

@@ -5,17 +5,44 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/koreaf16/argus/internal/query"
 )
+
+// FilterMode는 Sink에 들어온 trace 레코드 중 어떤 종류를 stdout/stderr로 흘릴지
+// 결정한다. 세션 파일(file)에는 항상 풀 레코드가 기록되어 사후 분석이 가능하다.
+type FilterMode int
+
+const (
+	// FilterFull은 모든 레코드를 외부 writer로 전달한다 (기존 --aidebug 동작).
+	FilterFull FilterMode = iota
+	// FilterMirror는 token-by-token 델타류 레코드를 drop하고, 완성 이벤트와
+	// 메타데이터만 전달한다. mirror 모드에서 NDJSON 노이즈를 줄이는 용도.
+	FilterMirror
+	// FilterDropAll은 외부 writer로 아무것도 보내지 않는다 (세션 파일에만 기록).
+	// 기본 mirror 모드에서 stdout이 미러 ANSI 출력으로 사용될 때 NDJSON을 stdout과
+	// 분리하기 위해 stderr 출력 자체를 끄고 싶을 때 사용한다.
+	FilterDropAll
+)
+
+// noisyTraceTypes는 token-by-token 델타류 trace 타입들이다. mirror 모드에서는
+// 이들을 외부 writer로 보내지 않는다 (세션 파일 기록은 유지).
+var noisyTraceTypes = map[string]struct{}{
+	"llm.provider_chunk": {},
+	"llm.thinking":       {},
+	"tool.call.output":   {},
+}
 
 type Sink struct {
 	mu        sync.Mutex
 	out       io.Writer
 	file      *os.File
+	mode      FilterMode
 	ch        chan query.TraceRecord
 	done      chan struct{}
 	closeOnce sync.Once
@@ -24,6 +51,12 @@ type Sink struct {
 }
 
 func NewSink(out io.Writer, filePath string) (*Sink, error) {
+	return NewSinkWithMode(out, filePath, FilterFull)
+}
+
+// NewSinkWithMode는 외부 writer 출력 정책을 명시해 Sink를 생성한다. 세션 파일은
+// mode와 무관하게 항상 풀 NDJSON을 기록한다.
+func NewSinkWithMode(out io.Writer, filePath string, mode FilterMode) (*Sink, error) {
 	if out == nil {
 		out = io.Discard
 	}
@@ -37,6 +70,7 @@ func NewSink(out io.Writer, filePath string) (*Sink, error) {
 	s := &Sink{
 		out:  out,
 		file: f,
+		mode: mode,
 		ch:   make(chan query.TraceRecord, 1000),
 		done: make(chan struct{}),
 	}
@@ -55,14 +89,63 @@ func (s *Sink) writeRecord(record query.TraceRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Data 필드의 string 값에 대해 UTF-8 유효성 검증 — 한국어 등 멀티바이트 깨짐 방지
+	sanitizeTraceData(&record)
+
 	line, err := json.Marshal(record)
 	if err != nil {
 		return
 	}
 	line = append(line, '\n')
-	_, _ = s.out.Write(line)
+	if s.shouldEmitToWriter(record.Type) {
+		_, _ = s.out.Write(line)
+	}
 	if s.file != nil {
 		_, _ = s.file.Write(line)
+	}
+}
+
+// sanitizeTraceData는 TraceRecord.Data 내부의 문자열 값들이 유효한 UTF-8인지
+// 검증하고, 잘못된 바이트 시퀀스를 U+FFFD로 교체한다.
+func sanitizeTraceData(record *query.TraceRecord) {
+	if data, ok := record.Data.(map[string]any); ok {
+		for k, v := range data {
+			switch val := v.(type) {
+			case string:
+				if !utf8.ValidString(val) {
+					data[k] = strings.ToValidUTF8(val, "\uFFFD")
+				}
+			case map[string]any:
+				sanitizeMapUTF8(val)
+			}
+		}
+	}
+}
+
+func sanitizeMapUTF8(m map[string]any) {
+	for k, v := range m {
+		switch val := v.(type) {
+		case string:
+			if !utf8.ValidString(val) {
+				m[k] = strings.ToValidUTF8(val, "\uFFFD")
+			}
+		case map[string]any:
+			sanitizeMapUTF8(val)
+		}
+	}
+}
+
+// shouldEmitToWriter는 외부 writer로 레코드를 보낼지 결정한다. 세션 파일 기록과
+// 무관하게 stdout/stderr 노이즈만 제어한다.
+func (s *Sink) shouldEmitToWriter(traceType string) bool {
+	switch s.mode {
+	case FilterDropAll:
+		return false
+	case FilterMirror:
+		_, noisy := noisyTraceTypes[traceType]
+		return !noisy
+	default:
+		return true
 	}
 }
 

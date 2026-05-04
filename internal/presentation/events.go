@@ -10,6 +10,7 @@ import (
 	"github.com/koreaf16/argus/internal/redact"
 	"github.com/koreaf16/argus/internal/services/llm"
 	"github.com/koreaf16/argus/internal/state"
+	"github.com/koreaf16/argus/internal/tasks"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/utils/permissions"
 )
@@ -148,19 +149,19 @@ func BuildFooterState(app *state.AppState, cwd string) FooterState {
 		}
 	}
 	out.Workspace = workspace
-	sessionID := out.SessionID
-	if sessionID == "" {
-		sessionID = "default"
+	var list []tasks.Task
+	if loaded, err := tasks.ListTasks(); err == nil {
+		list = loaded
+		out.TodoCount = len(list)
 	}
-	todos := app.Todos(sessionID)
-	out.TodoCount = len(todos)
 	if card := app.WorkflowCard(); card != nil {
 		out.WorkflowCategory = strings.TrimSpace(card.Category)
 		out.WorkflowPhase = strings.TrimSpace(card.Phase)
 		out.WorkflowTitle = strings.TrimSpace(card.Title)
+		todos := app.Todos(app.SessionID())
 		completed := 0
-		for _, t := range todos {
-			if t.Status == "completed" {
+		for _, item := range todos {
+			if item.Status == "completed" {
 				completed++
 			}
 		}

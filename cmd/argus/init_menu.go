@@ -54,21 +54,21 @@ func (s *initSession) run() error {
 		s.printOverview()
 
 		menu := []string{
-			"1. List catalog",
-			"2. Add server",
-			"3. Add models from existing server",
-			"4. Remove model",
-			"5. Remove server",
-			"6. Done",
+			"1. 카탈로그 목록 표시",
+			"2. 서버 추가",
+			"3. 기존 서버에서 모델 추가",
+			"4. 모델 제거",
+			"5. 서버 제거",
+			"6. 완료",
 		}
 
-		fmt.Fprintln(s.out, titleStyle.Render("Main Menu"))
+		fmt.Fprintln(s.out, titleStyle.Render("메인 메뉴"))
 		for _, item := range menu {
 			fmt.Fprintln(s.out, menuItemStyle.Render(item))
 		}
 		fmt.Fprintln(s.out)
 
-		choice, err := s.prompt("select action", "6")
+		choice, err := s.prompt("작업 선택", "6")
 		if err != nil {
 			return err
 		}
@@ -94,10 +94,10 @@ func (s *initSession) run() error {
 				return err
 			}
 		case "6", "q", "quit", "exit":
-			fmt.Fprintln(s.out, promptStyle.Render("✔")+" init complete.")
+			fmt.Fprintln(s.out, promptStyle.Render("✔")+" 초기화가 완료되었습니다.")
 			return nil
 		default:
-			fmt.Fprintf(s.out, "unknown selection: %s\n\n", choice)
+			fmt.Fprintf(s.out, "알 수 없는 선택: %s\n\n", choice)
 		}
 	}
 }
@@ -106,7 +106,7 @@ func (s *initSession) printOverview() {
 	active, _ := s.registry.ActiveEntry()
 
 	logoView := logo.Render(logo.Data{
-		Version:      "init mode",
+		Version:      "초기화 모드",
 		ModelDisplay: active.Display,
 		ProviderName: string(active.Provider),
 		Columns:      80,
@@ -114,7 +114,7 @@ func (s *initSession) printOverview() {
 
 	fmt.Fprintln(s.out, logoView)
 
-	overview := fmt.Sprintf("Active Model: %s (%s)\nServers: %d, User Models: %d",
+	overview := fmt.Sprintf("활성 모델: %s (%s)\n서버: %d, 사용자 모델: %d",
 		titleStyle.Render(active.Alias),
 		dimStyle.Render(active.Display),
 		len(s.registry.ListServers()),
@@ -127,12 +127,12 @@ func (s *initSession) printOverview() {
 func (s *initSession) listCatalog() {
 	servers := s.registry.ListServers()
 	if len(servers) == 0 {
-		fmt.Fprintln(s.out, "Servers: none")
+		fmt.Fprintln(s.out, "서버: 없음")
 	} else {
-		fmt.Fprintln(s.out, "Servers:")
+		fmt.Fprintln(s.out, "서버:")
 		fmt.Fprintln(s.out, s.registry.FormatServerTable())
 	}
-	fmt.Fprintln(s.out, "Models:")
+	fmt.Fprintln(s.out, "모델:")
 	fmt.Fprintln(s.out, s.registry.FormatTable())
 }
 
@@ -142,7 +142,7 @@ func (s *initSession) addServerFlow() error {
 		return err
 	}
 
-	alias, err := s.promptRequired("server alias", "")
+	alias, err := s.promptRequired("서버 별칭(alias)", "")
 	if err != nil {
 		return err
 	}
@@ -155,11 +155,11 @@ func (s *initSession) addServerFlow() error {
 
 	switch provider {
 	case llm.ProviderOpenAICompat:
-		serverURL, err := s.promptRequired("server url", "http://127.0.0.1:11434")
+		serverURL, err := s.promptRequired("서버 URL", "http://127.0.0.1:11434")
 		if err != nil {
 			return err
 		}
-		apiKeyEnv, err := s.prompt("api key env (blank for no auth)", "")
+		apiKeyEnv, err := s.prompt("API 키 환경변수 (인증 없으면 비워둠)", "")
 		if err != nil {
 			return err
 		}
@@ -177,25 +177,25 @@ func (s *initSession) addServerFlow() error {
 		if err := s.registry.Save(s.modelPath); err != nil {
 			return err
 		}
-		fmt.Fprintf(s.out, "added server: %s (%s)\n", server.Alias, server.EffectiveBaseURL())
+		fmt.Fprintf(s.out, "서버 추가됨: %s (%s)\n", server.Alias, server.EffectiveBaseURL())
 		return s.selectAndImportModels(server, models)
 	case llm.ProviderAnthropic:
-		apiKeyEnv, err := s.promptRequired("api key env", "ANTHROPIC_API_KEY")
+		apiKeyEnv, err := s.promptRequired("API 키 환경변수", "ANTHROPIC_API_KEY")
 		if err != nil {
 			return err
 		}
-		baseURL, err := s.prompt("base url", llm.DefaultServerBaseURL(provider))
+		baseURL, err := s.prompt("기본(base) URL", llm.DefaultServerBaseURL(provider))
 		if err != nil {
 			return err
 		}
 		server.APIKeyEnv = apiKeyEnv
 		server.BaseURL = baseURL
 	case llm.ProviderGemini:
-		apiKeyEnv, err := s.promptRequired("api key env", "GEMINI_API_KEY")
+		apiKeyEnv, err := s.promptRequired("API 키 환경변수", "GEMINI_API_KEY")
 		if err != nil {
 			return err
 		}
-		baseURL, err := s.prompt("base url", llm.DefaultServerBaseURL(provider))
+		baseURL, err := s.prompt("기본(base) URL", llm.DefaultServerBaseURL(provider))
 		if err != nil {
 			return err
 		}
@@ -209,18 +209,18 @@ func (s *initSession) addServerFlow() error {
 	if err := s.registry.Save(s.modelPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.out, "added server: %s (%s)\n", server.Alias, server.EffectiveBaseURL())
+	fmt.Fprintf(s.out, "서버 추가됨: %s (%s)\n", server.Alias, server.EffectiveBaseURL())
 	return s.importModelsFromServerFlow(server.Alias)
 }
 
 func (s *initSession) importModelsFromExistingServerFlow() error {
 	servers := s.registry.ListServers()
 	if len(servers) == 0 {
-		fmt.Fprintln(s.out, "no servers registered.")
+		fmt.Fprintln(s.out, "등록된 서버가 없습니다.")
 		return nil
 	}
 	fmt.Fprintln(s.out, s.registry.FormatServerTable())
-	token, err := s.promptRequired("server alias or index", "")
+	token, err := s.promptRequired("서버 별칭 또는 인덱스", "")
 	if err != nil {
 		return err
 	}
@@ -240,11 +240,11 @@ func (s *initSession) importModelsFromServerFlow(token string) error {
 		}
 
 		if err != nil {
-			fmt.Fprintf(s.out, "discovery failed: %v\n", err)
+			fmt.Fprintf(s.out, "검색 실패: %v\n", err)
 		} else {
-			fmt.Fprintln(s.out, "no models returned by server.")
+			fmt.Fprintln(s.out, "서버에서 반환된 모델이 없습니다.")
 		}
-		action, promptErr := s.prompt("action [retry/manual/cancel]", "manual")
+		action, promptErr := s.prompt("작업 [재시도(retry)/수동(manual)/취소(cancel)]", "manual")
 		if promptErr != nil {
 			return promptErr
 		}
@@ -260,7 +260,7 @@ func (s *initSession) importModelsFromServerFlow(token string) error {
 }
 
 func (s *initSession) selectAndImportModels(server llm.ServerEntry, models []llm.DiscoveredModel) error {
-	fmt.Fprintln(s.out, "Discovered models:")
+	fmt.Fprintln(s.out, "검색된 모델:")
 	fmt.Fprintf(s.out, "%-4s %-34s %-42s %-10s\n", "#", "Display", "ModelID", "Context")
 	for i, model := range models {
 		ctxText := "-"
@@ -270,7 +270,7 @@ func (s *initSession) selectAndImportModels(server llm.ServerEntry, models []llm
 		fmt.Fprintf(s.out, "%-4d %-34s %-42s %-10s\n", i+1, model.Display, model.ModelID, ctxText)
 	}
 
-	selection, err := s.prompt("select indexes (comma list, all, blank=cancel)", "")
+	selection, err := s.prompt("인덱스 선택 (쉼표 목록, all, 공백=취소)", "")
 	if err != nil {
 		return err
 	}
@@ -295,12 +295,12 @@ func (s *initSession) selectAndImportModels(server llm.ServerEntry, models []llm
 			return err
 		}
 	}
-	fmt.Fprintf(s.out, "imported %d model(s).\n", added)
+	fmt.Fprintf(s.out, "%d개의 모델을 가져왔습니다.\n", added)
 	return nil
 }
 
 func (s *initSession) manualImportFlow(server llm.ServerEntry) error {
-	raw, err := s.prompt("model ids (comma separated, blank=cancel)", "")
+	raw, err := s.prompt("모델 ID 목록 (쉼표 구분, 공백=취소)", "")
 	if err != nil {
 		return err
 	}
@@ -331,7 +331,7 @@ func (s *initSession) manualImportFlow(server llm.ServerEntry) error {
 			return err
 		}
 	}
-	fmt.Fprintf(s.out, "imported %d model(s).\n", added)
+	fmt.Fprintf(s.out, "%d개의 모델을 가져왔습니다.\n", added)
 	return nil
 }
 
@@ -341,25 +341,25 @@ func (s *initSession) importSingleModel(server llm.ServerEntry, discovered llm.D
 		alias = "model"
 	}
 	if _, exists := s.registry.Get(alias); exists {
-		alias, err := s.promptRequired("alias exists, enter another alias", s.uniqueModelAlias(alias))
+		alias, err := s.promptRequired("별칭이 이미 존재합니다. 다른 별칭을 입력하세요", s.uniqueModelAlias(alias))
 		if err != nil {
 			return err
 		}
 		alias = sanitizeAlias(alias)
 		if alias == "" {
-			return fmt.Errorf("alias is required")
+			return fmt.Errorf("별칭이 필요합니다")
 		}
 		for {
 			if _, exists := s.registry.Get(alias); !exists {
 				break
 			}
-			alias, err = s.promptRequired("alias exists, enter another alias", s.uniqueModelAlias(alias))
+			alias, err = s.promptRequired("별칭이 이미 존재합니다. 다른 별칭을 입력하세요", s.uniqueModelAlias(alias))
 			if err != nil {
 				return err
 			}
 			alias = sanitizeAlias(alias)
 			if alias == "" {
-				return fmt.Errorf("alias is required")
+				return fmt.Errorf("별칭이 필요합니다")
 			}
 		}
 	}
@@ -373,7 +373,7 @@ func (s *initSession) importSingleModel(server llm.ServerEntry, discovered llm.D
 	if contextDefault <= 0 {
 		contextDefault = 0
 	}
-	contextWin, err := s.promptInt("max context tokens", contextDefault, true)
+	contextWin, err := s.promptInt("최대 컨텍스트 토큰(max context tokens)", contextDefault, true)
 	if err != nil {
 		return err
 	}
@@ -382,14 +382,14 @@ func (s *initSession) importSingleModel(server llm.ServerEntry, discovered llm.D
 	if err := s.registry.Add(entry); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.out, "added model: %s -> %s (ctx=%d)\n", entry.Alias, entry.ModelID, entry.ContextWin)
+	fmt.Fprintf(s.out, "모델 추가됨: %s -> %s (ctx=%d)\n", entry.Alias, entry.ModelID, entry.ContextWin)
 	return nil
 }
 
 func (s *initSession) removeModelFlow() error {
 	models := s.registry.ListUserModels()
 	if len(models) == 0 {
-		fmt.Fprintln(s.out, "no user models to remove.")
+		fmt.Fprintln(s.out, "제거할 사용자 모델이 없습니다.")
 		return nil
 	}
 
@@ -402,14 +402,14 @@ func (s *initSession) removeModelFlow() error {
 		fmt.Fprintf(s.out, "%-4d %-22s %-18s %-20s %-34s\n", i+1, model.Alias, model.Provider, serverAlias, model.ModelID)
 	}
 
-	token, err := s.promptRequired("model alias or index", "")
+	token, err := s.promptRequired("모델 별칭 또는 인덱스", "")
 	if err != nil {
 		return err
 	}
 	alias := strings.TrimSpace(token)
 	if idx, convErr := strconv.Atoi(alias); convErr == nil {
 		if idx < 1 || idx > len(models) {
-			return fmt.Errorf("index out of range: %d", idx)
+			return fmt.Errorf("인덱스 범위를 벗어남: %d", idx)
 		}
 		alias = models[idx-1].Alias
 	}
@@ -419,19 +419,19 @@ func (s *initSession) removeModelFlow() error {
 	if err := s.registry.Save(s.modelPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.out, "removed model: %s\n", alias)
+	fmt.Fprintf(s.out, "모델 제거됨: %s\n", alias)
 	return nil
 }
 
 func (s *initSession) removeServerFlow() error {
 	servers := s.registry.ListServers()
 	if len(servers) == 0 {
-		fmt.Fprintln(s.out, "no servers to remove.")
+		fmt.Fprintln(s.out, "제거할 서버가 없습니다.")
 		return nil
 	}
 
 	fmt.Fprintln(s.out, s.registry.FormatServerTable())
-	token, err := s.promptRequired("server alias or index", "")
+	token, err := s.promptRequired("서버 별칭 또는 인덱스", "")
 	if err != nil {
 		return err
 	}
@@ -441,16 +441,16 @@ func (s *initSession) removeServerFlow() error {
 	}
 
 	linked := s.registry.ModelsForServer(server.Alias)
-	fmt.Fprintf(s.out, "removing server %s will remove %d linked model(s).\n", server.Alias, len(linked))
+	fmt.Fprintf(s.out, "서버 %s를 제거하면 연결된 %d개의 모델도 제거됩니다.\n", server.Alias, len(linked))
 	for _, model := range linked {
 		fmt.Fprintf(s.out, "  - %s (%s)\n", model.Alias, model.ModelID)
 	}
-	ok, err := s.confirm("continue", false)
+	ok, err := s.confirm("계속하시겠습니까?", false)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		fmt.Fprintln(s.out, "cancelled.")
+		fmt.Fprintln(s.out, "취소되었습니다.")
 		return nil
 	}
 
@@ -460,6 +460,6 @@ func (s *initSession) removeServerFlow() error {
 	if err := s.registry.Save(s.modelPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.out, "removed server: %s\n", server.Alias)
+	fmt.Fprintf(s.out, "서버 제거됨: %s\n", server.Alias)
 	return nil
 }

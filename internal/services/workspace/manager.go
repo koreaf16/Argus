@@ -966,7 +966,7 @@ func (m *Manager) openReader(alias, path string) (io.ReadCloser, error) {
 		hostAlias = target.HostAlias
 	}
 	if hostAlias == LocalAlias {
-		return os.Open(path)
+		return os.Open(normalizeLocalPath(path))
 	}
 	if useChannelBackbone() {
 		ch, err := m.ChannelManager().AcquireSFTP(context.Background(), hostAlias)
@@ -990,6 +990,7 @@ func (m *Manager) openWriter(alias, path string, overwrite bool) (io.WriteCloser
 		hostAlias = target.HostAlias
 	}
 	if hostAlias == LocalAlias {
+		path = normalizeLocalPath(path)
 		dir := filepath.Dir(path)
 		if dir != "" && dir != "." {
 			if err := os.MkdirAll(dir, 0o755); err != nil {

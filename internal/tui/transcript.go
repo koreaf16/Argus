@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/koreaf16/argus/internal/presentation"
+	"github.com/koreaf16/argus/internal/tasks"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/tui/toolui"
-	"github.com/koreaf16/argus/internal/types"
 )
 
 // toolCallNoiseRE는 native tool calling을 지원하지 않는 일부 LLM provider가 텍스트 본문에
@@ -100,7 +100,9 @@ func (m *uiModel) applyPresentationEvent(evt presentation.Event) {
 		m.toolUseOpen = false
 		m.toolUseStreamIdx = -1
 		m.assistantFlushedLines = 0
-		m.assistantFlushedRenderedLines = 0
+		m.assistantFlushedText = ""
+		m.thinkingFlushedLines = 0
+		m.thinkingFlushedText = ""
 		m.lastPrintedIdx = 0
 		m.activeTool = nil
 		m.toolFocused = false
@@ -124,10 +126,14 @@ func (m *uiModel) applyPresentationEvent(evt presentation.Event) {
 		m.tokenOutputSnap = evt.OutputTokens
 		m.tokenThinkingSnap = evt.ThinkingTokens
 		m.refreshActiveTokenKind()
-		m.appendThinkingDelta(evt.Text)
+		if m.ui.ViewThinking {
+			m.appendThinkingDelta(evt.Text)
+		}
 		return
 	case presentation.EventThinkingDone:
-		m.closeThinkingEntry()
+		if m.ui.ViewThinking {
+			m.closeThinkingEntry()
+		}
 		return
 	}
 
@@ -201,11 +207,11 @@ func (m *uiModel) applyPresentationEvent(evt presentation.Event) {
 			return
 		}
 
-		// TodoWrite 흡수: 마지막 비-tool_result entry가 thinking이면 그 entry에 스냅샷을 부착하고 별도 entry는 만들지 않는다.
-		if strings.EqualFold(evt.ToolName, "TodoWrite") {
-			if absorbed := m.absorbTodoWriteIntoThinking(evt.Input); absorbed {
-				return
-			}
+		// TaskCreate/TaskUpdate: 하단 고정 패널이 진행 상황을 표시하므로
+		// 스크롤백에는 별도 tool_use entry를 만들지 않는다. 결과 수신 시 latestTodos를
+		// 자동 갱신한다 (EventToolResult 핸들러 참조).
+		if isTaskMutationTool(evt.ToolName) {
+			return
 		}
 
 		// 동적 상호작용 모델 생성 시도
@@ -348,6 +354,15 @@ func (m *uiModel) applyPresentationEvent(evt presentation.Event) {
 		} else if m.activeTool != nil {
 			m.activeTool.SetFinished(true)
 		}
+		// TaskCreate/TaskUpdate: 하단 고정 패널만 표시하고 스크롤백 결과 entry는
+		// 만들지 않는다. latestTodos를 갱신한 뒤 즉시 종료한다.
+		if isTaskMutationTool(evt.ToolName) {
+			m.latestTodos = tasks.AsTodoItems()
+			if taskID != "" {
+				delete(m.toolEntryByTaskID, taskID)
+			}
+			return
+		}
 		if taskID != "" {
 			delete(m.toolEntryByTaskID, taskID)
 		}
@@ -417,14 +432,18 @@ func (m *uiModel) applyPresentationEvent(evt presentation.Event) {
 		}
 		m.appendEntry("question", "Question Prompt", body, evt.ToolName)
 	case presentation.EventPlanReady:
+		m.latestTodos = tasks.AsTodoItems()
 		m.appendEntry("plan", "Plan Ready", fmt.Sprintf("approved steps: %d", evt.Count), "")
 	case presentation.EventPlanStep:
+		m.latestTodos = tasks.AsTodoItems()
 		title := fmt.Sprintf("Plan Step %d/%d", evt.StepIndex, evt.StepTotal)
 		m.appendEntry("plan", title, fmt.Sprintf("%s: %s", evt.ToolName, evt.Text), evt.ToolName)
 	case presentation.EventPlanDecision:
+		m.latestTodos = tasks.AsTodoItems()
 		title := fmt.Sprintf("Plan Decision %d/%d", evt.StepIndex, evt.StepTotal)
 		m.appendEntry("plan", title, evt.Decision, "")
 	case presentation.EventPlanResult:
+		m.latestTodos = tasks.AsTodoItems()
 		title := fmt.Sprintf("Plan Result %d/%d", evt.StepIndex, evt.StepTotal)
 		m.appendEntry("plan", title, evt.Text, "")
 	}
@@ -437,15 +456,16 @@ func (m *uiModel) appendAssistantDelta(delta string) {
 	}
 	if !m.assistantOpen || m.assistantStreamIdx < 0 || m.assistantStreamIdx >= len(m.entries) {
 		m.entries = append(m.entries, transcriptEntry{
-			Kind:  "assistant",
-			Title: "Assistant",
-			Body:  delta,
+			Kind:     "assistant",
+			Title:    "Assistant",
+			Body:     delta,
+			IsActive: true,
 		})
 		m.assistantOpen = true
 		m.assistantStreamIdx = len(m.entries) - 1
 		m.assistantLastDelta = time.Now()
 		m.assistantFlushedLines = 0
-		m.assistantFlushedRenderedLines = 0
+		m.assistantFlushedText = ""
 		m.trimEntriesIfNeeded()
 		return
 	}
@@ -455,18 +475,20 @@ func (m *uiModel) appendAssistantDelta(delta string) {
 
 func (m *uiModel) appendThinkingDelta(delta string) {
 	// thinking 본문을 스크롤백 entry로 누적한다. 본문이 비어있을 때도 entry 자체는
-	// 생성되어야 (TodoWrite 흡수 대상이 되도록) 한다.
+	// 생성되어야 한다.
 	if !m.thinkingOpen || m.thinkingStreamIdx < 0 || m.thinkingStreamIdx >= len(m.entries) {
 		m.entries = append(m.entries, transcriptEntry{
 			Kind:      "thinking",
 			Title:     "Thinking",
 			Body:      delta,
 			StartTime: time.Now(),
+			IsActive:  true,
 		})
 		m.thinkingOpen = true
 		m.thinkingStreamIdx = len(m.entries) - 1
 		m.thinkingLastDelta = time.Now()
 		m.thinkingFlushedLines = 0
+		m.thinkingFlushedText = ""
 		m.trimEntriesIfNeeded()
 		return
 	}
@@ -479,32 +501,19 @@ func (m *uiModel) appendThinkingDelta(delta string) {
 func (m *uiModel) closeThinkingEntry() {
 	if m.thinkingStreamIdx >= 0 && m.thinkingStreamIdx < len(m.entries) {
 		m.entries[m.thinkingStreamIdx].EndTime = time.Now()
+		m.entries[m.thinkingStreamIdx].IsActive = false
 	}
 	m.thinkingOpen = false
 	m.thinkingStreamIdx = -1
-	m.thinkingFlushedLines = 0
 }
 
-// absorbTodoWriteIntoThinking은 가장 최근 비-tool_result entry가 thinking이면
-// 그 entry에 TodoWrite 스냅샷을 부착하고 true를 반환한다. 별도 entry는 생성되지 않는다.
-func (m *uiModel) absorbTodoWriteIntoThinking(input string) bool {
-	for i := len(m.entries) - 1; i >= 0; i-- {
-		if m.entries[i].Kind == "tool_result" {
-			continue
-		}
-		if m.entries[i].Kind == "thinking" {
-			var args struct {
-				Todos []types.TodoItem `json:"todos"`
-			}
-			if err := json.Unmarshal([]byte(input), &args); err != nil {
-				return false
-			}
-			m.entries[i].TodoSnapshot = args.Todos
-			m.entries[i].TodoUpdatedAt = time.Now()
-			m.latestTodos = args.Todos
-			return true
-		}
-		return false
+// isTaskMutationTool reports whether the tool name belongs to the task tracker
+// suite (TaskCreate / TaskUpdate). After such tools complete, the
+// bottom-anchored task panel should refresh its snapshot.
+func isTaskMutationTool(name string) bool {
+	switch tool.CanonicalName(name) {
+	case "task_create", "task_update":
+		return true
 	}
 	return false
 }
@@ -632,6 +641,9 @@ func (m *uiModel) trimEntriesIfNeeded() {
 }
 
 func (m *uiModel) closeAssistantEntry() {
+	if m.assistantStreamIdx >= 0 && m.assistantStreamIdx < len(m.entries) {
+		m.entries[m.assistantStreamIdx].IsActive = false
+	}
 	m.assistantOpen = false
 	m.assistantStreamIdx = -1
 	// assistantFlushedLines는 여기서 리셋하지 않는다. EventAssistantDone 처리 시
@@ -644,7 +656,7 @@ func (m *uiModel) closeAssistantEntry() {
 func isCollapsibleTool(toolName string) bool {
 	tn := tool.CanonicalName(toolName)
 	switch tn {
-	case "grep", "glob", "fileread", "webfetch", "web_search", "lsp", "todoread", "read_mcp_resource", "list_mcp_resources":
+	case "grep", "glob", "fileread", "webfetch", "web_search", "lsp", "read_mcp_resource", "list_mcp_resources":
 		return true
 	}
 	return false
@@ -685,7 +697,7 @@ func classifyTool(toolName string) (isSearch, isRead, isList bool) {
 		return true, false, false
 	case "glob", "list_mcp_resources":
 		return false, false, true
-	case "fileread", "webfetch", "lsp", "todoread", "read_mcp_resource":
+	case "fileread", "webfetch", "lsp", "read_mcp_resource":
 		return false, true, false
 	}
 	return false, false, false
@@ -718,12 +730,23 @@ func extractHint(toolName, input string) string {
 	}
 
 	if q, ok := inp["query"].(string); ok && q != "" {
+		if len(q) > 40 {
+			return fmt.Sprintf(`"%s…"`, q[:40])
+		}
 		return fmt.Sprintf(`"%s"`, q)
 	}
 	if p, ok := inp["pattern"].(string); ok && p != "" {
+		const maxPattern = 30
+		if len(p) > maxPattern {
+			p = p[:maxPattern] + "…"
+		}
 		hint := fmt.Sprintf(`"%s"`, p)
 		if path, ok := inp["path"].(string); ok && path != "" {
-			hint += " in " + filepath.Base(path)
+			suffix := " in " + filepath.Base(path)
+			if len(hint)+len(suffix) > 50 {
+				return hint
+			}
+			hint += suffix
 		}
 		return hint
 	}

@@ -21,6 +21,7 @@ const LaneInitScript = "set +o emacs 2>/dev/null || true\n" +
 	"set +H 2>/dev/null || true\n" +
 	"unset -f command_not_found_handle 2>/dev/null || true\n" +
 	"stty -echo 2>/dev/null || true\n" +
+	"printf '\\e[?2004l' 2>/dev/null || true\n" +
 	"PS1='' PS2='' PROMPT_COMMAND=''\n" +
 	"export PS1 PS2 PROMPT_COMMAND\n" +
 	"export LC_ALL=C LANG=C\n"

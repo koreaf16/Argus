@@ -161,6 +161,66 @@ func (r *Registry) List() []Tool {
 	return out
 }
 
+// HasMCPTools returns true if at least one MCP-sourced tool is registered.
+func (r *Registry) HasMCPTools() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, src := range r.source {
+		if strings.HasPrefix(src, "mcp:") {
+			return true
+		}
+	}
+	return false
+}
+
+// SystemGuides collects system-prompt guide sections from all registered tools
+// that implement StaticSystemPromptContributor or SystemPromptContributor.
+//
+// Static guides (StaticSystemPromptContributor) are grouped into one
+// cache_control:"ephemeral" block — invalidated only when workspace/model
+// changes. Dynamic guides (SystemPromptContributor) are returned as a
+// separate, non-cached block.
+//
+// Returns nil when no tools contribute a guide.
+func (r *Registry) SystemGuides(ctx Context) []llm.SystemBlock {
+	tools := r.List()
+	var staticParts, dynamicParts []string
+	for _, t := range tools {
+		if v, ok := t.(VisibleFilter); ok && !v.IsVisible(ctx) {
+			continue
+		}
+		// StaticSystemPromptContributor takes priority (cache-eligible).
+		if c, ok := t.(StaticSystemPromptContributor); ok {
+			text := strings.TrimSpace(c.GetStaticSystemPromptGuide())
+			if text != "" {
+				staticParts = append(staticParts, "### "+t.Name()+"\n"+text)
+			}
+			continue
+		}
+		if c, ok := t.(SystemPromptContributor); ok {
+			text := strings.TrimSpace(c.GetSystemPromptGuide(ctx))
+			if text != "" {
+				dynamicParts = append(dynamicParts, "### "+t.Name()+"\n"+text)
+			}
+		}
+	}
+	var out []llm.SystemBlock
+	if len(staticParts) > 0 {
+		out = append(out, llm.SystemBlock{
+			Type:         "text",
+			Text:         "## 도구 사용 가이드\n\n" + strings.Join(staticParts, "\n\n"),
+			CacheControl: map[string]any{"type": "ephemeral"},
+		})
+	}
+	if len(dynamicParts) > 0 {
+		out = append(out, llm.SystemBlock{
+			Type: "text",
+			Text: "## 도구 사용 가이드 (컨텍스트 의존)\n\n" + strings.Join(dynamicParts, "\n\n"),
+		})
+	}
+	return out
+}
+
 func (r *Registry) ToolSpecs(ctx Context) []llm.ToolSpec {
 	tools := r.List()
 	specs := make([]llm.ToolSpec, 0, len(tools))

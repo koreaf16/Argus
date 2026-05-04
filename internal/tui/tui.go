@@ -25,7 +25,7 @@ import (
 	"github.com/koreaf16/argus/internal/shelljobs"
 	"github.com/koreaf16/argus/internal/skills"
 	"github.com/koreaf16/argus/internal/state"
-	"github.com/koreaf16/argus/internal/todostore"
+	"github.com/koreaf16/argus/internal/tasks"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/types"
 	bashutils "github.com/koreaf16/argus/internal/utils/bash"
@@ -776,6 +776,13 @@ func (a *app) handleSlashCommand(ctx context.Context, line string) (quit bool, l
 	}
 	quit, err = commands.Dispatch(line, cmdCtx)
 	sink.Flush()
+
+	// 설정 변경 가능성이 있는 명령 후 UI 설정 동기화
+	if strings.HasPrefix(line, "/viewthink") || strings.HasPrefix(line, "/config") {
+		newUI := LoadUISettings(a.cfg.SettingsPath)
+		a.send(settingsUpdatedMsg{Settings: newUI})
+	}
+
 	if a.cfg.Engine != nil {
 		cmdName := ""
 		if parts := strings.Fields(strings.TrimSpace(line)); len(parts) > 0 {
@@ -975,20 +982,26 @@ func (a *app) runPlannedSteps(ctx context.Context, steps []query.PlannedStep) {
 	if len(steps) == 0 || a.cfg.Engine == nil {
 		return
 	}
-	sessionID := todostore.SessionID("")
-	if a.cfg.State != nil {
-		sessionID = todostore.SessionID(a.cfg.State.SessionID())
-	}
-
-	existing, _ := todostore.Load(sessionID)
-	if a.cfg.State != nil {
-		stateTodos := a.cfg.State.Todos(sessionID)
-		if len(stateTodos) > 0 {
-			existing = stateTodos
+	taskIDs := make([]string, len(steps))
+	for i, step := range steps {
+		name := strings.TrimSpace(step.Prompt)
+		if name == "" {
+			name = strings.TrimSpace(step.Tool)
+		}
+		if name == "" {
+			name = fmt.Sprintf("Plan step %d", i+1)
+		}
+		if toolName := strings.TrimSpace(step.Tool); toolName != "" {
+			name = toolName + ": " + name
+		}
+		created, err := tasks.SaveTaskFull(tasks.TaskInput{
+			Name:       name,
+			ActiveForm: name,
+		})
+		if err == nil && created != nil {
+			taskIDs[i] = created.ID
 		}
 	}
-	todos := todostore.SyncForSteps(existing, toTodoSteps(steps))
-	_ = persistSessionTodos(a.cfg, sessionID, todos)
 
 	for i, step := range steps {
 		idx := i + 1
@@ -1031,17 +1044,21 @@ func (a *app) runPlannedSteps(ctx context.Context, steps []query.PlannedStep) {
 					Text: fmt.Sprintf("plan execution stopped at step %d/%d", idx, len(steps)),
 				},
 			})
-			_ = persistSessionTodos(a.cfg, sessionID, todos)
+			if taskIDs[i] != "" {
+				_ = tasks.UpdateTaskStatus(taskIDs[i], tasks.StatusCancelled)
+			}
 			return
 		}
 
-		todos[i].Status = types.TodoStatusInProgress
-		_ = persistSessionTodos(a.cfg, sessionID, todos)
+		if taskIDs[i] != "" {
+			_ = tasks.UpdateTaskStatus(taskIDs[i], tasks.StatusInProgress)
+		}
 
 		result, err := a.cfg.Engine.ExecutePlannedStep(ctx, step)
 		if err != nil {
-			todos[i].Status = types.TodoStatusPending
-			_ = persistSessionTodos(a.cfg, sessionID, todos)
+			if taskIDs[i] != "" {
+				_ = tasks.UpdateTaskStatus(taskIDs[i], tasks.StatusPending)
+			}
 			a.send(presentationEventMsg{
 				Event: presentation.Event{
 					Kind:      presentation.EventPlanResult,
@@ -1053,8 +1070,9 @@ func (a *app) runPlannedSteps(ctx context.Context, steps []query.PlannedStep) {
 			return
 		}
 
-		todos[i].Status = types.TodoStatusCompleted
-		_ = persistSessionTodos(a.cfg, sessionID, todos)
+		if taskIDs[i] != "" {
+			_ = tasks.UpdateTaskStatus(taskIDs[i], tasks.StatusCompleted)
+		}
 		a.send(presentationEventMsg{
 			Event: presentation.Event{
 				Kind:      presentation.EventPlanResult,
@@ -1070,27 +1088,6 @@ func (a *app) runPlannedSteps(ctx context.Context, steps []query.PlannedStep) {
 			Text: fmt.Sprintf("plan execution completed (%d/%d)", len(steps), len(steps)),
 		},
 	})
-}
-
-func toTodoSteps(steps []query.PlannedStep) []todostore.Step {
-	out := make([]todostore.Step, 0, len(steps))
-	for _, step := range steps {
-		out = append(out, todostore.Step{
-			Tool:   step.Tool,
-			Prompt: step.Prompt,
-		})
-	}
-	return out
-}
-
-func persistSessionTodos(cfg Config, sessionID string, todos []types.TodoItem) error {
-	if err := todostore.Save(sessionID, todos); err != nil {
-		return err
-	}
-	if cfg.State != nil {
-		cfg.State.SetTodos(sessionID, todostore.NormalizeForStorage(todos))
-	}
-	return nil
 }
 
 func truncatePlanStepOutput(s string) string {

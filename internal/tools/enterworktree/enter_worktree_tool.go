@@ -8,7 +8,7 @@ import (
 type EnterWorktreeTool struct{}
 
 func NewEnterWorktreeTool() *EnterWorktreeTool { return &EnterWorktreeTool{} }
-func (t *EnterWorktreeTool) Name() string      { return "EnterWorktreeTool" }
+func (t *EnterWorktreeTool) Name() string      { return "enter_worktree" }
 func (t *EnterWorktreeTool) Description(ctx tools.Context) string {
 	return "새로운 작업 트리(Worktree) 환경으로 전환합니다."
 }

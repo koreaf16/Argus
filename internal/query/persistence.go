@@ -1,7 +1,6 @@
 package query
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -19,44 +18,53 @@ type persistencePolicy struct {
 }
 
 type persistenceState struct {
-	Web                   webEvidenceState
-	ForcedContinuations   int
-	TotalToolCalls        int
-	ActionToolSeen        bool
-	VerificationSeen      bool
-	LastRecoverableError  bool
-	LastRecoverableTool   string
-	LastRecoverableOutput string
-	lastFailureKey        string
-	SameFailureRetries    int
-	BufferedAssistantText string
+	Web                    webEvidenceState
+	ForcedContinuations    int
+	TotalToolCalls         int
+	ActionToolSeen         bool
+	VerificationSeen       bool
+	LastRecoverableError   bool
+	LastRecoverableTool    string
+	LastRecoverableOutput  string
+	lastFailureKey         string
+	SameFailureRetries     int
+	BufferedAssistantText  string
+	LastAssistantSnapshot  string
+	RepeatedAssistantCount int
 }
 
-func classifyPersistencePolicy(ctx context.Context, executeSubQuery subQueryExecutor, userText string, recentConversation string, cfg Config) persistencePolicy {
-	cfg = applyPersistenceDefaults(cfg)
-	webPolicy := classifyWebEvidencePolicy(ctx, executeSubQuery, userText, recentConversation)
-	if webPolicy.ResearchMode {
-		webPolicy.MinSearches = cfg.ResearchMinSearches
-		webPolicy.MinFetches = cfg.ResearchMinFetches
-		webPolicy.RequireDistinctFetchDomains = len(webPolicy.PreferredDomains) == 0
-	}
-	if webPolicy.Enabled {
-		webPolicy.MaxForcedRetries = cfg.MaxForcedContinuations
-	}
+// maxRepeatedAssistantTurns caps how many turns the engine will keep forcing a
+// continuation when the assistant produces an essentially identical reply each
+// time. Two consecutive duplicates already strongly suggest the model is stuck
+// in a loop instead of making progress.
+const maxRepeatedAssistantTurns = 2
 
-	normalized := normalizeIntentText(userText)
-	requireVerification := isExecutionLikeRequest(normalized) && !webPolicy.Enabled
-	enabled := cfg.PersistenceEnabled && (webPolicy.Enabled || requireVerification)
+// NoteAssistantTurnText records the assistant's plain-text reply for a turn
+// and updates the repetition counter. Empty replies (tool-only turns) do not
+// reset the counter so a long action sequence does not mask an earlier loop.
+func (st *persistenceState) NoteAssistantTurnText(text string) {
+	current := strings.TrimSpace(text)
+	if current == "" {
+		return
+	}
+	if current == st.LastAssistantSnapshot {
+		st.RepeatedAssistantCount++
+		return
+	}
+	st.LastAssistantSnapshot = current
+	st.RepeatedAssistantCount = 1
+}
+
+func classifyPersistencePolicy(cfg Config) persistencePolicy {
 	if !cfg.PersistenceEnabled {
-		webPolicy.Enabled = false
+		return persistencePolicy{}
 	}
-
+	cfg = applyPersistenceDefaults(cfg)
 	return persistencePolicy{
-		Enabled:                enabled,
+		Enabled:                true,
 		MaxForcedContinuations: cfg.MaxForcedContinuations,
 		MaxSameFailureRetries:  cfg.MaxSameFailureRetries,
-		Web:                    webPolicy,
-		RequireVerification:    requireVerification,
+		Web:                    defaultWebEvidencePolicy(),
 	}
 }
 
@@ -115,6 +123,9 @@ func shouldForcePersistenceContinuation(policy persistencePolicy, st persistence
 	if st.LastRecoverableError && st.SameFailureRetries > policy.MaxSameFailureRetries {
 		return false
 	}
+	if st.RepeatedAssistantCount >= maxRepeatedAssistantTurns {
+		return false
+	}
 	return true
 }
 
@@ -159,16 +170,6 @@ func buildRecoverableToolErrorPrompt(policy persistencePolicy, st persistenceSta
 
 func buildVerificationFollowUpPrompt() string {
 	return "Do not finalize your answer yet.\nResume directly. Run a concrete verification step now: test, build, status, health check, or a read-only command that proves the requested change or operation succeeded. Then answer only after the verification result is available."
-}
-
-func isExecutionLikeRequest(text string) bool {
-	return hasAnyTerm(text, []string{
-		"install", "setup", "set up", "deploy", "configure", "fix", "update",
-		"migrate", "build", "test", "repair", "change", "write", "edit",
-		"run", "execute", "verify", "health check",
-		"설치", "설정", "배포", "구성", "수정", "업데이트", "마이그레이션",
-		"빌드", "테스트", "실행", "검증",
-	})
 }
 
 func isActionToolCall(call llm.ToolUseStart, registry *toolpkg.Registry) bool {

@@ -319,9 +319,17 @@ func TestRepeatedIdenticalToolCallsStopsTurn(t *testing.T) {
 	}
 	var gotErr error
 	toolUses := 0
+	done := false
+	var assistantText strings.Builder
 	for evt := range stream {
 		if evt.Kind == UIEventToolUse {
 			toolUses++
+		}
+		if evt.Kind == UIEventAssistantDelta {
+			assistantText.WriteString(evt.Delta)
+		}
+		if evt.Kind == UIEventDone {
+			done = true
 		}
 		if evt.Kind == UIEventError {
 			gotErr = evt.Err
@@ -329,6 +337,12 @@ func TestRepeatedIdenticalToolCallsStopsTurn(t *testing.T) {
 	}
 	if gotErr == nil || !strings.Contains(gotErr.Error(), "repeated identical tool calls") {
 		t.Fatalf("expected repeated tool-call error, got %v", gotErr)
+	}
+	if !done {
+		t.Fatalf("expected done event before repeated tool-call error")
+	}
+	if !strings.Contains(assistantText.String(), "repeated identical tool calls") {
+		t.Fatalf("expected assistant final text for repeated tool-call stop, got %q", assistantText.String())
 	}
 	if toolUses != repeatedToolCallLimit {
 		t.Fatalf("expected %d tool uses before stop, got %d", repeatedToolCallLimit, toolUses)

@@ -21,7 +21,7 @@ func (t *EnterPlanModeTool) Name() string {
 }
 
 func (t *EnterPlanModeTool) Description(ctx tool.Context) string {
-	return "Enter plan mode for structured planning. Use once, draft the plan, then call exit_plan_mode with the completed plan text; do not loop on TodoWrite."
+	return "구조화된 계획을 위해 플랜 모드로 진입합니다. 한 번만 사용하고, 계획 초안을 작성한 다음 완료된 계획 텍스트와 함께 exit_plan_mode를 호출하십시오."
 }
 
 func (t *EnterPlanModeTool) InputSchema() tool.ToolInputJSONSchema {
@@ -49,7 +49,7 @@ func (t *EnterPlanModeTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 		defer close(events)
 
 		if ctx.State == nil {
-			events <- tool.NewErrorEvent(fmt.Errorf("state is unavailable"))
+			events <- tool.NewErrorEvent(fmt.Errorf("상태(state)를 사용할 수 없습니다"))
 			return
 		}
 
@@ -72,7 +72,7 @@ func (t *EnterPlanModeTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 		}
 
 		payload, _ := json.Marshal(map[string]any{
-			"message":   "entered plan mode",
+			"message":   "플랜 모드에 진입했습니다",
 			"plan_file": planPath,
 		})
 		events <- tool.NewOutputEvent(string(payload))

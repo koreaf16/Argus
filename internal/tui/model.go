@@ -42,6 +42,10 @@ type footerStateMsg struct {
 	Footer presentation.FooterState
 }
 
+type settingsUpdatedMsg struct {
+	Settings UISettings
+}
+
 type startupInspectDoneMsg struct {
 	text string
 	cwd  string
@@ -143,10 +147,6 @@ type transcriptEntry struct {
 	// parallel_group 전용 필드
 	ParallelSubByTaskID map[string]int // taskID → SubEntries 인덱스
 
-	// thinking entry 전용: 흡수된 TodoWrite 스냅샷
-	TodoSnapshot  []types.TodoItem
-	TodoUpdatedAt time.Time
-
 	Interactive toolui.InteractiveModel
 }
 
@@ -168,12 +168,13 @@ type uiModel struct {
 	assistantOpen                 bool
 	assistantStreamIdx            int
 	assistantLastDelta            time.Time
-	assistantFlushedLines         int
-	assistantFlushedRenderedLines int
-	thinkingOpen                  bool
-	thinkingStreamIdx             int
-	thinkingLastDelta             time.Time
-	thinkingFlushedLines          int
+	assistantFlushedLines int
+	assistantFlushedText  string
+	thinkingOpen          bool
+	thinkingStreamIdx     int
+	thinkingLastDelta     time.Time
+	thinkingFlushedLines  int
+	thinkingFlushedText   string
 	toolUseOpen                   bool
 	toolUseStreamIdx              int
 	busy                          bool
@@ -206,8 +207,10 @@ type uiModel struct {
 	lastPrintedIdx int
 	transcriptMode bool
 
-	animFrame   int
-	spinnerVerb string
+	animFrame     int
+	animStartedAt time.Time
+	ticking       bool
+	spinnerVerb   string
 
 	// 최신 태스크 리스트 스냅샷 (Thinking 라인 위에 고정 표시용)
 	latestTodos []types.TodoItem
@@ -325,7 +328,12 @@ func (m uiModel) tickIntervalMS() int {
 func (m uiModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	cmds = append(cmds, tea.ShowCursor)
+
+	// 애니메이션 초기화
+	m.animStartedAt = time.Now()
+	m.ticking = true
 	cmds = append(cmds, doTick(m.tickIntervalMS()))
+
 	cmds = append(cmds, tea.Printf("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l"))
 
 	cmds = append(cmds, tea.Println(renderLogoBlock(m.cfg)))
@@ -372,6 +380,8 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.app.cfg.Engine.ResetBudget()
 		m.tokenInputSnap = 0
 		m.tokenOutputSnap = 0
+		m.animStartedAt = time.Now()
+		m.ticking = true
 		return m, doTick(m.tickIntervalMS())
 	case submitFinishedMsg:
 		m.busy = false
@@ -381,24 +391,33 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queryEventMsg:
 		if evt, ok := presentation.FromUIEvent(v.Event); ok {
 			prevIdx := m.assistantStreamIdx
+			prevThinkingIdx := m.thinkingStreamIdx
 			m.applyPresentationEvent(evt)
 			var tickCmd tea.Cmd
-			if evt.Kind == presentation.EventToolUse {
+			if evt.Kind == presentation.EventToolUse && !m.ticking {
+				m.animStartedAt = time.Now()
+				m.ticking = true
 				tickCmd = doTick(m.tickIntervalMS())
 			}
-			return m, tea.Batch(m.handleEventFinalization(evt), m.scrollbackCmd(evt, prevIdx), tickCmd)
+			return m, tea.Batch(m.handleEventFinalization(evt), m.scrollbackCmd(evt, prevIdx, prevThinkingIdx), tickCmd)
 		}
 		return m, nil
 	case presentationEventMsg:
 		prevIdx := m.assistantStreamIdx
+		prevThinkingIdx := m.thinkingStreamIdx
 		m.applyPresentationEvent(v.Event)
 		var tickCmd tea.Cmd
-		if v.Event.Kind == presentation.EventToolUse {
+		if v.Event.Kind == presentation.EventToolUse && !m.ticking {
+			m.animStartedAt = time.Now()
+			m.ticking = true
 			tickCmd = doTick(m.tickIntervalMS())
 		}
-		return m, tea.Batch(m.handleEventFinalization(v.Event), m.scrollbackCmd(v.Event, prevIdx), tickCmd)
+		return m, tea.Batch(m.handleEventFinalization(v.Event), m.scrollbackCmd(v.Event, prevIdx, prevThinkingIdx), tickCmd)
 	case footerStateMsg:
 		m.footer = v.Footer
+		return m, nil
+	case settingsUpdatedMsg:
+		m.UpdateUISettings(v.Settings)
 		return m, nil
 	case startupInspectDoneMsg:
 		evt := presentation.Event{Kind: presentation.EventSystem, Text: v.text}
@@ -409,15 +428,19 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 화면에 표시할 스트리밍 데이터가 남아있거나 활성 작업이 있다면 틱을 유지합니다.
 		hasStreamingData := m.lastPrintedIdx < len(m.entries)
 		if !m.busy && m.activeTool == nil && !m.hasActiveEntries() && !hasStreamingData {
+			m.ticking = false
 			return m, nil
 		}
 
+		m.ticking = true
+		if m.animStartedAt.IsZero() {
+			m.animStartedAt = time.Now()
+		}
 		if m.ui.Motion.Enabled {
-			step := 1
-			if m.ui.Motion.Reduced || m.ui.Motion.Level == "restrained" {
-				step = 1
-			}
-			m.animFrame += step
+			// 시간 기반 프레임 계산으로 속도 안정화
+			elapsed := time.Since(m.animStartedAt)
+			interval := int64(m.tickIntervalMS())
+			m.animFrame = int(elapsed.Milliseconds() / interval)
 		}
 		if m.busy {
 			m.tokenInputSnap, m.tokenOutputSnap, m.tokenThinkingSnap = m.app.cfg.Engine.TokenSnapshot()
@@ -706,6 +729,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "shift+tab":
 			m.cyclePermissionMode()
 			return m, nil
+		case "ctrl+y":
+			m.toggleYoroMode()
+			return m, nil
 		case "ctrl+v":
 			content, err := clipboard.ReadAll()
 			if err == nil && m.insertPastedText(content) {
@@ -779,19 +805,67 @@ func (m *uiModel) handleEventFinalization(evt presentation.Event) tea.Cmd {
 	return nil
 }
 
-func (m *uiModel) scrollbackCmd(evt presentation.Event, prevStreamIdx int) tea.Cmd {
+func (m *uiModel) scrollbackCmd(evt presentation.Event, prevAssistantIdx, prevThinkingIdx int) tea.Cmd {
 	switch evt.Kind {
 	case presentation.EventAssistantDelta:
+		var cmds []tea.Cmd
+		if prevThinkingIdx >= 0 {
+			if finalized := m.finalizeThinkingStream(prevThinkingIdx); finalized != nil {
+				cmds = append(cmds, finalized)
+			}
+		}
 		m.refreshViewport(true)
-		return m.flushStreamingLines(m.assistantStreamIdx, &m.assistantFlushedLines)
+		cmds = append(cmds, m.flushStreamingLines(m.assistantStreamIdx, &m.assistantFlushedLines))
+		return tea.Batch(cmds...)
+
 	case presentation.EventThinkingDelta:
+		if !m.ui.ViewThinking {
+			return nil
+		}
 		m.refreshViewport(true)
 		return m.flushStreamingLines(m.thinkingStreamIdx, &m.thinkingFlushedLines)
-	case presentation.EventThinkingDone, presentation.EventState, presentation.EventViewCleared:
+
+	case presentation.EventThinkingDone:
+		if m.ui.ViewThinking {
+			return m.finalizeThinkingStream(prevThinkingIdx)
+		}
 		m.refreshViewport(true)
 		return nil
+
+	case presentation.EventState, presentation.EventViewCleared:
+		m.refreshViewport(true)
+		return nil
+
 	case presentation.EventAssistantDone:
-		return m.finalizeAssistantStream(prevStreamIdx)
+		return m.finalizeAssistantStream(prevAssistantIdx)
+
+	case presentation.EventToolUse:
+		var cmds []tea.Cmd
+		if prevThinkingIdx >= 0 {
+			if finalized := m.finalizeThinkingStream(prevThinkingIdx); finalized != nil {
+				cmds = append(cmds, finalized)
+			}
+		}
+
+		if m.lastPrintedIdx < len(m.entries) {
+			newLastPrinted := m.lastPrintedIdx
+			for i := m.lastPrintedIdx; i < len(m.entries); i++ {
+				entry := m.entries[i]
+				if entry.IsActive || (entry.Kind == "tool_use" && m.toolUseOpen && m.toolUseStreamIdx == i) {
+					break
+				}
+				skip := entry.Kind == "notice" || entry.Kind == "tool_use"
+				if !skip {
+					cmds = append(cmds, tea.Println("\n"+m.renderTranscriptEntryAt(-1, entry)))
+				}
+				newLastPrinted = i + 1
+			}
+			m.lastPrintedIdx = newLastPrinted
+		}
+
+		m.refreshViewport(true)
+		return tea.Batch(cmds...)
+
 	case presentation.EventToolResult:
 		if m.lastPrintedIdx < len(m.entries) {
 			var cmds []tea.Cmd
@@ -823,7 +897,7 @@ func (m *uiModel) scrollbackCmd(evt presentation.Event, prevStreamIdx int) tea.C
 		return nil
 	default:
 		var cmds []tea.Cmd
-		if finalized := m.finalizeAssistantStream(prevStreamIdx); finalized != nil {
+		if finalized := m.finalizeAssistantStream(prevAssistantIdx); finalized != nil {
 			cmds = append(cmds, finalized)
 		}
 
@@ -857,6 +931,60 @@ func (m *uiModel) scrollbackCmd(evt presentation.Event, prevStreamIdx int) tea.C
 	}
 }
 
+func (m *uiModel) finalizeThinkingStream(streamIdx int) tea.Cmd {
+	if streamIdx < 0 || streamIdx >= len(m.entries) {
+		return nil
+	}
+	e := m.entries[streamIdx]
+	if e.Kind != "thinking" {
+		return nil
+	}
+	if m.lastPrintedIdx > streamIdx {
+		return nil
+	}
+	m.lastPrintedIdx = streamIdx + 1
+	m.refreshViewport(true)
+
+	prevFlushedText := m.thinkingFlushedText
+	m.thinkingFlushedLines = 0
+	m.thinkingFlushedText = ""
+
+	source := strings.TrimSpace(e.Body)
+	if source == "" {
+		return nil
+	}
+
+	termW := m.width - 3
+	if termW < 20 {
+		termW = 20
+	}
+	mdRendered := markdown.Render(source, termW, m.thinkingPalette())
+	fullFormatted := m.renderAssistantEntry(strings.TrimRight(mdRendered, "\n"), termW)
+	formattedLines := strings.Split(fullFormatted, "\n")
+
+	var startIdx int
+	if prevFlushedText != "" {
+		prevMd := markdown.Render(prevFlushedText, termW, m.thinkingPalette())
+		prevFormatted := m.renderAssistantEntry(strings.TrimRight(prevMd, "\n"), termW)
+		startIdx = len(strings.Split(prevFormatted, "\n"))
+	}
+
+	if startIdx > len(formattedLines) {
+		startIdx = len(formattedLines)
+	}
+	if startIdx >= len(formattedLines) {
+		return nil
+	}
+	tail := strings.Join(formattedLines[startIdx:], "\n")
+	if strings.TrimSpace(stripANSI(tail)) == "" {
+		return nil
+	}
+	if startIdx == 0 {
+		tail = prefixStreamingBlock(tail)
+	}
+	return tea.Println(tail)
+}
+
 func (m *uiModel) finalizeAssistantStream(streamIdx int) tea.Cmd {
 	if streamIdx < 0 || streamIdx >= len(m.entries) {
 		return nil
@@ -871,9 +999,9 @@ func (m *uiModel) finalizeAssistantStream(streamIdx int) tea.Cmd {
 	m.lastPrintedIdx = streamIdx + 1
 	m.refreshViewport(true)
 
-	flushedRendered := m.assistantFlushedRenderedLines
+	prevFlushedText := m.assistantFlushedText
 	m.assistantFlushedLines = 0
-	m.assistantFlushedRenderedLines = 0
+	m.assistantFlushedText = ""
 
 	source := strings.TrimSpace(e.Body)
 	if source == "" {
@@ -884,19 +1012,32 @@ func (m *uiModel) finalizeAssistantStream(streamIdx int) tea.Cmd {
 	if termW < 20 {
 		termW = 20
 	}
-	mdRendered := markdown.Render(source, termW, m.themeToPalette())
+	mdRendered := markdown.Render(source, termW, m.llmOutputPalette())
 	fullFormatted := m.renderAssistantEntry(strings.TrimRight(mdRendered, "\n"), termW)
 	formattedLines := strings.Split(fullFormatted, "\n")
 
-	if flushedRendered >= len(formattedLines) {
+	var startIdx int
+	if prevFlushedText != "" {
+		prevMd := markdown.Render(prevFlushedText, termW, m.llmOutputPalette())
+		prevFormatted := m.renderAssistantEntry(strings.TrimRight(prevMd, "\n"), termW)
+		startIdx = len(strings.Split(prevFormatted, "\n"))
+	}
+
+	if startIdx > len(formattedLines) {
+		startIdx = len(formattedLines)
+	}
+	if startIdx >= len(formattedLines) {
 		return nil
 	}
-	tail := strings.Join(formattedLines[flushedRendered:], "\n")
+	tail := strings.Join(formattedLines[startIdx:], "\n")
 	if strings.TrimSpace(tail) == "" {
 		return nil
 	}
 
-	return tea.Println("\n" + tail)
+	if startIdx == 0 {
+		tail = prefixStreamingBlock(tail)
+	}
+	return tea.Println(tail)
 }
 
 func (m *uiModel) cyclePermissionMode() {
@@ -910,6 +1051,39 @@ func (m *uiModel) cyclePermissionMode() {
 	if next == types.PermissionModePlan {
 		m.cfg.State.SetMode("plan")
 	} else if m.cfg.State.GetMode() == "plan" {
+		m.cfg.State.SetMode("normal")
+	}
+	// Shift+Tab 으로 모드를 떠날 때 YORO 복원 컨텍스트는 의미가 없으므로 정리한다.
+	m.cfg.State.ClearPreYoroMode()
+	m.footer = presentation.BuildFooterState(m.cfg.State, m.cfg.WorkDir)
+}
+
+// toggleYoroMode 는 Ctrl+Y 로 YORO(bypassPermissions) 모드를 즉시 토글한다.
+// 진입 시 직전 모드를 저장하고, 해제 시 저장된 모드로 복원한다.
+// PLAN 모드에서 진입한 경우 해제 시 PLAN 으로 돌아간다.
+func (m *uiModel) toggleYoroMode() {
+	if m.cfg.State == nil {
+		return
+	}
+	current := m.cfg.State.GetPermissionMode()
+	if current == types.PermissionModeBypassPermissions {
+		// 해제: 직전 모드 복원 (없으면 default)
+		restore := m.cfg.State.PreYoroMode()
+		if restore == "" || restore == types.PermissionModeBypassPermissions {
+			restore = types.PermissionModeDefault
+		}
+		m.cfg.State.SetPermissionMode(restore)
+		if restore == types.PermissionModePlan {
+			m.cfg.State.SetMode("plan")
+		} else {
+			m.cfg.State.SetMode("normal")
+		}
+		m.cfg.State.ClearPreYoroMode()
+	} else {
+		// 진입: 직전 모드 저장 후 YORO
+		m.cfg.State.SetPreYoroMode(current)
+		m.cfg.State.SetPermissionMode(types.PermissionModeBypassPermissions)
+		// YORO 는 전역 plan 모드와 무관하므로 normal 로 정리한다.
 		m.cfg.State.SetMode("normal")
 	}
 	m.footer = presentation.BuildFooterState(m.cfg.State, m.cfg.WorkDir)
@@ -938,6 +1112,37 @@ type renderedView struct {
 	body          string
 	modal         string
 	modalOverlayY int
+}
+
+const streamingLeadingBlankLines = 2
+
+func prefixStreamingBlock(s string) string {
+	return strings.Repeat("\n", streamingLeadingBlankLines) + s
+}
+
+func prependStreamingBlankLines(lines []string) []string {
+	prefixed := make([]string, 0, streamingLeadingBlankLines+len(lines))
+	for i := 0; i < streamingLeadingBlankLines; i++ {
+		prefixed = append(prefixed, "")
+	}
+	return append(prefixed, lines...)
+}
+
+func (m uiModel) liveEntryLeadingBlankLines(idx int, e transcriptEntry) int {
+	switch {
+	case e.Kind == "assistant" && m.assistantOpen && idx == m.assistantStreamIdx:
+		if m.assistantFlushedText == "" {
+			return streamingLeadingBlankLines
+		}
+		return 0
+	case e.Kind == "thinking" && m.thinkingOpen && idx == m.thinkingStreamIdx:
+		if m.thinkingFlushedText == "" {
+			return streamingLeadingBlankLines
+		}
+		return 0
+	default:
+		return 1
+	}
 }
 
 func (m uiModel) renderFrame() renderedView {
@@ -982,7 +1187,9 @@ func (m uiModel) renderFrame() renderedView {
 		if rendered == "" {
 			continue
 		}
-		streamLines = append(streamLines, "")
+		for blank := 0; blank < m.liveEntryLeadingBlankLines(i, m.entries[i]); blank++ {
+			streamLines = append(streamLines, "")
+		}
 		streamLines = append(streamLines, strings.Split(rendered, "\n")...)
 	}
 
@@ -1118,9 +1325,12 @@ func (m *uiModel) flushStreamingLines(entryIdx int, flushedCount *int) tea.Cmd {
 	}
 	e := m.entries[entryIdx]
 	body := e.Body
-	if e.Kind == "assistant" {
+	switch e.Kind {
+	case "assistant":
 		body = stableStreamingMarkdownSource(body)
 		body = markdown.StableStreamingPrefix(body)
+	case "thinking":
+		body = thinkingStreamSource(body)
 	}
 	lines := strings.Split(body, "\n")
 	if len(lines) <= 1 {
@@ -1134,30 +1344,57 @@ func (m *uiModel) flushStreamingLines(entryIdx int, flushedCount *int) tea.Cmd {
 		return nil
 	}
 
-	if e.Kind == "assistant" {
+	if e.Kind == "assistant" || e.Kind == "thinking" {
 		termW := m.width - 3
 		if termW < 20 {
 			termW = 20
 		}
 		allCompleteText := strings.Join(completeLines, "\n")
-		mdRendered := markdown.Render(allCompleteText, termW, m.themeToPalette())
+		palette := m.llmOutputPalette()
+		prevFlushedText := m.assistantFlushedText
+		if e.Kind == "thinking" {
+			palette = m.thinkingPalette()
+			prevFlushedText = m.thinkingFlushedText
+		}
+
+		// 이전에 flush한 raw text를 지금 시점의 termW로 재렌더링해서 startIdx 계산.
+		// ensureBlankBefore/After가 문맥에 따라 빈 줄을 삽입하므로, 줄 수(int)를
+		// 저장하면 재렌더링 시 어긋날 수 있다. raw text 재렌더링으로 항상 정확한
+		// 커트라인을 확보한다.
+		var startIdx int
+		if prevFlushedText != "" {
+			prevMd := markdown.Render(prevFlushedText, termW, palette)
+			prevFormatted := m.renderAssistantEntry(strings.TrimRight(prevMd, "\n"), termW)
+			startIdx = len(strings.Split(prevFormatted, "\n"))
+		}
+
+		mdRendered := markdown.Render(allCompleteText, termW, palette)
 		fullFormatted := m.renderAssistantEntry(strings.TrimRight(mdRendered, "\n"), termW)
 		formattedLines := strings.Split(fullFormatted, "\n")
 
-		startIdx := m.assistantFlushedRenderedLines
 		if startIdx > len(formattedLines) {
 			startIdx = len(formattedLines)
 		}
 		newRendered := formattedLines[startIdx:]
 		*flushedCount = len(completeLines)
 		if len(newRendered) == 0 {
-			m.assistantFlushedRenderedLines = startIdx
 			return nil
 		}
-		m.assistantFlushedRenderedLines = len(formattedLines)
+
+		if e.Kind == "thinking" {
+			m.thinkingFlushedText = allCompleteText
+		} else {
+			m.assistantFlushedText = allCompleteText
+		}
+
+		if startIdx == 0 {
+			newRendered = prependStreamingBlankLines(newRendered)
+		}
+
 		return tea.Println(strings.Join(newRendered, "\n"))
 	}
 
+	startFlushCount := *flushedCount
 	var toPrint []string
 	for i := *flushedCount; i < len(completeLines); i++ {
 		line := completeLines[i]
@@ -1166,16 +1403,20 @@ func (m *uiModel) flushStreamingLines(entryIdx int, flushedCount *int) tea.Cmd {
 	}
 
 	*flushedCount = len(completeLines)
-	return tea.Println(strings.Join(toPrint, "\n"))
+	rendered := strings.Join(toPrint, "\n")
+	if e.Kind == "thinking" && startFlushCount == 0 {
+		rendered = "\n" + rendered
+	}
+	return tea.Println(rendered)
 }
 
 func (m *uiModel) renderTranscriptLine(kind, line string, lineIdx int) string {
 	prefix := "  "
 	if kind == "assistant" && lineIdx == 0 {
 		if m.theme.DisableANSI {
-			prefix = "✦ "
+			prefix = "* "
 		} else {
-			prefix = lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.AssistantMarkerColor)).Render("✦ ")
+			prefix = lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.AssistantMarkerColor)).Render("* ")
 		}
 	}
 
@@ -1284,4 +1525,11 @@ func (m *uiModel) refreshViewport(scrollToBottom bool) {
 	if scrollToBottom {
 		m.viewport.GotoBottom()
 	}
+}
+
+func (m *uiModel) UpdateUISettings(ui UISettings) {
+	resolved := ResolveUISettings(ui, m.theme.Name, m.cfg.AIDebug)
+	m.ui = resolved
+	m.theme = resolveUIThemeWithVariant(resolved.Theme, resolved.Variant, m.cfg.AIDebug)
+	m.resize()
 }

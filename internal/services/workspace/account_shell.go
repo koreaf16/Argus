@@ -27,7 +27,7 @@ const (
 
 var accountShellSeq atomic.Uint64
 
-const defaultAccountShellPrimeTimeout = 15 * time.Second
+const defaultAccountShellPrimeTimeout = 8 * time.Second
 
 type accountShellSession struct {
 	id              string
@@ -456,8 +456,9 @@ waitLoop:
 	}
 	_, _ = io.WriteString(s.stdin, pw+"\n")
 
-	// Drain startup output while bash initializes after successful auth (~1.5s).
-	drainTimer := time.NewTimer(1500 * time.Millisecond)
+	// Drain startup output while bash initializes after successful auth.
+	// 실제 sudo 인증 완료는 대부분 200ms 이내이므로 800ms면 충분.
+	drainTimer := time.NewTimer(800 * time.Millisecond)
 	defer drainTimer.Stop()
 	for {
 		select {

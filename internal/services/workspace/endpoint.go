@@ -69,6 +69,7 @@ func ParseEndpointPathV2(m *Manager, raw string, activeAlias string) (EndpointPa
 	if alias == LocalAlias {
 		osType = runtime.GOOS
 		isRemote = false
+		path = normalizeLocalPath(path)
 	} else if m != nil {
 		osType = m.GetOSType(alias)
 		isRemote = m.IsRemoteAlias(alias)
@@ -83,6 +84,25 @@ func ParseEndpointPathV2(m *Manager, raw string, activeAlias string) (EndpointPa
 		OSType:   osType,
 		IsRemote: isRemote,
 	}, nil
+}
+
+// normalizeLocalPath converts MSYS / git-bash style absolute paths
+// (e.g. "/c/Users/me/x.zip") to native Windows paths ("C:\\Users\\me\\x.zip")
+// on Windows. On non-Windows hosts the input is returned unchanged so genuine
+// Unix paths like "/c/foo" remain valid.
+func normalizeLocalPath(p string) string {
+	if runtime.GOOS != "windows" {
+		return p
+	}
+	if len(p) < 3 || p[0] != '/' || p[2] != '/' {
+		return p
+	}
+	letter := p[1]
+	if !((letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z')) {
+		return p
+	}
+	rest := strings.ReplaceAll(p[3:], "/", `\`)
+	return strings.ToUpper(string(letter)) + `:\` + rest
 }
 
 // IsKnownAlias checks if the alias is local or registered in catalog.

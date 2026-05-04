@@ -57,7 +57,7 @@ func TestLSPToolStatusActionSortsLanguages(t *testing.T) {
 
 	events := callTool(t, map[string]any{"action": "status"})
 	output := firstOutput(t, events)
-	if output != "lsp servers: a=stopped, z=running" {
+	if output != "LSP 서버: a=stopped, z=running" {
 		t.Fatalf("unexpected output: %s", output)
 	}
 }
@@ -115,7 +115,7 @@ func TestLSPToolReferencesUsesIncludeDeclaration(t *testing.T) {
 		"include_declaration": true,
 	})
 	output := firstOutput(t, events)
-	if output != "no locations" {
+	if output != "위치 정보 없음" {
 		t.Fatalf("unexpected output: %s", output)
 	}
 	if !fm.referencesCalled {
@@ -171,7 +171,7 @@ func TestLSPToolUnsupportedActionReturnsError(t *testing.T) {
 
 	events := callTool(t, map[string]any{"action": "nope"})
 	errMsg := firstError(t, events)
-	if !strings.Contains(errMsg, "unsupported lsp action") {
+	if !strings.Contains(errMsg, "지원되지 않는 LSP 작업입니다") {
 		t.Fatalf("unexpected error: %s", errMsg)
 	}
 }

@@ -20,6 +20,7 @@ var slashSuggestionCatalog = []slashSuggestion{
 	{Command: "skills", Description: "스킬 list/run"},
 	{Command: "connector", Description: "MCP 커넥터 수동 search/install/list/remove"},
 	{Command: "config", Description: "설정 show/get/set"},
+	{Command: "viewthink", Description: "LLM 생각 과정 표시 설정 [on|off]"},
 	{Command: "diff", Description: "git diff 보기"},
 	{Command: "review", Description: "변경 리뷰 요약"},
 	{Command: "commit", Description: "커밋 실행"},

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/koreaf16/argus/internal/services/workspace/channel"
 	"github.com/koreaf16/argus/internal/services/workspace/lane"
@@ -107,6 +108,9 @@ func (m *Manager) execViaChannel(ctx context.Context, alias, command string, opt
 	if err != nil {
 		return ExecResult{}, err
 	}
+	if shouldRouteExplicitAsUser(command, opts) {
+		return m.execViaChannelAsUser(ctx, alias, target, command, opts)
+	}
 	hostAlias := target.HostAlias
 	loginUser, currentStack := m.routeStartStack(target, command)
 	decision := channel.RouteFor(hostAlias, currentStack, loginUser, command, m.elevationPolicyFor(hostAlias), m)
@@ -188,6 +192,7 @@ func (m *Manager) execViaChannel(ctx context.Context, alias, command string, opt
 	req := channel.ExecRequest{
 		Command:      command,
 		WorkingDir:   workingDir,
+		Timeout:      opts.Timeout,
 		SudoPassword: firstNonEmpty(decision.SudoPassword, opts.RootPassword),
 		OnChunk:      opts.ChunkCallback,
 	}
@@ -214,6 +219,9 @@ func (m *Manager) startExecViaChannel(ctx context.Context, alias, command string
 	target, err := m.ResolveExecutionTarget(alias)
 	if err != nil {
 		return nil, err
+	}
+	if shouldRouteExplicitAsUser(command, opts) {
+		return m.startExecViaChannelAsUser(ctx, alias, target, command, opts)
 	}
 	hostAlias := target.HostAlias
 	loginUser, currentStack := m.routeStartStack(target, command)
@@ -271,6 +279,7 @@ func (m *Manager) startExecViaChannel(ctx context.Context, alias, command string
 	req := channel.ExecRequest{
 		Command:      command,
 		WorkingDir:   workingDir,
+		Timeout:      opts.Timeout,
 		SudoPassword: firstNonEmpty(decision.SudoPassword, opts.RootPassword),
 		OnChunk: func(chunk string) {
 			if opts.ChunkCallback != nil {
@@ -375,8 +384,16 @@ func isRootTransition(tr lane.AccountTransition) bool {
 }
 
 func (m *Manager) acquireExecForStack(ctx context.Context, cm channel.ChannelManager, hostAlias, loginUser string, stack lane.AccountStack, opts channel.AcquireOpts, method, password string) (channel.ExecCapable, error) {
+	debugCh := os.Getenv("ARGUS_LANE_DEBUG") != ""
+	overall := time.Now()
 	priv := channel.PrivilegeKeyFromStack(loginUser, stack)
+
+	cachePhase := time.Now()
 	ch, err := cm.AcquireExec(ctx, hostAlias, priv, opts)
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] acquire alias=%s stack=%v phase=cache_lookup elapsed=%s hit=%t\n",
+			hostAlias, []string(stack), time.Since(cachePhase), err == nil)
+	}
 	if err == nil {
 		return ch, nil
 	}
@@ -398,55 +415,252 @@ func (m *Manager) acquireExecForStack(ctx context.Context, cm channel.ChannelMan
 		if loginUser == "" || strings.EqualFold(cleaned[0], loginUser) {
 			return cm.AcquireExec(ctx, hostAlias, channel.PrivilegeDefault, opts)
 		}
+		parentPhase := time.Now()
 		parent, parentErr := cm.AcquireExec(ctx, hostAlias, channel.PrivilegeDefault, opts)
+		if debugCh {
+			fmt.Fprintf(os.Stderr, "[channel-debug] acquire alias=%s stack=%v phase=parent_default elapsed=%s err=%v\n",
+				hostAlias, []string(cleaned), time.Since(parentPhase), parentErr)
+		}
 		if parentErr != nil {
 			return nil, parentErr
 		}
+		enterPhase := time.Now()
 		if enterErr := parent.EnterAccount(ctx, cleaned[0], method, password); enterErr != nil {
+			if debugCh {
+				fmt.Fprintf(os.Stderr, "[channel-debug] acquire alias=%s stack=%v phase=enter elapsed=%s err=%v\n",
+					hostAlias, []string(cleaned), time.Since(enterPhase), enterErr)
+			}
 			return nil, enterErr
 		}
 		_ = cm.PromoteExec(ctx, hostAlias, parent)
+		if debugCh {
+			fmt.Fprintf(os.Stderr, "[channel-debug] acquire alias=%s stack=%v phase=enter_done elapsed=%s total=%s\n",
+				hostAlias, []string(cleaned), time.Since(enterPhase), time.Since(overall))
+		}
 		return parent, nil
 	}
 
 	parentStack := cleaned[:len(cleaned)-1]
 	targetUser := cleaned[len(cleaned)-1]
+	recursePhase := time.Now()
 	parent, parentErr := m.acquireExecForStack(ctx, cm, hostAlias, loginUser, parentStack, opts, method, password)
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] acquire alias=%s stack=%v phase=parent_recurse elapsed=%s err=%v\n",
+			hostAlias, []string(cleaned), time.Since(recursePhase), parentErr)
+	}
 	if parentErr != nil {
 		return nil, parentErr
 	}
+	enterPhase := time.Now()
 	if enterErr := parent.EnterAccount(ctx, targetUser, method, password); enterErr != nil {
+		if debugCh {
+			fmt.Fprintf(os.Stderr, "[channel-debug] acquire alias=%s stack=%v phase=enter elapsed=%s err=%v\n",
+				hostAlias, []string(cleaned), time.Since(enterPhase), enterErr)
+		}
 		return nil, enterErr
 	}
 	_ = cm.PromoteExec(ctx, hostAlias, parent)
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] acquire alias=%s stack=%v phase=enter_done elapsed=%s total=%s\n",
+			hostAlias, []string(cleaned), time.Since(enterPhase), time.Since(overall))
+	}
 	return parent, nil
+}
+
+func shouldRouteExplicitAsUser(command string, opts ExecOptions) bool {
+	if strings.TrimSpace(opts.AsUser) == "" {
+		return false
+	}
+	return lane.ParseAccountTransition(command).Kind == lane.AccountTransitionNone
+}
+
+func (m *Manager) execViaChannelAsUser(ctx context.Context, alias string, target ExecutionTarget, command string, opts ExecOptions) (ExecResult, error) {
+	cm := m.ChannelManager()
+	hostAlias, loginUser, stack, method, password, err := m.explicitAsUserRoute(target, opts)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	acquireOpts := channel.AcquireOpts{
+		Password:     opts.Password,
+		RootPassword: firstNonEmpty(opts.RootPassword, password),
+		Role:         opts.Role,
+		Channel:      opts.Channel,
+	}
+	targetCh, err := m.acquireExecForStack(ctx, cm, hostAlias, loginUser, stack, acquireOpts, method, password)
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("channel route to as_user %q: %w", opts.AsUser, err)
+	}
+
+	priv := channel.PrivilegeKeyFromStack(loginUser, stack)
+	workingDir := firstNonEmpty(opts.WorkingDir, target.DefaultCWD)
+	req := channel.ExecRequest{
+		Command:      command,
+		WorkingDir:   workingDir,
+		Timeout:      opts.Timeout,
+		SudoPassword: firstNonEmpty(password, opts.RootPassword),
+		OnChunk:      opts.ChunkCallback,
+	}
+	out, err := targetCh.Exec(ctx, req)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	m.setActivePrivilege(alias, priv)
+	return ExecResult{
+		Stdout: out.Stdout,
+		Stderr: out.Stderr,
+		Code:   out.Code,
+		CWD:    out.CWD,
+		User:   out.User,
+	}, nil
+}
+
+func (m *Manager) startExecViaChannelAsUser(ctx context.Context, alias string, target ExecutionTarget, command string, opts ExecOptions) (*ExecHandle, error) {
+	cm := m.ChannelManager()
+	hostAlias, loginUser, stack, method, password, err := m.explicitAsUserRoute(target, opts)
+	if err != nil {
+		return nil, err
+	}
+	acquireOpts := channel.AcquireOpts{
+		Password:     opts.Password,
+		RootPassword: firstNonEmpty(opts.RootPassword, password),
+		Role:         opts.Role,
+		Channel:      opts.Channel,
+	}
+	targetCh, err := m.acquireExecForStack(ctx, cm, hostAlias, loginUser, stack, acquireOpts, method, password)
+	if err != nil {
+		return nil, fmt.Errorf("channel route to as_user %q: %w", opts.AsUser, err)
+	}
+
+	streamCh := make(chan string, 64)
+	resultCh := make(chan ExecResult, 1)
+	cancelCtx, cancel := context.WithCancel(ctx)
+	var killOnce sync.Once
+	handle := &ExecHandle{
+		Stream: streamCh,
+		Result: resultCh,
+		Write: func(string) error {
+			return errors.New("channel: stdin writes are not supported on exec channels")
+		},
+		Kill: func() { killOnce.Do(cancel) },
+	}
+
+	priv := channel.PrivilegeKeyFromStack(loginUser, stack)
+	workingDir := firstNonEmpty(opts.WorkingDir, target.DefaultCWD)
+	req := channel.ExecRequest{
+		Command:      command,
+		WorkingDir:   workingDir,
+		Timeout:      opts.Timeout,
+		SudoPassword: firstNonEmpty(password, opts.RootPassword),
+		OnChunk: func(chunk string) {
+			if opts.ChunkCallback != nil {
+				opts.ChunkCallback(chunk)
+			}
+			select {
+			case streamCh <- chunk:
+			default:
+			}
+		},
+	}
+
+	go func() {
+		defer close(streamCh)
+		defer close(resultCh)
+		defer cancel()
+
+		out, err := targetCh.Exec(cancelCtx, req)
+		if err != nil {
+			resultCh <- ExecResult{Code: 1, Stderr: err.Error()}
+			return
+		}
+		m.setActivePrivilege(alias, priv)
+		resultCh <- ExecResult{
+			Stdout: out.Stdout,
+			Stderr: out.Stderr,
+			Code:   out.Code,
+			CWD:    out.CWD,
+			User:   out.User,
+		}
+	}()
+	return handle, nil
+}
+
+func (m *Manager) explicitAsUserRoute(target ExecutionTarget, opts ExecOptions) (hostAlias, loginUser string, stack lane.AccountStack, method, password string, err error) {
+	hostAlias = target.HostAlias
+	loginUser = strings.TrimSpace(target.HostEntry.User)
+	targetUser := strings.TrimSpace(opts.AsUser)
+	if targetUser == "" {
+		return "", "", nil, "", "", fmt.Errorf("as_user is required")
+	}
+	if loginUser != "" {
+		stack = append(stack, loginUser)
+	}
+	if loginUser == "" || !strings.EqualFold(targetUser, loginUser) {
+		stack = append(stack, targetUser)
+	}
+	method = normalizePrivilegeMethod(firstNonEmpty(opts.PrivilegeMethod, target.SwitchMethod))
+
+	if targetUser != "" && !strings.EqualFold(targetUser, loginUser) {
+		verdict := channel.EvaluateElevation(hostAlias, m.elevationPolicyFor(hostAlias), channel.AccountTransitionHint{
+			IsEscalation: true,
+			TargetUser:   targetUser,
+		}, m)
+		if !verdict.Allow {
+			return "", "", nil, "", "", &ElevationRejectedError{Code: verdict.Code, Reason: verdict.Reason}
+		}
+		password = verdict.Password
+	}
+	password = m.passwordForEnter(hostAlias, targetUser, method, opts, password)
+	return hostAlias, loginUser, stack, method, password, nil
 }
 
 func (m *Manager) passwordForEnter(hostAlias, targetUser, method string, opts ExecOptions, resolved string) string {
 	targetUser = strings.TrimSpace(targetUser)
 	method = normalizeSwitchMethod(method)
-	if targetUser == "" {
-		return firstNonEmpty(resolved, opts.RootPassword, opts.Password, m.GetLoginPassword(hostAlias))
-	}
-	switch method {
-	case PrivilegeSudo:
-		return firstNonEmpty(
-			resolved,
-			m.GetPasswordForTarget(hostAlias, "sudo", targetUser),
-			opts.RootPassword,
-			opts.Password,
-			m.GetLoginPassword(hostAlias),
-		)
+
+	type pwCand struct{ src, val string }
+	var candidates []pwCand
+	switch {
+	case targetUser == "":
+		candidates = []pwCand{
+			{"resolved", resolved},
+			{"opts.RootPassword", opts.RootPassword},
+			{"opts.Password", opts.Password},
+			{"login_pw", m.GetLoginPassword(hostAlias)},
+		}
+	case method == PrivilegeSudo:
+		candidates = []pwCand{
+			{"resolved", resolved},
+			{"sudo_cache", m.GetPasswordForTarget(hostAlias, "sudo", targetUser)},
+			{"opts.RootPassword", opts.RootPassword},
+			{"opts.Password", opts.Password},
+			{"login_pw", m.GetLoginPassword(hostAlias)},
+		}
 	default:
-		return firstNonEmpty(
-			resolved,
-			m.GetPasswordForTarget(hostAlias, "su", targetUser),
-			opts.RootPassword,
-			m.GetPasswordForTarget(hostAlias, "sudo", targetUser),
-			opts.Password,
-			m.GetLoginPassword(hostAlias),
-		)
+		candidates = []pwCand{
+			{"resolved", resolved},
+			{"su_cache", m.GetPasswordForTarget(hostAlias, "su", targetUser)},
+			{"opts.RootPassword", opts.RootPassword},
+			{"sudo_cache", m.GetPasswordForTarget(hostAlias, "sudo", targetUser)},
+			{"opts.Password", opts.Password},
+			{"login_pw", m.GetLoginPassword(hostAlias)},
+		}
 	}
+
+	debugCh := os.Getenv("ARGUS_LANE_DEBUG") != ""
+	for _, c := range candidates {
+		if strings.TrimSpace(c.val) != "" {
+			if debugCh {
+				fmt.Fprintf(os.Stderr, "[channel-debug] password_for alias=%s user=%s method=%s source=%s len=%d\n",
+					hostAlias, targetUser, method, c.src, len(c.val))
+			}
+			return c.val
+		}
+	}
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] password_for alias=%s user=%s method=%s source=empty len=0\n",
+			hostAlias, targetUser, method)
+	}
+	return ""
 }
 
 // snapshotStack returns the login user and the most recent exec channel's

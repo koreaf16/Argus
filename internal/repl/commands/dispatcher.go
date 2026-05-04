@@ -120,6 +120,8 @@ func Dispatch(line string, ctx CommandContext) (bool, error) {
 		return false, handleReview(ctx)
 	case "init":
 		return false, handleInit(ctx)
+	case "viewthink":
+		return false, handleViewThink(args, ctx)
 	case "config":
 		return false, handleConfig(args, ctx)
 	case "keybindings":
@@ -1238,6 +1240,52 @@ func handleInit(ctx CommandContext) error {
 		}
 	}
 	fmt.Fprintf(ctx.Stdout, "initialized %s\n", configDir)
+	return nil
+}
+
+func handleViewThink(args []string, ctx CommandContext) error {
+	path := strings.TrimSpace(ctx.SettingsPath)
+	if path == "" {
+		return fmt.Errorf("settings path is empty")
+	}
+	
+	root, err := loadSettings(path)
+	if err != nil {
+		return err
+	}
+	
+	currentVal, _ := getNested(root, "ui.view_thinking")
+	newState := true
+	if currentBool, ok := currentVal.(bool); ok {
+		newState = !currentBool
+	}
+	
+	if len(args) > 0 {
+		arg := strings.ToLower(args[0])
+		if arg == "on" || arg == "true" {
+			newState = true
+		} else if arg == "off" || arg == "false" {
+			newState = false
+		} else {
+			return fmt.Errorf("usage: /viewthink [on|off]")
+		}
+	}
+	
+	setNested(root, "ui.view_thinking", newState)
+	
+	data, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	
+	status := "off"
+	if newState {
+		status = "on"
+	}
+	fmt.Fprintf(ctx.Stdout, "viewthink is now %s\n", status)
 	return nil
 }
 

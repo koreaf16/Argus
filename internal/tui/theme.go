@@ -91,7 +91,7 @@ func resolveUIThemeWithVariant(name, variant string, aiDebug bool) uiTheme {
 			StalledColor:             "#FF6B80",
 			UserTitleColor:           "#4EBA65",
 			AssistantTitleColor:      "#4285F4",
-			ThinkingTitleColor:       "#A06EE1",
+			ThinkingTitleColor:       "#F49B4F", // Orange
 			ToolUseTitleColor:        "#4285F4",
 			ToolResultTitleColor:     "#4FB3BF",
 			NoticeTitleColor:         "#4FB3BF",
@@ -130,7 +130,7 @@ func resolveUIThemeWithVariant(name, variant string, aiDebug bool) uiTheme {
 			UserBubbleFg:             "#AFAFAF",
 			InputBoxBg:               "#262626",
 			GlimmerTrailColors:       []string{"#A06EE1", "#4285F4", "#4FB3BF", "#34A853", "#FBBC04", "#EA4335"},
-			SpinnerFrames:            []string{"|", "/", "-", "\\"},
+			SpinnerFrames:            []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 			PromptTheme:              promptinput.ResolveTheme("argus_ui_demo"),
 		}
 
@@ -195,7 +195,7 @@ func resolveUIThemeWithVariant(name, variant string, aiDebug bool) uiTheme {
 			UserBubbleFg:             "250",
 			InputBoxBg:               "235",
 			GlimmerTrailColors:       []string{"255", "250", "247", "244", "241", "239"},
-			SpinnerFrames:            []string{"|", "/", "-", "\\"},
+			SpinnerFrames:            []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 			PromptTheme:              promptinput.ResolveTheme("classic"),
 		}
 

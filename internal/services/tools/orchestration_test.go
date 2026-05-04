@@ -12,7 +12,6 @@ import (
 	toolpkg "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/tools/enterplanmode"
 	"github.com/koreaf16/argus/internal/tools/exitplanmode"
-	"github.com/koreaf16/argus/internal/tools/taskplaninit"
 )
 
 type orchestrationTestTool struct {
@@ -130,7 +129,6 @@ func TestPartitionToolCalls_StateChangingPlanToolsAreUnsafe(t *testing.T) {
 
 	reg := toolpkg.NewRegistry()
 	for _, tl := range []toolpkg.Tool{
-		taskplaninit.New(),
 		enterplanmode.NewEnterPlanModeTool(),
 		exitplanmode.NewExitPlanModeTool(),
 	} {
@@ -139,7 +137,6 @@ func TestPartitionToolCalls_StateChangingPlanToolsAreUnsafe(t *testing.T) {
 		}
 	}
 	calls := []llm.ToolUseStart{
-		{ID: "init", Name: taskplaninit.ToolName, Input: json.RawMessage(`{"title":"x"}`)},
 		{ID: "enter", Name: "enter_plan_mode", Input: json.RawMessage(`{}`)},
 		{ID: "exit", Name: "exit_plan_mode", Input: json.RawMessage(`{}`)},
 	}

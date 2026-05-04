@@ -12,8 +12,6 @@ import (
 
 type StreamingToolExecutor struct {
 	ctx          context.Context
-	shellCtx     context.Context
-	cancelShell  context.CancelFunc
 	registry     *tool.Registry
 	hookRegistry *HookRegistry
 	dispatcher   *hooks.HookDispatcher
@@ -26,6 +24,7 @@ type StreamingToolExecutor struct {
 	executing       int
 	unsafeExecuting bool
 	completed       int
+	cancelled       bool
 }
 
 type trackedStreamingTool struct {
@@ -34,6 +33,7 @@ type trackedStreamingTool struct {
 	started   bool
 	completed bool
 	result    ToolResult
+	cancel    context.CancelFunc
 }
 
 func NewStreamingToolExecutor(
@@ -46,11 +46,8 @@ func NewStreamingToolExecutor(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	shellCtx, cancelShell := context.WithCancel(ctx)
 	e := &StreamingToolExecutor{
 		ctx:          ctx,
-		shellCtx:     shellCtx,
-		cancelShell:  cancelShell,
 		registry:     registry,
 		hookRegistry: hookRegistry,
 		dispatcher:   dispatcher,
@@ -87,14 +84,17 @@ func (e *StreamingToolExecutor) CloseAndWait() []ToolResult {
 	for i, tr := range e.calls {
 		results[i] = tr.result
 	}
+	e.cancelled = true
 	e.mu.Unlock()
-	e.cancelShell()
 	return results
 }
 
 func (e *StreamingToolExecutor) scheduleLocked() {
 	if e.max <= 0 {
 		e.max = 1
+	}
+	if e.cancelled {
+		return
 	}
 	for _, tr := range e.calls {
 		if tr.started || tr.completed {
@@ -125,14 +125,12 @@ func (e *StreamingToolExecutor) startLocked(tr *trackedStreamingTool) {
 
 func (e *StreamingToolExecutor) run(tr *trackedStreamingTool) {
 	call := tr.call
-	ctx := e.ctx
-	if isShellLikeTool(call.Name) {
-		ctx = e.shellCtx
-	}
-	result := e.runOne(ctx, call)
-	if result.IsError && isShellLikeTool(call.Name) {
-		e.cancelShell()
-	}
+	// 각 도구 호출마다 독립적인 컨텍스트 부여 (쉘 도구 여부와 상관없이)
+	toolCtx, cancel := context.WithCancel(e.ctx)
+	tr.cancel = cancel
+	defer cancel()
+
+	result := e.runOne(toolCtx, call)
 
 	e.mu.Lock()
 	tr.result = result

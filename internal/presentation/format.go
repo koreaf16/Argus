@@ -102,7 +102,7 @@ func HumanLines(evt Event) []string {
 			plan = "on"
 		}
 		line1 := fmt.Sprintf(
-			"[%s] [plan %s] [%s] [todo %d] [mcp %d] [skills %d] [ws %s]",
+			"[%s] [plan %s] [%s] [task %d] [mcp %d] [skills %d] [ws %s]",
 			emptyDefault(evt.Footer.PermissionMode, "default"),
 			plan,
 			emptyDefault(evt.Footer.Model, "unconfigured"),

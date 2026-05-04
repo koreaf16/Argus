@@ -122,6 +122,8 @@ func EvaluateShellCommandPermission(ctx Context, command string, shellKind strin
 		classResult := permissions.ClassifyBashCommand(
 			ctx.Context, trimmed, permissions.NewDenialTrackingState(),
 			permissions.SubQueryFunc(ctx.ExecuteSubQuery),
+			nil, // SearchFunc (Permission policy에서 웹 검색 필요 시 추가 연동 가능)
+			nil, // FetchFunc
 		)
 		if !classResult.Unavailable {
 			switch classResult.Behavior {

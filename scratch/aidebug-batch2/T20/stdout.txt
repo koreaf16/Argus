@@ -1,0 +1,11 @@
+  The user provided a partial sentence: "sandbox-server에서" which translates to "In sandbox-server".
+  This is an incomplete request. The user has specified a target server (`sandbox-server`), but has not specified what they want to do on that server.
+  I need to:
+  1.  Acknowledge the target server.
+  2.  Ask the user for clarification on what they want to perform on `sandbox-server`.
+  According to the "Output Efficiency" rules:
+  - "Keep text output short and direct."
+  - "One sentence if possible."
+  I will not call any tools yet because no action is requested. I will simply ask for the command or task.
+  sandbox-server에서 어떤 작업을 수행할까요? 명령이나 요청 사항을 말씀해 주세요.                                   
+

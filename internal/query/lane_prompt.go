@@ -30,7 +30,7 @@ func laneSystemBlocks(manager *workspace.Manager) []llm.SystemBlock {
 	})
 
 	var sb strings.Builder
-	sb.WriteString("ACTIVE EXECUTION LANES (single source of truth — use the `server` parameter to pick one):\n")
+	sb.WriteString("활성 실행 레인 (ACTIVE EXECUTION LANES - 단일 진실 소스 — `server` 매개변수를 사용하여 선택):\n")
 	now := time.Now()
 	for _, info := range infos {
 		user := topAccount(info.AccountStack)
@@ -44,19 +44,19 @@ func laneSystemBlocks(manager *workspace.Manager) []llm.SystemBlock {
 			idle,
 		)
 	}
-	sb.WriteString("\nRules (multi-channel routing is enforced):\n")
-	sb.WriteString("- Each (alias, account_stack) pair runs on its own persistent SSH PTY channel.\n")
-	sb.WriteString("  The router routes your command to the channel that matches the post-transition privilege\n")
-	sb.WriteString("  automatically. You do not need to \"switch\" a channel by hand.\n")
-	sb.WriteString("- To enter a privilege lane, send `sudo -i`, `sudo -i -u <user>`, or `su - <user>` as a\n")
-	sb.WriteString("  normal bash command. A new channel is created and persisted; subsequent plain commands on\n")
-	sb.WriteString("  that host will land on it until you send `exit`.\n")
-	sb.WriteString("- To run a one-shot privileged command without staying in the lane, use\n")
-	sb.WriteString("  `sudo -u <user> <body>`. The body runs on the current channel.\n")
-	sb.WriteString("- Channels are isolated: changing cwd or env on one privilege lane does NOT affect another.\n")
-	sb.WriteString("- The cwd / user shown above is authoritative for that channel.\n")
-	sb.WriteString("- BEFORE sending any sudo/su command, check the elevation policy in the workspace block.\n")
-	sb.WriteString("  If elevation is DISABLED for the target server, STOP and guide the user — do not call the tool.\n")
+	sb.WriteString("\n규칙 (다중 채널 라우팅이 강제 적용됨):\n")
+	sb.WriteString("- 각 (alias, account_stack) 쌍은 자체 영구 SSH PTY 채널에서 실행됩니다.\n")
+	sb.WriteString("  라우터는 당신의 명령을 권한 전환 후의 권한과 일치하는 채널로 자동으로 라우팅합니다.\n")
+	sb.WriteString("  채널을 수동으로 \"전환\"할 필요가 없습니다.\n")
+	sb.WriteString("- 권한 레인에 진입하려면 일반 bash 명령으로 `sudo -i`, `sudo -i -u <user>` 또는 `su - <user>`를\n")
+	sb.WriteString("  보내십시오. 새로운 채널이 생성되고 유지되며, 해당 호스트의 후속 일반 명령은 `exit`를\n")
+	sb.WriteString("  보낼 때까지 해당 채널에 도달합니다.\n")
+	sb.WriteString("- 레인에 머물지 않고 단발성 권한 명령을 실행하려면 `sudo -u <user> <body>`를 사용하십시오.\n")
+	sb.WriteString("  본문(body)은 현재 채널에서 실행됩니다.\n")
+	sb.WriteString("- 채널은 격리되어 있습니다: 한 권한 레인에서 cwd나 환경 변수를 변경해도 다른 레인에 영향을 주지 않습니다.\n")
+	sb.WriteString("- 위에 표시된 cwd / user가 해당 채널에 대해 권위 있는 정보입니다.\n")
+	sb.WriteString("- sudo/su 명령을 보내기 전에 반드시 워크스페이스 블록의 권한 상승 정책을 확인하십시오.\n")
+	sb.WriteString("  대상 서버에 대해 권한 상승이 DISABLED인 경우, 중단하고 사용자를 안내하십시오 — 도구를 호출하지 마십시오.\n")
 
 	return []llm.SystemBlock{{Type: "text", Text: sb.String()}}
 }

@@ -134,7 +134,18 @@ const (
 	EventToolUseDelta  EventKind = "tool_use_delta"
 	EventStop          EventKind = "stop"
 	EventError         EventKind = "error"
+	EventUsage         EventKind = "usage"
 )
+
+// UsageStats holds token counts from an LLM API response.
+// CacheCreationInputTokens and CacheReadInputTokens are Anthropic-specific
+// and indicate prompt-cache write vs. read on each turn.
+type UsageStats struct {
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
+}
 
 type StopReason string
 
@@ -157,6 +168,7 @@ type Event struct {
 	ToolUse *ToolUseStart `json:"tool_use,omitempty"`
 	Stop    *StopReason   `json:"stop,omitempty"`
 	Err     error         `json:"-"`
+	Usage   *UsageStats   `json:"usage,omitempty"`
 }
 
 type ErrorLLM struct {

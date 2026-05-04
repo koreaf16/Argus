@@ -17,15 +17,15 @@ func NewReadMcpResourceTool() *ReadMcpResourceTool { return &ReadMcpResourceTool
 func (t *ReadMcpResourceTool) Name() string { return "read_mcp_resource" }
 
 func (t *ReadMcpResourceTool) Description(ctx tool.Context) string {
-	return "Read a resource from an MCP server"
+	return "MCP 서버에서 리소스를 읽습니다."
 }
 
 func (t *ReadMcpResourceTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"server": map[string]any{"type": "string"},
-			"uri":    map[string]any{"type": "string"},
+			"server": map[string]any{"type": "string", "description": "MCP 서버 이름"},
+			"uri":    map[string]any{"type": "string", "description": "리소스 URI"},
 		},
 		"required": []string{"server", "uri"},
 	}

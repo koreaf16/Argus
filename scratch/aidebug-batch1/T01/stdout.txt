@@ -1,0 +1,13 @@
+  The user provided an incomplete sentence: "sandbox-server의" (of sandbox-server).
+  This is a fragment. The user likely intends to ask something about `sandbox-server`, but hasn't finished the thought.
+  According to the "Output Efficiency" rules:
+  - "If you can say it in one sentence, don't use three."
+  - "Minimalist, direct, brief."
+  - "Do not repeat what the user said."
+  Since the input is just a fragment, I should ask for clarification or wait for the completion. I shouldn't guess.
+  Wait, looking at the tools, `server_inspect` can give info about `sandbox-server`. But simply responding "What about sandbox-server?" is more appropriate for a fragment.
+  However, the user might be waiting for me to realize they are starting a request.
+  Let's see if there's any other context. No.
+  I will ask for the rest of the request.
+  sandbox-server에 대해 무엇을 도와드릴까요? 요청하실 내용을 말씀해 주세요.                                        
+

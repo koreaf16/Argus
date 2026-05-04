@@ -26,8 +26,13 @@ import (
 )
 
 // SubQueryFunc 는 LLM 단발 호출 함수 타입.
-// tool.ExecuteSubQueryFunc 와 시그니처가 동일하며, 순환 임포트 없이 사용 가능.
 type SubQueryFunc func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+
+// SearchFunc 는 웹 검색 함수 타입.
+type SearchFunc func(ctx context.Context, query string) (string, error)
+
+// FetchFunc 는 웹 페이지 페칭 함수 타입.
+type FetchFunc func(ctx context.Context, url string) (string, error)
 
 // BashClassifierResult 는 Bash 명령 분류 결과다.
 type BashClassifierResult struct {
@@ -37,31 +42,26 @@ type BashClassifierResult struct {
 }
 
 // classifierCache 는 명령어→판정 결과 메모리 캐시.
-// 동일 명령은 LLM 재호출 없이 캐시에서 반환한다.
 var classifierCache sync.Map // key: string, value: BashClassifierResult
 
-// classifierSystemPrompt 는 LLM 분류기 시스템 프롬프트.
 const classifierSystemPrompt = `You are a shell command safety classifier. Respond with JSON only, no explanation outside the JSON.`
+const classifierTimeout = 10 * time.Second // LLM 분류에 15초는 과다 — 실패 시 Ask fallback
 
-// classifierTimeout 은 LLM 분류기 호출 최대 대기 시간.
-const classifierTimeout = 8 * time.Second
-
-// llmClassifierResponse 는 LLM이 반환하는 JSON 구조.
 type llmClassifierResponse struct {
 	ReadOnly   bool   `json:"read_only"`
 	Confidence string `json:"confidence"` // "high" | "medium" | "low"
 	Reason     string `json:"reason"`
+	NeedsWeb   bool   `json:"needs_web"` // 웹 검색이 필요한지 여부
 }
 
 // ClassifyBashCommand 는 Bash 명령의 안전성을 분류한다.
-//
-// subQuery 가 nil이거나 LLM 호출에 실패하면 Unavailable=true 를 반환해
-// 호출자가 기존 Ask 동작으로 폴백하도록 한다.
 func ClassifyBashCommand(
 	ctx context.Context,
 	command string,
 	denialState DenialTrackingState,
 	subQuery SubQueryFunc,
+	search SearchFunc,
+	fetch FetchFunc,
 ) BashClassifierResult {
 	if subQuery == nil {
 		return BashClassifierResult{
@@ -75,15 +75,15 @@ func ClassifyBashCommand(
 		return cached.(BashClassifierResult)
 	}
 
-	result := callLLMClassifier(ctx, command, subQuery)
+	result := callLLMClassifier(ctx, command, subQuery, search, fetch)
 	if !result.Unavailable {
 		classifierCache.Store(command, result)
 	}
 	return result
 }
 
-// callLLMClassifier 는 LLM에 명령 안전성 판정을 요청하고 결과를 반환한다.
-func callLLMClassifier(ctx context.Context, command string, subQuery SubQueryFunc) BashClassifierResult {
+// callLLMClassifier 는 LLM과 웹 검색을 연동하여 명령 안전성을 판정한다.
+func callLLMClassifier(ctx context.Context, command string, subQuery SubQueryFunc, search SearchFunc, fetch FetchFunc) BashClassifierResult {
 	timeoutCtx, cancel := context.WithTimeout(ctx, classifierTimeout)
 	defer cancel()
 
@@ -91,47 +91,63 @@ func callLLMClassifier(ctx context.Context, command string, subQuery SubQueryFun
 		`Is this shell command read-only? (does NOT modify filesystem, install packages, or change persistent system state)
 Command: %s
 
-Respond exactly with this JSON and nothing else:
-{"read_only": true|false, "confidence": "high"|"medium"|"low", "reason": "one sentence"}`,
+Respond exactly with this JSON:
+{"read_only": true|false, "confidence": "high"|"medium"|"low", "reason": "...", "needs_web": true|false}`,
 		"`"+command+"`",
 	)
 
 	raw, err := subQuery(timeoutCtx, classifierSystemPrompt, userPrompt)
 	if err != nil {
-		return BashClassifierResult{
-			Behavior:    types.ClassifierBehaviorAsk,
-			Reason:      "LLM 분류기 호출 실패: " + err.Error(),
-			Unavailable: true,
-		}
+		return BashClassifierResult{Behavior: types.ClassifierBehaviorAsk, Reason: "LLM 호출 실패: " + err.Error(), Unavailable: true}
 	}
 
 	var resp llmClassifierResponse
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &resp); err != nil {
-		return BashClassifierResult{
-			Behavior:    types.ClassifierBehaviorAsk,
-			Reason:      "LLM 응답 파싱 실패: " + err.Error(),
-			Unavailable: true,
+		return BashClassifierResult{Behavior: types.ClassifierBehaviorAsk, Reason: "파싱 실패", Unavailable: true}
+	}
+
+	// 1차 판정 결과가 확실하거나 웹 검색을 쓸 수 없는 경우
+	if (resp.Confidence == "high" && !resp.NeedsWeb) || search == nil {
+		return finalizeResult(resp)
+	}
+
+	// 2차: 웹 검색을 통한 지식 보강
+	searchQuery := fmt.Sprintf("shell command behavior and side effects: %s", command)
+	searchData, err := search(timeoutCtx, searchQuery)
+	if err != nil {
+		return finalizeResult(resp) // 검색 실패 시 1차 결과 반환
+	}
+
+	// 보강된 정보로 재심사
+	userPrompt = fmt.Sprintf(
+		`I searched for the command behavior. 
+Command: %s
+Search Evidence: %s
+
+Based on this evidence, is the command read-only?
+Respond with JSON: {"read_only": true|false, "confidence": "high"|"medium"|"low", "reason": "..."}`,
+		"`"+command+"`", searchData,
+	)
+
+	raw, err = subQuery(timeoutCtx, classifierSystemPrompt, userPrompt)
+	if err == nil {
+		if err := json.Unmarshal([]byte(extractJSON(raw)), &resp); err == nil {
+			resp.Reason = "[Web Search Used] " + resp.Reason
+			return finalizeResult(resp)
 		}
 	}
 
-	// medium/low 신뢰도는 불확실하므로 Ask로 폴백
+	return finalizeResult(resp)
+}
+
+func finalizeResult(resp llmClassifierResponse) BashClassifierResult {
 	if resp.Confidence != "high" {
-		return BashClassifierResult{
-			Behavior: types.ClassifierBehaviorAsk,
-			Reason:   resp.Reason,
-		}
+		return BashClassifierResult{Behavior: types.ClassifierBehaviorAsk, Reason: "신뢰도 낮음: " + resp.Reason}
 	}
-
 	if resp.ReadOnly {
-		return BashClassifierResult{
-			Behavior: types.ClassifierBehaviorAllow,
-			Reason:   resp.Reason,
-		}
+		return BashClassifierResult{Behavior: types.ClassifierBehaviorAllow, Reason: resp.Reason}
 	}
-	return BashClassifierResult{
-		Behavior: types.ClassifierBehaviorAsk,
-		Reason:   resp.Reason,
-	}
+	return BashClassifierResult{Behavior: types.ClassifierBehaviorAsk, Reason: resp.Reason}
 }
 
 // extractJSON 은 LLM 응답에서 첫 번째 JSON 객체를 추출한다.

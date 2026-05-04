@@ -1,0 +1,10 @@
+  The user provided a partial instruction: "sandbox-server에서" (In sandbox-server).
+  The user is pointing to a specific server `sandbox-server`.
+  However, there is no actual command or question following the server name.
+  I need to ask the user what they want to do on the `sandbox-server`.
+  Since the user's intent is unclear, I should use `ask_user` to clarify.
+  But first, I'll check if I can just acknowledge and wait, or if I should ask.
+  According to the instructions, I should provide brief status updates or ask questions if user input is needed.
+  I will ask the user what they want to do on `sandbox-server`.
+  sandbox-server에서 어떤 작업을 수행할까요? 원하시는 명령이나 작업 내용을 말씀해 주세요.                          
+

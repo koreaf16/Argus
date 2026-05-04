@@ -1,0 +1,18 @@
+  The user's input is "sandbox-server에서" which translates to "On sandbox-server". This is an incomplete sentence/request. The user has specified a target server (`sandbox-server`), but hasn't provided a command or an action to perform on it.
+  Looking at the available tools:
+  - `bash` or `powershell` could be used if they provide a command.
+  - `server_connect` is used to connect.
+  - `server_inspect`, `server_metrics`, etc., are used to check state.
+  Since the instruction is just a location ("on sandbox-server"), I need to ask the user what they want me to do on that server. I should not attempt to run anything yet.
+  However, before asking, I should check if I'm already connected or what the current state is. The user's input is extremely brief.
+  The most helpful response is to acknowledge the target server and ask for the specific task.
+  Wait, I should check if there are any active sessions or if I need to connect first.
+  The prompt says: "When a user says 'connect to X', 'switch workspace', 'X로 바꿔' etc., call `server_connect`."
+  The user just said "on sandbox-server". This isn't a direct request to connect, but it implies they want to do something there.
+  I'll respond by asking what they would like to do on `sandbox-server`.
+  Actually, looking at the "Output Efficiency" rules: "Be very concise. ... If it can be said in one sentence, don't use three."
+  I will ask "sandbox-server에서 어떤 작업을 수행할까요?" (What task should I perform on sandbox-server?) or similar.
+  But wait, I can also use `server_inspect` to see the status of `sandbox-server` to be ready.
+  Let's try to be helpful and proactive. I'll ask what they want to do.
+  sandbox-server에서 어떤 작업을 수행할까요? 수행할 명령이나 요청 사항을 말씀해 주세요.                            
+

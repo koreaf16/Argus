@@ -20,7 +20,7 @@ func (t *AccountShellTool) Name() string {
 }
 
 func (t *AccountShellTool) Description(ctx tool.Context) string {
-	return "List or close persistent account-scoped shell sessions."
+	return "지속적인 계정 범위의 셸 세션을 나열하거나 닫습니다."
 }
 
 func (t *AccountShellTool) InputSchema() tool.ToolInputJSONSchema {
@@ -29,17 +29,17 @@ func (t *AccountShellTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"description": "list or close",
+				"description": "작업 유형 (list 또는 close)",
 			},
 			"server": map[string]any{
 				"type":        "string",
-				"description": "Optional workspace alias. Defaults to active workspace.",
+				"description": "선택 사항: 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다.",
 			},
-			"role":    map[string]any{"type": "string", "description": "Optional workflow role."},
-			"channel": map[string]any{"type": "string", "description": "Optional workflow channel."},
+			"role":    map[string]any{"type": "string", "description": "선택 사항: 워크플로우 역할."},
+			"channel": map[string]any{"type": "string", "description": "선택 사항: 워크플로우 채널."},
 			"session_id": map[string]any{
 				"type":        "string",
-				"description": "Account shell session id to close.",
+				"description": "닫을 계정 셸 세션 ID.",
 			},
 		},
 		"required": []string{"action"},
@@ -57,7 +57,7 @@ func (t *AccountShellTool) MaxResultSizeChars() int {
 func (t *AccountShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
 	events := make(chan tool.ToolEvent, 2)
 	if ctx.Workspace == nil {
-		return nil, fmt.Errorf("workspace manager is unavailable")
+		return nil, fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
 	}
 
 	var req struct {
@@ -88,17 +88,17 @@ func (t *AccountShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 			events <- tool.NewDoneEvent()
 		case "close":
 			if strings.TrimSpace(req.SessionID) == "" {
-				events <- tool.NewErrorEvent(fmt.Errorf("session_id is required for close"))
+				events <- tool.NewErrorEvent(fmt.Errorf("닫기 작업을 위해 session_id가 필요합니다"))
 				return
 			}
 			if err := ctx.Workspace.CloseAccountShell(alias, req.SessionID); err != nil {
 				events <- tool.NewErrorEvent(err)
 				return
 			}
-			events <- tool.NewOutputEvent(fmt.Sprintf("closed account shell %s", req.SessionID))
+			events <- tool.NewOutputEvent(fmt.Sprintf("계정 셸 %s를 닫았습니다", req.SessionID))
 			events <- tool.NewDoneEvent()
 		default:
-			events <- tool.NewErrorEvent(fmt.Errorf("unknown action: %s", action))
+			events <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 작업: %s", action))
 		}
 	}()
 
@@ -121,6 +121,6 @@ func (t *AccountShellTool) CheckPermission(ctx tool.Context, input json.RawMessa
 	}
 	return tool.PermissionResult{
 		Behavior: types.BehaviorAsk,
-		Message:  "closing a persistent account shell requires approval",
+		Message:  "지속적인 계정 셸을 닫으려면 승인이 필요합니다",
 	}, nil
 }

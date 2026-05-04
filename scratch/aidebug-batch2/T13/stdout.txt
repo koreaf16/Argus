@@ -1,0 +1,7 @@
+  The user said "sandbox-server에서" which means "On sandbox-server". This is an incomplete sentence. The user is specifying a target server but hasn't provided an action or a command yet.
+  I should acknowledge that they've selected `sandbox-server` and ask them what they want to do on that server.
+  Plan:
+  1. Acknowledge the target server (`sandbox-server`).
+  2. Ask the user for the specific task or command they want to execute on `sandbox-server`.
+  sandbox-server에서 어떤 작업을 수행할까요? 명령어나 요청 사항을 말씀해 주세요.                                   
+

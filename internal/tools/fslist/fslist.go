@@ -75,19 +75,19 @@ func (t *FSListTool) Name() string {
 }
 
 func (t *FSListTool) Description(ctx tool.Context) string {
-	return "List directory entries from local or SSH workspaces."
+	return "로컬 또는 SSH 워크스페이스에서 디렉토리 항목을 나열합니다."
 }
 
 func (t *FSListTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"path":      map[string]any{"type": "string", "description": "Directory path to list"},
-			"server":    map[string]any{"type": "string", "description": "Optional workspace alias. Defaults to active workspace."},
-			"role":      map[string]any{"type": "string", "description": "Optional workflow role."},
-			"channel":   map[string]any{"type": "string", "description": "Optional workflow channel."},
-			"recursive": map[string]any{"type": "boolean", "description": "Whether to recursively list descendants"},
-			"depth":     map[string]any{"type": "integer", "description": "Maximum recursive depth. 0 means unlimited when recursive=true"},
+			"path":      map[string]any{"type": "string", "description": "나열할 디렉토리 경로"},
+			"server":    map[string]any{"type": "string", "description": "선택적 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다."},
+			"role":      map[string]any{"type": "string", "description": "선택적 워크플로우 역할."},
+			"channel":   map[string]any{"type": "string", "description": "선택적 워크플로우 채널."},
+			"recursive": map[string]any{"type": "boolean", "description": "하위 항목을 재귀적으로 나열할지 여부"},
+			"depth":     map[string]any{"type": "integer", "description": "최대 재귀 깊이. recursive=true일 때 0은 무제한을 의미합니다."},
 		},
 		"required": []string{"path"},
 	}
@@ -104,7 +104,7 @@ func (t *FSListTool) MaxResultSizeChars() int {
 func (t *FSListTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
 	events := make(chan tool.ToolEvent, 2)
 	if ctx.Workspace == nil {
-		return nil, fmt.Errorf("workspace manager is unavailable")
+		return nil, fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
 	}
 
 	var req struct {
@@ -161,7 +161,7 @@ func (t *FSListTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.
 
 func (t *FSListTool) CheckPermission(ctx tool.Context, input json.RawMessage) (tool.PermissionResult, error) {
 	if ctx.Workspace == nil {
-		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "workspace manager is unavailable"}, nil
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "워크스페이스 관리자를 사용할 수 없습니다"}, nil
 	}
 
 	rawServer := tool.ExtractStringInput(input, "server")
@@ -173,12 +173,12 @@ func (t *FSListTool) CheckPermission(ctx tool.Context, input json.RawMessage) (t
 	}
 	if strings.TrimSpace(alias) != "" && alias != "local" {
 		if _, ok := ctx.Workspace.Registry().Get(alias); !ok {
-			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("unknown server alias: %s", alias)}, nil
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("알 수 없는 서버 별칭: %s", alias)}, nil
 		}
 	}
 	path := strings.TrimSpace(tool.ExtractStringInput(input, "path"))
 	if path == "" {
-		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "path is required"}, nil
+		return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "경로가 필요합니다"}, nil
 	}
 	if tool.IsRemoteWorkspace(ctx, alias) {
 		return tool.DefaultAllowPermission(), nil

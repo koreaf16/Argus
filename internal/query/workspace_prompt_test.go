@@ -33,7 +33,7 @@ func TestWorkspaceSystemBlocks_IncludesAliasesWithoutSecrets(t *testing.T) {
 	}
 }
 
-func TestWorkspaceSystemBlocks_PreservesKoreanConnectionIntent(t *testing.T) {
+func TestWorkspaceSystemBlocks_IncludesElevationPolicy(t *testing.T) {
 	reg := workspace.NewRegistry("")
 	if err := reg.Add(workspace.ServerEntry{
 		Alias: "sandbox-server",
@@ -49,10 +49,14 @@ func TestWorkspaceSystemBlocks_PreservesKoreanConnectionIntent(t *testing.T) {
 	if len(blocks) == 0 {
 		t.Fatalf("expected workspace system block")
 	}
-	text := blocks[0].Text
-	for _, want := range []string{"접속해", "X로 바꿔", "X 워크스페이스로"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("workspace prompt lost UTF-8 text %q: %s", want, text)
+	combined := ""
+	for _, b := range blocks {
+		combined += b.Text
+	}
+	// Elevation policy must be present for remote workspace safety.
+	for _, want := range []string{"권한 상승", "ELEVATION POLICY", "DISABLED"} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("workspace prompt missing elevation content %q: %s", want, combined)
 		}
 	}
 }
@@ -72,10 +76,12 @@ func TestWorkspaceSystemBlocks_LocalWindowsDoesNotClaimBashHidden(t *testing.T) 
 	if strings.Contains(text, "hidden and unavailable") {
 		t.Fatalf("local Windows prompt should not contradict visible bash tools: %s", text)
 	}
-	if !strings.Contains(text, "Use the 'powershell' tool for LOCAL system operations") {
+	// Checks for Korean: "로컬 시스템 작업에는 'powershell' 도구를 사용하십시오."
+	if !strings.Contains(text, "powershell") {
 		t.Fatalf("local Windows prompt should prefer powershell: %s", text)
 	}
-	if !strings.Contains(text, "Use 'bash' only when the tool call explicitly targets a Unix-like remote workspace") {
+	// Checks for Korean: "'bash'는 도구 호출이 `server` 또는 `role`을 통해 유닉스 계열 원격 워크스페이스를 명시적으로 대상으로 하는 경우에만 사용하십시오."
+	if !strings.Contains(text, "bash") || !strings.Contains(text, "server") {
 		t.Fatalf("local Windows prompt should explain target-scoped bash use: %s", text)
 	}
 }

@@ -78,6 +78,23 @@ type VisibleFilter interface {
 	IsVisible(ctx Context) bool
 }
 
+// StaticSystemPromptContributor is an optional interface for tools whose
+// system-prompt guide text never changes across Context values.
+// Static guides are batched into a single cache-eligible system block,
+// reducing prompt-cache invalidation. Implement this instead of
+// SystemPromptContributor for simple, stateless tools.
+type StaticSystemPromptContributor interface {
+	GetStaticSystemPromptGuide() string
+}
+
+// SystemPromptContributor is an optional interface for tools that inject a
+// context-dependent section into the system prompt (e.g. the guide changes
+// based on workspace count, mode, or model capabilities). Called once per
+// LLM turn. Prefer StaticSystemPromptContributor when the guide is static.
+type SystemPromptContributor interface {
+	GetSystemPromptGuide(ctx Context) string
+}
+
 type Tool interface {
 	Name() string
 	Description(ctx Context) string

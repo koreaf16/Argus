@@ -64,18 +64,18 @@ func (t *GrepTool) Name() string {
 }
 
 func (t *GrepTool) Description(ctx tool.Context) string {
-	return "Search for a pattern in files."
+	return "파일에서 패턴을 검색합니다."
 }
 
 func (t *GrepTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"pattern": map[string]any{"type": "string", "description": "The search pattern"},
-			"path":    map[string]any{"type": "string", "description": "The file or directory to search"},
-			"server":  map[string]any{"type": "string", "description": "Optional workspace alias. Defaults to active workspace."},
-			"role":    map[string]any{"type": "string", "description": "Optional workflow role."},
-			"channel": map[string]any{"type": "string", "description": "Optional workflow channel."},
+			"pattern": map[string]any{"type": "string", "description": "검색 패턴"},
+			"path":    map[string]any{"type": "string", "description": "검색할 파일 또는 디렉토리"},
+			"server":  map[string]any{"type": "string", "description": "선택적 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다."},
+			"role":    map[string]any{"type": "string", "description": "선택적 워크플로우 역할."},
+			"channel": map[string]any{"type": "string", "description": "선택적 워크플로우 채널."},
 		},
 		"required": []string{"pattern", "path"},
 	}
@@ -111,12 +111,12 @@ func (t *GrepTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 			return
 		}
 		if strings.TrimSpace(targetAlias) != "" && targetAlias != "local" && ctx.Workspace == nil {
-			events <- tool.NewErrorEvent(fmt.Errorf("workspace manager is unavailable"))
+			events <- tool.NewErrorEvent(fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다"))
 			return
 		}
 		if strings.TrimSpace(targetAlias) != "" && ctx.Workspace != nil {
 			if _, ok := ctx.Workspace.Registry().Get(targetAlias); !ok {
-				events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", targetAlias))
+				events <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 서버 별칭: %s", targetAlias))
 				return
 			}
 		}
@@ -163,10 +163,10 @@ func (t *GrepTool) CheckPermission(ctx tool.Context, input json.RawMessage) (too
 	}
 	if strings.TrimSpace(targetAlias) != "" && targetAlias != "local" {
 		if ctx.Workspace == nil {
-			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "workspace manager is unavailable"}, nil
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "워크스페이스 관리자를 사용할 수 없습니다"}, nil
 		}
 		if _, ok := ctx.Workspace.Registry().Get(targetAlias); !ok {
-			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("unknown server alias: %s", targetAlias)}, nil
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("알 수 없는 서버 별칭: %s", targetAlias)}, nil
 		}
 	}
 	if tool.IsRemoteWorkspace(ctx, targetAlias) {
@@ -254,7 +254,7 @@ func appendMatches(out *strings.Builder, re *regexp.Regexp, path string) error {
 
 func runRemoteSearch(ctx tool.Context, alias, pattern, path string) (string, error) {
 	if ctx.Workspace == nil {
-		return "", fmt.Errorf("workspace manager is unavailable")
+		return "", fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
 	}
 	patternQ := tool.POSIXShellQuote(pattern)
 	pathQ := tool.POSIXShellQuote(path)
@@ -268,7 +268,7 @@ func runRemoteSearch(ctx tool.Context, alias, pattern, path string) (string, err
 		return "", err
 	}
 	if res.Code != 0 {
-		return "", fmt.Errorf("remote grep failed: %s", strings.TrimSpace(res.Stdout+res.Stderr))
+		return "", fmt.Errorf("원격 grep 실행 실패: %s", strings.TrimSpace(res.Stdout+res.Stderr))
 	}
 	return res.Stdout, nil
 }

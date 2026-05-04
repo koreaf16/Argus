@@ -56,18 +56,18 @@ func (t *FileWriteTool) Name() string {
 }
 
 func (t *FileWriteTool) Description(ctx tool.Context) string {
-	return "Write content to a file. Overwrites existing files."
+	return "파일에 내용을 작성합니다. 기존 파일이 있으면 덮어씁니다."
 }
 
 func (t *FileWriteTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "The path to the file to write"},
-			"content": map[string]any{"type": "string", "description": "The content to write"},
-			"server":  map[string]any{"type": "string", "description": "Optional workspace alias. Defaults to active workspace."},
-			"role":    map[string]any{"type": "string", "description": "Optional workflow role."},
-			"channel": map[string]any{"type": "string", "description": "Optional workflow channel."},
+			"path":    map[string]any{"type": "string", "description": "작성할 파일의 경로"},
+			"content": map[string]any{"type": "string", "description": "작성할 내용"},
+			"server":  map[string]any{"type": "string", "description": "선택적 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다."},
+			"role":    map[string]any{"type": "string", "description": "선택적 워크플로우 역할."},
+			"channel": map[string]any{"type": "string", "description": "선택적 워크플로우 채널."},
 		},
 		"required": []string{"path", "content"},
 	}
@@ -107,12 +107,12 @@ func (t *FileWriteTool) Call(ctx tool.Context, input json.RawMessage) (<-chan to
 			return
 		}
 		if strings.TrimSpace(targetAlias) != "" && targetAlias != "local" && ctx.Workspace == nil {
-			events <- tool.NewErrorEvent(fmt.Errorf("workspace manager is unavailable"))
+			events <- tool.NewErrorEvent(fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다"))
 			return
 		}
 		if strings.TrimSpace(targetAlias) != "" && ctx.Workspace != nil {
 			if _, ok := ctx.Workspace.Registry().Get(targetAlias); !ok {
-				events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", targetAlias))
+				events <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 서버 별칭: %s", targetAlias))
 				return
 			}
 		}
@@ -122,7 +122,7 @@ func (t *FileWriteTool) Call(ctx tool.Context, input json.RawMessage) (<-chan to
 			return
 		}
 
-		events <- tool.NewOutputEvent("File written successfully")
+		events <- tool.NewOutputEvent("파일을 성공적으로 작성했습니다")
 		events <- tool.NewDoneEvent()
 	}()
 
@@ -142,22 +142,22 @@ func (t *FileWriteTool) CheckPermission(ctx tool.Context, input json.RawMessage)
 	}
 	if strings.TrimSpace(targetAlias) != "" && targetAlias != "local" {
 		if ctx.Workspace == nil {
-			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "workspace manager is unavailable"}, nil
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "워크스페이스 관리자를 사용할 수 없습니다"}, nil
 		}
 		if _, ok := ctx.Workspace.Registry().Get(targetAlias); !ok {
-			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("unknown server alias: %s", targetAlias)}, nil
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: fmt.Sprintf("알 수 없는 서버 별칭: %s", targetAlias)}, nil
 		}
 	}
 	if tool.IsRemoteWorkspace(ctx, targetAlias) {
 		if isSensitiveWritePath(tool.ExtractStringInput(input, "path")) {
-			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "write to sensitive path is denied"}, nil
+			return tool.PermissionResult{Behavior: types.BehaviorDeny, Message: "민감한 경로에 대한 쓰기가 거부되었습니다"}, nil
 		}
 		if tool.IsWriteModeAllowed(ctx) {
 			return tool.DefaultAllowPermission(), nil
 		}
 		return tool.PermissionResult{
 			Behavior: types.BehaviorAsk,
-			Message:  "writing files requires approval in the current mode",
+			Message:  "현재 모드에서 파일을 작성하려면 승인이 필요합니다",
 		}, nil
 	}
 	path := tool.ExtractStringInput(input, "path")
@@ -169,14 +169,14 @@ func (t *FileWriteTool) CheckPermission(ctx tool.Context, input json.RawMessage)
 	}
 	return tool.PermissionResult{
 		Behavior: types.BehaviorAsk,
-		Message:  "writing files requires approval in the current mode",
+		Message:  "현재 모드에서 파일을 작성하려면 승인이 필요합니다",
 	}, nil
 }
 
 func writeContent(ctx tool.Context, alias, path string, content []byte) error {
 	if tool.IsRemoteWorkspace(ctx, alias) {
 		if ctx.Workspace == nil {
-			return fmt.Errorf("workspace manager is unavailable")
+			return fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
 		}
 		return ctx.Workspace.WriteFile(ctx.Context, alias, path, content, true)
 	}
@@ -189,7 +189,7 @@ func writeContent(ctx tool.Context, alias, path string, content []byte) error {
 
 func writeFileAtomic(path string, content []byte, perm os.FileMode) error {
 	if path == "" {
-		return fmt.Errorf("path is required")
+		return fmt.Errorf("경로가 필요합니다")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

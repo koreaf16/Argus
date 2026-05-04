@@ -1,14 +1,14 @@
 package query
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/koreaf16/argus/internal/services/llm"
 	"github.com/koreaf16/argus/internal/state"
 	tool "github.com/koreaf16/argus/internal/tools"
+	"github.com/koreaf16/argus/internal/utils/permissions"
 )
 
 type evidencePlan struct {
@@ -34,108 +34,10 @@ func evidenceToolExposureEnabled(cfg Config, registry *tool.Registry) bool {
 	return ok
 }
 
-func buildEvidencePlan(userText string, appState *state.AppState) evidencePlan {
-	plan := evidencePlan{Required: make(map[string]bool)}
-	if isSimpleGreeting(userText) {
-		return plan
-	}
-	text := normalizeIntentText(userText)
-	add := func(category string, reason string) {
-		plan.Required[category] = true
-		if reason != "" {
-			plan.Reasons = append(plan.Reasons, reason)
-		}
-	}
-
-	if appState != nil {
-		if appState.PendingWorkflowInit() {
-			add(tool.EvidencePlanning, "multi-step workflow initialization is pending")
-		}
-		if card := appState.WorkflowCard(); card != nil {
-			switch strings.ToLower(strings.TrimSpace(card.Phase)) {
-			case state.WorkflowPhaseDiscover:
-				add(tool.EvidenceServerState, "discover phase needs environment state")
-			case state.WorkflowPhaseResearch:
-				add(tool.EvidenceExternalFresh, "research phase needs fresh external evidence")
-			case state.WorkflowPhaseInterview:
-				add(tool.EvidenceUserDecision, "interview phase needs user decisions")
-			case state.WorkflowPhasePlan:
-				add(tool.EvidencePlanning, "plan phase needs planning tools")
-			case state.WorkflowPhaseExecute:
-				add(tool.EvidenceMutation, "execute phase needs action tools")
-			case state.WorkflowPhaseVerify:
-				add(tool.EvidenceLocalCode, "verify phase needs concrete checks")
-				add(tool.EvidenceServerState, "verify phase may need service state")
-			}
-		}
-	}
-
-	preferredDomains := detectPreferredDomains(text)
-	if isLikelyExternalKnowledgeRequest(text, preferredDomains) || hasExplicitFreshExternalSignal(text, preferredDomains) {
-		add(tool.EvidenceExternalFresh, "request depends on current or external facts")
-	}
-	if isLocalCodeEvidenceRequest(text) {
-		add(tool.EvidenceLocalCode, "request depends on repository or file evidence")
-	}
-	if isServerEvidenceRequest(text) || isLocalOperationalInspectionRequest(text) {
-		add(tool.EvidenceServerState, "request depends on server or runtime state")
-	}
-	if isUserDecisionEvidenceRequest(text) {
-		add(tool.EvidenceUserDecision, "request needs an explicit user decision")
-	}
-	if isPlanningEvidenceRequest(text) {
-		add(tool.EvidencePlanning, "request asks for planning")
-	}
-	if isMutationEvidenceRequest(text) {
-		add(tool.EvidenceMutation, "request asks Argus to change or execute something")
-	}
-	return plan
-}
-
-func isLocalCodeEvidenceRequest(text string) bool {
-	return hasAnyTerm(text, []string{
-		"repo", "repository", "code", "file", "project", "workspace", "build",
-		"test", "compile", "lint", "bug", "error", "stack trace", "failing",
-		"function", "class", "package", "module", "go test", "npm run",
-		"\ud504\ub85c\uc81d\ud2b8", "\ucf54\ub4dc", "\ud30c\uc77c", "\ube4c\ub4dc",
-		"\ud14c\uc2a4\ud2b8", "\uc5d0\ub7ec", "\ubc84\uadf8",
-	})
-}
-
-func isServerEvidenceRequest(text string) bool {
-	return hasAnyTerm(text, []string{
-		"server", "ssh", "remote", "host", "service", "daemon", "systemctl",
-		"journalctl", "docker", "kubectl", "kubernetes", "nginx", "postgres",
-		"postgresql", "mysql", "oracle", "redis", "deploy", "install",
-		"\uc11c\ubc84", "\uc6d0\uaca9", "\uc11c\ube44\uc2a4", "\uc811\uc18d",
-		"\uc124\uce58", "\ubc30\ud3ec",
-	})
-}
-
-func isUserDecisionEvidenceRequest(text string) bool {
-	return hasAnyTerm(text, []string{
-		"ask me", "confirm with me", "choose", "which option", "user approval",
-		"decision", "preference", "credential", "password", "api key",
-		"\ubb3c\uc5b4", "\ud655\uc778\ubc1b", "\uc120\ud0dd", "\uc2b9\uc778",
-	})
-}
-
-func isPlanningEvidenceRequest(text string) bool {
-	return hasAnyTerm(text, []string{
-		"plan", "proposal", "design", "architecture", "approach", "strategy",
-		"roadmap", "steps", "checklist",
-		"\ud50c\ub79c", "\uacc4\ud68d", "\uc124\uacc4", "\uc808\ucc28",
-	})
-}
-
-func isMutationEvidenceRequest(text string) bool {
-	return hasAnyTerm(text, []string{
-		"implement", "fix", "change", "edit", "write", "create", "delete",
-		"remove", "update", "upgrade", "install", "deploy", "migrate", "run",
-		"execute", "apply", "start", "stop", "restart",
-		"\uad6c\ud604", "\uc218\uc815", "\uace0\uccd0", "\uc791\uc131",
-		"\uc0ad\uc81c", "\uc124\uce58", "\ubc30\ud3ec", "\uc2e4\ud589",
-	})
+// buildEvidencePlan은 키워드 매칭 없이 항상 빈 플랜을 반환합니다.
+// EvidenceToolExposure=false이므로 이 함수는 호출되지 않습니다.
+func buildEvidencePlan(_ string, _ *state.AppState) evidencePlan {
+	return evidencePlan{Required: make(map[string]bool)}
 }
 
 func filterToolSpecsForEvidence(specs []llm.ToolSpec, registry *tool.Registry, plan evidencePlan, selected map[string]bool) []llm.ToolSpec {
@@ -200,9 +102,17 @@ func isToolExposed(name string, exposed map[string]bool) bool {
 	return exposed[tool.CanonicalName(name)]
 }
 
-func evidenceBlocksPrematureMutation(call llm.ToolUseStart, plan evidencePlan, st evidenceState, registry *tool.Registry) (bool, string) {
-	readOnly := evidenceToolCallReadOnly(call, registry)
-	// 읽기 전용(조회성) 명령어는 증거 수집 여부와 상관없이 항상 허용합니다.
+func evidenceBlocksPrematureMutation(
+	ctx context.Context,
+	call llm.ToolUseStart,
+	plan evidencePlan,
+	st evidenceState,
+	registry *tool.Registry,
+	subQuery permissions.SubQueryFunc,
+	search permissions.SearchFunc,
+	fetch permissions.FetchFunc,
+) (bool, string) {
+	readOnly := evidenceToolCallReadOnly(ctx, call, registry, subQuery, search, fetch)
 	if readOnly {
 		return false, ""
 	}
@@ -213,47 +123,26 @@ func evidenceBlocksPrematureMutation(call llm.ToolUseStart, plan evidencePlan, s
 	if len(missing) == 0 {
 		return false, ""
 	}
-	sort.Strings(missing)
-	return true, fmt.Sprintf("mutation tool %q is blocked until required evidence is collected: %s. Gather evidence first or call tool_search if the needed evidence tool is not exposed.", call.Name, strings.Join(missing, ", "))
-}
-
-func evidencePrerequisitePlan(plan evidencePlan) evidencePlan {
-	out := evidencePlan{Required: make(map[string]bool)}
-	for category := range plan.Required {
-		if category == tool.EvidenceMutation {
-			continue
-		}
-		out.Required[category] = true
-	}
-	return out
-}
-
-func evidenceToolCallReadOnly(call llm.ToolUseStart, registry *tool.Registry) bool {
-	canonical := tool.CanonicalName(call.Name)
-	switch canonical {
-	case "bash":
-		return tool.IsReadOnlyShellCommand(extractToolInputString(call.Input, "command"), "bash")
-	case "powershell":
-		return tool.IsReadOnlyShellCommand(extractToolInputString(call.Input, "command"), "powershell")
-	}
-	if registry == nil {
-		return true
-	}
-	if impl, ok := registry.Lookup(call.Name); ok {
-		return impl.IsReadOnly()
-	}
-	return true
+	return true, ""
 }
 
 func hiddenToolCallMessage(name string) string {
-	return fmt.Sprintf("tool %q is not available for the current evidence-gated step. Use tool_search or gather the required evidence with the exposed tools before calling it.", name)
+	return "tool \"" + name + "\" is not available for the current evidence-gated step. Use tool_search or gather the required evidence with the exposed tools before calling it."
 }
 
-func (st *evidenceState) ObserveToolResult(call llm.ToolUseStart, isErr bool, registry *tool.Registry) {
+func (st *evidenceState) ObserveToolResult(
+	ctx context.Context,
+	call llm.ToolUseStart,
+	isErr bool,
+	registry *tool.Registry,
+	subQuery permissions.SubQueryFunc,
+	search permissions.SearchFunc,
+	fetch permissions.FetchFunc,
+) {
 	if isErr {
 		return
 	}
-	readOnly := evidenceToolCallReadOnly(call, registry)
+	readOnly := evidenceToolCallReadOnly(ctx, call, registry, subQuery, search, fetch)
 	for _, category := range tool.ToolEvidenceCategories(call.Name, readOnly) {
 		switch category {
 		case tool.EvidenceLocalCode:
@@ -284,26 +173,17 @@ func shouldForceEvidenceContinuation(plan evidencePlan, st evidenceState, cfg Co
 }
 
 func buildEvidenceFollowUpPrompt(plan evidencePlan, st evidenceState) string {
-	missing := missingEvidenceCategories(plan, st)
-	sort.Strings(missing)
-	var sb strings.Builder
-	sb.WriteString("Do not finalize your answer yet.\n")
-	sb.WriteString("Resume directly. You need concrete evidence before answering or executing further.\n")
-	sb.WriteString("Missing evidence categories: ")
-	sb.WriteString(strings.Join(missing, ", "))
-	sb.WriteString(".\n")
-	sb.WriteString("Use the exposed evidence tools now. If the needed tool is not exposed, call tool_search with the missing evidence category first, then use the returned tool in the next step.\n")
-	sb.WriteString("Do not claim a fact, file state, server state, or completed change until a tool result supports it.")
-	return sb.String()
+	_ = plan
+	_ = st
+	return "Do not finalize your answer yet. Resume directly with the required evidence tools."
 }
 
 func buildEvidenceFailureMessage(plan evidencePlan, st evidenceState) string {
 	missing := missingEvidenceCategories(plan, st)
-	sort.Strings(missing)
 	if len(missing) == 0 {
 		return "Evidence checks passed."
 	}
-	return fmt.Sprintf("Required evidence was not collected: %s. I am not providing an unsupported answer.", strings.Join(missing, ", "))
+	return "Required evidence was not collected. I am not providing an unsupported answer."
 }
 
 func missingEvidenceCategories(plan evidencePlan, st evidenceState) []string {
@@ -339,6 +219,20 @@ func missingEvidenceCategories(plan evidencePlan, st evidenceState) []string {
 	return missing
 }
 
+func prefillEvidenceFromHistory(ctx context.Context, st *evidenceState, messages []llm.Message, registry *tool.Registry) {
+	const lookback = 20
+	start := max(0, len(messages)-lookback)
+	for _, msg := range messages[start:] {
+		for _, block := range msg.Content {
+			if block.Type != llm.ContentToolResult || block.IsError {
+				continue
+			}
+			call := llm.ToolUseStart{ID: block.ToolUseID, Name: block.Name, Input: block.Input}
+			st.ObserveToolResult(ctx, call, false, registry, nil, nil, nil)
+		}
+	}
+}
+
 func parseToolSearchResultNames(result string) []string {
 	var payload struct {
 		Candidates []struct {
@@ -354,6 +248,84 @@ func parseToolSearchResultNames(result string) []string {
 		if name != "" {
 			out = append(out, name)
 		}
+	}
+	return out
+}
+
+func evidencePrerequisitePlan(plan evidencePlan) evidencePlan {
+	out := evidencePlan{Required: make(map[string]bool)}
+	for category := range plan.Required {
+		if category == tool.EvidenceMutation {
+			continue
+		}
+		out.Required[category] = true
+	}
+	return out
+}
+
+func evidenceToolCallReadOnly(
+	ctx context.Context,
+	call llm.ToolUseStart,
+	registry *tool.Registry,
+	subQuery permissions.SubQueryFunc,
+	search permissions.SearchFunc,
+	fetch permissions.FetchFunc,
+) bool {
+	canonical := tool.CanonicalName(call.Name)
+	if canonical == "bash" || canonical == "powershell" {
+		command := extractToolInputString(call.Input, "command")
+		if command == "" {
+			return false
+		}
+		if tool.IsReadOnlyShellCommand(command, canonical) {
+			return true
+		}
+		if subQuery != nil {
+			result := permissions.ClassifyBashCommand(ctx, command, permissions.NewDenialTrackingState(), subQuery, search, fetch)
+			return result.Behavior == "allow"
+		}
+		return false
+	}
+	if registry == nil {
+		return true
+	}
+	if impl, ok := registry.Lookup(call.Name); ok {
+		return impl.IsReadOnly()
+	}
+	return true
+}
+
+// extractTraceServers는 도구 호출에서 서버 별칭을 추출합니다.
+func extractTraceServers(toolName string, input []byte) []string {
+	var raw map[string]any
+	if err := json.Unmarshal(input, &raw); err != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, 2)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	if v, ok := raw["server"].(string); ok {
+		add(v)
+	}
+	canonical := tool.CanonicalName(toolName)
+	if canonical == "server_copy" {
+		for _, key := range []string{"src", "dst"} {
+			if s, ok := raw[key].(string); ok {
+				if i := strings.Index(s, ":"); i > 0 {
+					add(s[:i])
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

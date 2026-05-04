@@ -77,6 +77,8 @@ type ExecOptions struct {
 	WorkingDir string
 	// Shell may be "", "bash", or "powershell".
 	Shell string
+	// Timeout specifies the maximum duration for the command.
+	Timeout time.Duration
 	// ChunkCallback streams stdout chunks while the command is running.
 	ChunkCallback func(string)
 	// Optional passwords for session priming

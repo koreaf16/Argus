@@ -3,7 +3,6 @@ package constants
 const (
 	BashToolName      = "bash"
 	WebSearchToolName = "web_search"
-	TodoWriteToolName = "TodoWrite"
 
 	EnterPlanModeToolName       = "enter_plan_mode"
 	ExitPlanModeToolName        = "exit_plan_mode"

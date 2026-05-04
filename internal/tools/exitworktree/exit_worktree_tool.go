@@ -8,7 +8,7 @@ import (
 type ExitWorktreeTool struct{}
 
 func NewExitWorktreeTool() *ExitWorktreeTool { return &ExitWorktreeTool{} }
-func (t *ExitWorktreeTool) Name() string     { return "ExitWorktreeTool" }
+func (t *ExitWorktreeTool) Name() string     { return "exit_worktree" }
 func (t *ExitWorktreeTool) Description(ctx tools.Context) string {
 	return "현재 작업 트리 환경을 종료합니다."
 }

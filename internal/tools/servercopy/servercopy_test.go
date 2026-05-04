@@ -2,6 +2,7 @@ package servercopy
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/koreaf16/argus/internal/services/workspace"
@@ -25,6 +26,19 @@ func newTestContext(t *testing.T) tool.Context {
 	return tool.Context{
 		Context:   context.Background(),
 		Workspace: workspace.NewManager(reg, nil),
+	}
+}
+
+func TestServerCopyPromptGuideDocumentsLocalToRemote(t *testing.T) {
+	guide := NewServerCopyTool().GetSystemPromptGuide(tool.Context{})
+	for _, want := range []string{
+		`src="local:docs/README.md"`,
+		`dst="sandbox-server:/tmp/README.md"`,
+		"verify the source with glob or fs_list, then call server_copy immediately",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("server_copy prompt guide missing %q in:\n%s", want, guide)
+		}
 	}
 }
 

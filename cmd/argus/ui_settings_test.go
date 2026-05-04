@@ -10,11 +10,9 @@ import (
 
 func TestLoadUISettingsMissingFileUsesDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
-	got := loadUISettings(path)
-	want := tui.DefaultUISettings()
-
-	if got != want {
-		t.Fatalf("expected defaults %+v, got %+v", want, got)
+	got := tui.LoadUISettings(path)
+	if got.Theme != tui.DefaultUITheme {
+		t.Fatalf("expected default theme, got %q", got.Theme)
 	}
 }
 
@@ -23,19 +21,17 @@ func TestLoadUISettingsParsesAndNormalizes(t *testing.T) {
 	path := filepath.Join(dir, "settings.json")
 	data := `{
   "ui": {
-    "theme": "classic",
+    "theme": "dark",
     "variant": "minimal-pro",
     "motion": {
       "enabled": false,
       "level": "expressive",
-      "tick_ms": 5,
-      "reduced": true,
-      "signature": false
+      "tick_ms": 50,
+      "reduced": true
     },
     "streaming": {
-      "mode": "line-stable",
+      "mode": "TOKEN-LIVE",
       "hide_unstable_markdown_tail": false,
-      "flush_plain_text_partial": false,
       "render_code_blocks_stable": false
     }
   }
@@ -44,10 +40,10 @@ func TestLoadUISettingsParsesAndNormalizes(t *testing.T) {
 		t.Fatalf("write settings: %v", err)
 	}
 
-	got := loadUISettings(path)
+	got := tui.LoadUISettings(path)
 
-	if got.Theme != "classic" {
-		t.Fatalf("expected theme classic, got %q", got.Theme)
+	if got.Theme != "dark" {
+		t.Fatalf("expected theme dark, got %q", got.Theme)
 	}
 	if got.Variant != "minimal-pro" {
 		t.Fatalf("expected variant minimal-pro, got %q", got.Variant)
@@ -58,26 +54,39 @@ func TestLoadUISettingsParsesAndNormalizes(t *testing.T) {
 	if got.Motion.Level != "expressive" {
 		t.Fatalf("expected motion.level expressive, got %q", got.Motion.Level)
 	}
-	if got.Motion.TickMS != 20 {
-		t.Fatalf("expected motion.tick_ms clamped to 20, got %d", got.Motion.TickMS)
+	if got.Motion.TickMS != 50 {
+		t.Fatalf("expected motion.tick_ms=50, got %d", got.Motion.TickMS)
 	}
 	if !got.Motion.Reduced {
 		t.Fatalf("expected motion.reduced=true")
 	}
-	if got.Motion.Signature {
-		t.Fatalf("expected motion.signature=false")
-	}
-	if got.Streaming.Mode != "line-stable" {
-		t.Fatalf("expected streaming.mode line-stable, got %q", got.Streaming.Mode)
+	if got.Streaming.Mode != "token-live" {
+		t.Fatalf("expected streaming.mode token-live, got %q", got.Streaming.Mode)
 	}
 	if got.Streaming.HideUnstableMarkdown {
-		t.Fatalf("expected hide_unstable_markdown_tail=false")
-	}
-	if got.Streaming.FlushPlainTextPartial {
-		t.Fatalf("expected flush_plain_text_partial=false")
+		t.Fatalf("expected hide_unstable_markdown=false")
 	}
 	if got.Streaming.RenderCodeBlocksStable {
 		t.Fatalf("expected render_code_blocks_stable=false")
+	}
+}
+
+func TestLoadUISettingsViewThinking(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	data := `{
+  "ui": {
+    "view_thinking": true
+  }
+}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	got := tui.LoadUISettings(path)
+
+	if !got.ViewThinking {
+		t.Fatalf("expected view_thinking=true")
 	}
 }
 
@@ -86,14 +95,12 @@ func TestLoadUISettingsInvalidValuesFallback(t *testing.T) {
 	path := filepath.Join(dir, "settings.json")
 	data := `{
   "ui": {
-    "theme": "   ",
-    "variant": "neon-x",
     "motion": {
-      "level": "ultra-fast",
+      "level": "INVALID",
       "tick_ms": 5000
     },
     "streaming": {
-      "mode": "unstable"
+      "mode": "UNKNOWN"
     }
   }
 }`
@@ -101,16 +108,10 @@ func TestLoadUISettingsInvalidValuesFallback(t *testing.T) {
 		t.Fatalf("write settings: %v", err)
 	}
 
-	got := loadUISettings(path)
+	got := tui.LoadUISettings(path)
 
-	if got.Theme != tui.DefaultUITheme {
-		t.Fatalf("expected default theme %q, got %q", tui.DefaultUITheme, got.Theme)
-	}
-	if got.Variant != tui.DefaultUIVariant {
-		t.Fatalf("expected default variant %q, got %q", tui.DefaultUIVariant, got.Variant)
-	}
 	if got.Motion.Level != tui.DefaultMotionLevel {
-		t.Fatalf("expected default motion.level %q, got %q", tui.DefaultMotionLevel, got.Motion.Level)
+		t.Fatalf("expected default motion level, got %q", got.Motion.Level)
 	}
 	if got.Motion.TickMS != 1000 {
 		t.Fatalf("expected motion.tick_ms clamped to 1000, got %d", got.Motion.TickMS)
@@ -119,4 +120,3 @@ func TestLoadUISettingsInvalidValuesFallback(t *testing.T) {
 		t.Fatalf("expected default streaming.mode %q, got %q", tui.DefaultStreamingMode, got.Streaming.Mode)
 	}
 }
-

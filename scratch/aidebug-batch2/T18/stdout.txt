@@ -1,0 +1,16 @@
+  The user's prompt is "sandbox-server에서" which translates to "In sandbox-server". This is an incomplete sentence/instruction. The user has specified a target server (`sandbox-server`) but hasn't provided any action or command to perform on it.
+  According to the "Output Efficiency" directive: "Do not repeat what the user said. Just execute. ... Text output should be focused on: decisions that require user input, high-level status updates at natural milestones, or error descriptions or blockers that change the plan."
+  Since I cannot perform any action without a command, and I shouldn't just guess, I need to ask the user what they want to do on the `sandbox-server`.
+  However, I should first check if I can even connect to it or if there are any existing sessions/info. But the user's intent is clearly to *do* something *on* that server.
+  Wait, the user might be setting the context for a subsequent instruction. But as an AI, I should prompt for the missing information.
+  I'll acknowledge the target server and ask for the instruction.
+  Wait, look at the available tools. `server_inspect` or `server_metrics` could be used if they just wanted to see what's there, but "sandbox-server에서" is too vague.
+  I will respond asking what they want to do on `sandbox-server`.
+  Actually, let's check if `sandbox-server` is a valid alias.
+  The workspace list says:
+  - `sandbox-server` (kind=ssh, user=sandbox, host=192.168.0.130, port=22)
+    elevation: ENABLED
+  So I know the server.
+  I will ask the user for the command or task they want to perform on the `sandbox-server`.
+  sandbox-server에서 어떤 작업을 수행할까요? 명령어나 요청 사항을 알려주세요.                                      
+

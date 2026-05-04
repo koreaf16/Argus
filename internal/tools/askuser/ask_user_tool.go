@@ -24,30 +24,31 @@ func (t *AskUserTool) Name() string {
 }
 
 func (t *AskUserTool) Description(ctx tools.Context) string {
-	return "Ask the user one or more interactive questions and return the answers."
+	return "사용자에게 하나 이상의 대화형 질문을 하고 답변을 반환합니다."
 }
 
 func (t *AskUserTool) InputSchema() tools.ToolInputJSONSchema {
 	questionSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"id":           map[string]any{"type": "string"},
-			"header":       map[string]any{"type": "string"},
-			"question":     map[string]any{"type": "string"},
-			"type":         map[string]any{"type": "string", "enum": []string{"text", "choice", "yesno"}},
-			"placeholder":  map[string]any{"type": "string"},
-			"default":      map[string]any{"type": "string"},
-			"multi_select": map[string]any{"type": "boolean"},
-			"required":     map[string]any{"type": "boolean"},
-			"preview":      map[string]any{"type": "string"},
+			"id":           map[string]any{"type": "string", "description": "질문 식별 ID"},
+			"header":       map[string]any{"type": "string", "description": "질문 상단에 표시될 헤더 텍스트"},
+			"question":     map[string]any{"type": "string", "description": "사용자에게 물어볼 질문 내용"},
+			"type":         map[string]any{"type": "string", "enum": []string{"text", "choice", "yesno"}, "description": "질문 유형 (text, choice, yesno)"},
+			"placeholder":  map[string]any{"type": "string", "description": "입력 필드의 힌트 텍스트"},
+			"default":      map[string]any{"type": "string", "description": "기본값"},
+			"multi_select": map[string]any{"type": "boolean", "description": "다중 선택 가능 여부 (choice 유형 전용)"},
+			"required":     map[string]any{"type": "boolean", "description": "필수 답변 여부"},
+			"preview":      map[string]any{"type": "string", "description": "미리보기 텍스트"},
 			"options": map[string]any{
 				"type": "array",
+				"description": "선택 옵션 목록 (choice 유형 전용)",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"value":       map[string]any{"type": "string"},
-						"label":       map[string]any{"type": "string"},
-						"description": map[string]any{"type": "string"},
+						"value":       map[string]any{"type": "string", "description": "옵션의 실제 값"},
+						"label":       map[string]any{"type": "string", "description": "사용자에게 보여줄 라벨"},
+						"description": map[string]any{"type": "string", "description": "옵션에 대한 추가 설명"},
 					},
 				},
 			},
@@ -58,16 +59,17 @@ func (t *AskUserTool) InputSchema() tools.ToolInputJSONSchema {
 	return tools.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"question":     map[string]any{"type": "string"},
-			"header":       map[string]any{"type": "string"},
-			"type":         map[string]any{"type": "string", "enum": []string{"text", "choice", "yesno"}},
-			"placeholder":  map[string]any{"type": "string"},
-			"default":      map[string]any{"type": "string"},
-			"multi_select": map[string]any{"type": "boolean"},
-			"required":     map[string]any{"type": "boolean"},
+			"question":     map[string]any{"type": "string", "description": "단일 질문 시 사용할 질문 내용"},
+			"header":       map[string]any{"type": "string", "description": "단일 질문 시 사용할 헤더"},
+			"type":         map[string]any{"type": "string", "enum": []string{"text", "choice", "yesno"}, "description": "단일 질문 시 사용할 유형"},
+			"placeholder":  map[string]any{"type": "string", "description": "단일 질문 시 사용할 힌트"},
+			"default":      map[string]any{"type": "string", "description": "단일 질문 시 사용할 기본값"},
+			"multi_select": map[string]any{"type": "boolean", "description": "단일 질문 시 다중 선택 여부"},
+			"required":     map[string]any{"type": "boolean", "description": "단일 질문 시 필수 여부"},
 			"options":      questionSchema["properties"].(map[string]any)["options"],
 			"questions": map[string]any{
 				"type":  "array",
+				"description": "여러 질문을 한 번에 할 때 사용하는 질문 목록",
 				"items": questionSchema,
 			},
 		},
@@ -213,7 +215,7 @@ func (t *AskUserTool) processAndEmitAnswers(ctx tools.Context, events chan<- too
 		}
 		// YOLO 모드이거나 기본값이 있으면 필수 체크 통과
 		if q.Required && value == "" && !ctx.State.InYoloMode() {
-			events <- tools.NewErrorEvent(fmt.Errorf("question %q requires an answer", q.Question))
+			events <- tools.NewErrorEvent(fmt.Errorf("질문 %q에 대한 답변이 필요합니다", q.Question))
 			return
 		}
 
@@ -280,7 +282,7 @@ type askUserOptionReq struct {
 func parseQuestions(input json.RawMessage) ([]tools.AskUserQuestion, error) {
 	var req askUserRequest
 	if err := json.Unmarshal(input, &req); err != nil {
-		return nil, fmt.Errorf("invalid ask_user input: %w", err)
+		return nil, fmt.Errorf("잘못된 ask_user 입력: %w", err)
 	}
 
 	questions := make([]askUserQuestion, 0, len(req.Questions)+1)
@@ -299,7 +301,7 @@ func parseQuestions(input json.RawMessage) ([]tools.AskUserQuestion, error) {
 		})
 	}
 	if len(questions) == 0 {
-		return nil, fmt.Errorf("ask_user requires at least one question")
+		return nil, fmt.Errorf("ask_user는 하나 이상의 질문이 필요합니다")
 	}
 
 	out := make([]tools.AskUserQuestion, 0, len(questions))
@@ -316,7 +318,7 @@ func parseQuestions(input json.RawMessage) ([]tools.AskUserQuestion, error) {
 func normalizeQuestion(index int, q askUserQuestion) (tools.AskUserQuestion, error) {
 	text := strings.TrimSpace(q.Question)
 	if text == "" {
-		return tools.AskUserQuestion{}, fmt.Errorf("questions[%d].question is required", index)
+		return tools.AskUserQuestion{}, fmt.Errorf("questions[%d].question 필드가 필요합니다", index)
 	}
 
 	questionType := strings.ToLower(strings.TrimSpace(q.Type))
@@ -334,17 +336,17 @@ func normalizeQuestion(index int, q askUserQuestion) (tools.AskUserQuestion, err
 		options = nil
 	case "choice":
 		if len(options) == 0 {
-			return tools.AskUserQuestion{}, fmt.Errorf("questions[%d].options is required for type=choice", index)
+			return tools.AskUserQuestion{}, fmt.Errorf("type=choice인 경우 questions[%d].options 필드가 필요합니다", index)
 		}
 	case "yesno":
 		if len(options) == 0 {
 			options = []tools.AskUserOption{
-				{Value: "yes", Label: "Yes"},
-				{Value: "no", Label: "No"},
+				{Value: "yes", Label: "예"},
+				{Value: "no", Label: "아니요"},
 			}
 		}
 	default:
-		return tools.AskUserQuestion{}, fmt.Errorf("questions[%d].type must be one of: text, choice, yesno", index)
+		return tools.AskUserQuestion{}, fmt.Errorf("questions[%d].type은 text, choice, yesno 중 하나여야 합니다", index)
 	}
 
 	required := true

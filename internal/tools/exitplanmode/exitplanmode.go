@@ -22,7 +22,7 @@ func (t *ExitPlanModeTool) Name() string {
 }
 
 func (t *ExitPlanModeTool) Description(ctx tool.Context) string {
-	return "Submit the completed plan and exit plan mode. In workflow plan phase, call this after drafting the plan; do not repeat TodoWrite while the plan todo is still in progress."
+	return "완료된 계획을 제출하고 계획 모드를 종료합니다. 워크플로우 계획 단계에서 계획을 초안한 후 이 도구를 호출하세요."
 }
 
 func (t *ExitPlanModeTool) InputSchema() tool.ToolInputJSONSchema {
@@ -31,15 +31,15 @@ func (t *ExitPlanModeTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"plan": map[string]any{
 				"type":        "string",
-				"description": "Optional completed plan text to persist and present for approval before leaving plan mode.",
+				"description": "계획 모드를 종료하기 전에 승인을 위해 보관하고 제시할 선택적인 완료 계획 텍스트입니다.",
 			},
 			"planText": map[string]any{
 				"type":        "string",
-				"description": "Alias for plan.",
+				"description": "plan의 별칭입니다.",
 			},
 			"allowedPrompts": map[string]any{
 				"type":        "array",
-				"description": "Optional executable shell steps derived from the plan. Use only bash or powershell, with workspace role/server metadata when relevant.",
+				"description": "계획에서 파생된 선택적인 실행 가능한 쉘 단계입니다. 관련이 있는 경우 워크스페이스 역할/서버 메타데이터와 함께 bash 또는 powershell만 사용하세요.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -75,7 +75,7 @@ func (t *ExitPlanModeTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 	go func() {
 		defer close(events)
 		if ctx.State == nil {
-			events <- tool.NewErrorEvent(fmt.Errorf("state is unavailable"))
+			events <- tool.NewErrorEvent(fmt.Errorf("상태를 사용할 수 없습니다"))
 			return
 		}
 
@@ -130,7 +130,7 @@ func (t *ExitPlanModeTool) Call(ctx tool.Context, input json.RawMessage) (<-chan
 		ctx.State.ClearPrePlanMode()
 
 		payload, _ := json.Marshal(map[string]any{
-			"message":               "exited plan mode",
+			"message":               "계획 모드 종료됨",
 			"restored_mode":         string(restore),
 			"plan":                  planText,
 			"plan_file":             planPath,
@@ -149,7 +149,7 @@ func (t *ExitPlanModeTool) CheckPermission(ctx tool.Context, input json.RawMessa
 	}
 	return tool.PermissionResult{
 		Behavior: types.BehaviorAsk,
-		Message:  "Present plan for approval",
+		Message:  "승인을 위해 계획 제시",
 	}, nil
 }
 

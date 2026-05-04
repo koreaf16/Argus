@@ -1,0 +1,1 @@
+sandbox-server에 root 권한으로 'mkdir -p /tmp/argus-test-dir-1271242640' 실행

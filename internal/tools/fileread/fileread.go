@@ -63,19 +63,19 @@ func (t *FileReadTool) Name() string {
 }
 
 func (t *FileReadTool) Description(ctx tool.Context) string {
-	return "Read files from the filesystem"
+	return "파일 시스템에서 파일을 읽습니다."
 }
 
 func (t *FileReadTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"path":       map[string]any{"type": "string", "description": "The path to the file to read"},
-			"start_line": map[string]any{"type": "integer", "description": "Start line (1-indexed)"},
-			"end_line":   map[string]any{"type": "integer", "description": "End line (inclusive)"},
-			"server":     map[string]any{"type": "string", "description": "Optional workspace alias. Defaults to active workspace."},
-			"role":       map[string]any{"type": "string", "description": "Optional workflow role."},
-			"channel":    map[string]any{"type": "string", "description": "Optional workflow channel."},
+			"path":       map[string]any{"type": "string", "description": "읽을 파일의 경로"},
+			"start_line": map[string]any{"type": "integer", "description": "시작 줄 번호 (1부터 시작)"},
+			"end_line":   map[string]any{"type": "integer", "description": "종료 줄 번호 (포함)"},
+			"server":     map[string]any{"type": "string", "description": "선택적 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다."},
+			"role":       map[string]any{"type": "string", "description": "선택적 워크플로우 역할."},
+			"channel":    map[string]any{"type": "string", "description": "선택적 워크플로우 채널."},
 		},
 		"required": []string{"path"},
 	}
@@ -112,12 +112,12 @@ func (t *FileReadTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 			return
 		}
 		if strings.TrimSpace(targetAlias) != "" && targetAlias != "local" && ctx.Workspace == nil {
-			events <- tool.NewErrorEvent(fmt.Errorf("workspace manager is unavailable"))
+			events <- tool.NewErrorEvent(fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다"))
 			return
 		}
 		if strings.TrimSpace(targetAlias) != "" && ctx.Workspace != nil {
 			if _, ok := ctx.Workspace.Registry().Get(targetAlias); !ok {
-				events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", targetAlias))
+				events <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 서버 별칭: %s", targetAlias))
 				return
 			}
 		}
@@ -125,7 +125,7 @@ func (t *FileReadTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 		var data []byte
 		if tool.IsRemoteWorkspace(ctx, targetAlias) {
 			if ctx.Workspace == nil {
-				events <- tool.NewErrorEvent(fmt.Errorf("workspace manager is unavailable"))
+				events <- tool.NewErrorEvent(fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다"))
 				return
 			}
 			var readErr error
@@ -146,7 +146,7 @@ func (t *FileReadTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 				return
 			}
 			if info.Size() > maxLocalFileSizeBytes {
-				events <- tool.NewErrorEvent(fmt.Errorf("file too large (%d bytes); max %d bytes — use start_line/end_line to read a section", info.Size(), maxLocalFileSizeBytes))
+				events <- tool.NewErrorEvent(fmt.Errorf("파일이 너무 큽니다 (%d 바이트). 최대 %d 바이트까지 허용됩니다. 특정 구간을 읽으려면 start_line/end_line을 사용하세요", info.Size(), maxLocalFileSizeBytes))
 				return
 			}
 			data, err = os.ReadFile(path)
@@ -179,10 +179,10 @@ func (t *FileReadTool) CheckPermission(ctx tool.Context, input json.RawMessage) 
 	}
 	if strings.TrimSpace(server) != "" && server != "local" {
 		if ctx.Workspace == nil {
-			return tool.PermissionResult{Behavior: "deny", Message: "workspace manager is unavailable"}, nil
+			return tool.PermissionResult{Behavior: "deny", Message: "워크스페이스 관리자를 사용할 수 없습니다"}, nil
 		}
 		if _, ok := ctx.Workspace.Registry().Get(server); !ok {
-			return tool.PermissionResult{Behavior: "deny", Message: fmt.Sprintf("unknown server alias: %s", server)}, nil
+			return tool.PermissionResult{Behavior: "deny", Message: fmt.Sprintf("알 수 없는 서버 별칭: %s", server)}, nil
 		}
 	}
 	if tool.IsRemoteWorkspace(ctx, server) {
@@ -211,10 +211,10 @@ func applyLineRange(content string, startLine, endLine *int) (string, error) {
 	}
 
 	if start < 1 {
-		return "", fmt.Errorf("start_line must be >= 1")
+		return "", fmt.Errorf("start_line은 1 이상이어야 합니다")
 	}
 	if end < start {
-		return "", fmt.Errorf("end_line must be >= start_line")
+		return "", fmt.Errorf("end_line은 start_line보다 크거나 같아야 합니다")
 	}
 	if start > len(lines) {
 		return "", nil

@@ -192,11 +192,9 @@ func (l *sshLane) execLocked(ctx context.Context, cmd string, opts ExecOptions) 
 	execCtx := ctx
 	timeout := opts.Timeout
 	if timeout <= 0 {
-		// Fall back budget so a misbehaving remote shell can't strand the
-		// caller forever. The legacy non-lane Exec path is fast enough that a
-		// 15s ceiling for any single lane Exec leaves plenty of headroom for
-		// healthy commands while bounding the worst case.
-		timeout = 15 * time.Second
+		// 일반 명령에 15초는 너무 짧음 — npm install, apt update 등이 빈번히
+		// 타임아웃됨(15,002ms 패턴). 30초로 상향하되, priming/settle은 별도 관리.
+		timeout = 30 * time.Second
 	}
 	{
 		var cancel context.CancelFunc
@@ -287,12 +285,17 @@ func (l *sshLane) EnterAccount(ctx context.Context, user, method, password strin
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	enterCmd := buildEnterCommand(user, method)
+	noPromptSudo := false
+	if strings.EqualFold(strings.TrimSpace(method), "sudo") && strings.TrimSpace(password) != "" {
+		noPromptSudo = l.sudoNoPasswordAvailableLocked(ctx, user)
+	}
+
+	enterCmd := buildEnterCommand(user, method, noPromptSudo)
 	if _, err := io.WriteString(l.stdin, enterCmd+"\n"); err != nil {
 		return fmt.Errorf("lane: write enter command: %w", err)
 	}
 
-	if strings.TrimSpace(password) != "" {
+	if strings.TrimSpace(password) != "" && !noPromptSudo {
 		matcher := makePasswordPromptMatcher()
 		injected := 0
 		injectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -327,12 +330,27 @@ func (l *sshLane) EnterAccount(ctx context.Context, user, method, password strin
 		return fmt.Errorf("lane: settle child shell: %w", err)
 	}
 
-	l.stack = l.stack.Push(strings.TrimSpace(res.User))
+	settledUser := strings.TrimSpace(res.User)
+	if settledUser == "" || !strings.EqualFold(settledUser, user) {
+		return fmt.Errorf("lane: enter account settled as %q, want %q", settledUser, user)
+	}
+
+	l.stack = l.stack.Push(settledUser)
 	l.cwd = res.CWD
-	l.user = strings.TrimSpace(res.User)
+	l.user = settledUser
 	l.privState = "fresh"
 	l.lastUsed = time.Now()
 	return nil
+}
+
+func (l *sshLane) sudoNoPasswordAvailableLocked(ctx context.Context, user string) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	out, err := l.execLocked(probeCtx, "sudo -n -v -u "+posixSingleQuote(user), ExecOptions{
+		Timeout: 3 * time.Second,
+	})
+	return err == nil && out.Code == 0
 }
 
 // ExitAccount leaves the topmost child shell, popping the account stack. If
@@ -372,10 +390,13 @@ func (l *sshLane) ExitAccount(ctx context.Context) error {
 	return nil
 }
 
-func buildEnterCommand(user, method string) string {
+func buildEnterCommand(user, method string, noPrompt bool) string {
 	user = strings.TrimSpace(user)
 	switch strings.ToLower(strings.TrimSpace(method)) {
 	case "sudo":
+		if noPrompt {
+			return "sudo -n -i -u " + posixSingleQuote(user)
+		}
 		return "sudo -i -u " + posixSingleQuote(user)
 	default:
 		return "su -s /bin/bash - " + posixSingleQuote(user)

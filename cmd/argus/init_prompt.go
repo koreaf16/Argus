@@ -27,7 +27,7 @@ import (
 )
 
 func (s *initSession) promptProvider() (llm.Provider, error) {
-	fmt.Fprintln(s.out, titleStyle.Render("Select Provider:"))
+	fmt.Fprintln(s.out, titleStyle.Render("공급자(Provider)를 선택하세요:"))
 	fmt.Fprintln(s.out, menuItemStyle.Render("1. openai-compat"))
 	fmt.Fprintln(s.out, menuItemStyle.Render("2. anthropic"))
 	fmt.Fprintln(s.out, menuItemStyle.Render("3. gemini"))
@@ -43,7 +43,7 @@ func (s *initSession) promptProvider() (llm.Provider, error) {
 	case "3", "gemini":
 		return llm.ProviderGemini, nil
 	default:
-		return "", fmt.Errorf("invalid provider: %s", raw)
+		return "", fmt.Errorf("유효하지 않은 공급자: %s", raw)
 	}
 }
 
@@ -74,7 +74,7 @@ func (s *initSession) promptRequired(label, def string) (string, error) {
 		if strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value), nil
 		}
-		fmt.Fprintln(s.out, " ! value is required.")
+		fmt.Fprintln(s.out, " ! 값이 필요합니다.")
 	}
 }
 
@@ -93,7 +93,7 @@ func (s *initSession) promptInt(label string, def int, required bool) (int, erro
 		}
 		number, convErr := strconv.Atoi(strings.TrimSpace(value))
 		if convErr != nil || number <= 0 {
-			fmt.Fprintln(s.out, " ! enter a positive integer.")
+			fmt.Fprintln(s.out, " ! 양의 정수를 입력하세요.")
 			continue
 		}
 		return number, nil

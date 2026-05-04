@@ -3,6 +3,9 @@ package servercopy
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,24 +39,24 @@ func (t *ServerCopyTool) Name() string {
 }
 
 func (t *ServerCopyTool) Description(ctx tool.Context) string {
-	return "Copy a file across registered workspaces (local/ssh). Use this when you need to move files between local PC and remote servers."
+	return "Copy a file between registered workspaces, including local and SSH servers. Use this for local-to-remote or remote-to-local file transfer."
 }
 
 func (t *ServerCopyTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"src":        map[string]any{"type": "string", "description": "Source endpoint path (alias:path). Example: local:C:\\\\Users\\\\me\\\\Downloads\\\\a.zip"},
-			"dst":        map[string]any{"type": "string", "description": "Destination endpoint path (alias:path). Example: dev:/tmp/a.zip"},
-			"src_server": map[string]any{"type": "string", "description": "Source server alias (e.g. local, dev, prod)"},
-			"src_role":   map[string]any{"type": "string", "description": "Source workflow role."},
-			"src_path":   map[string]any{"type": "string", "description": "Source file path"},
-			"dst_server": map[string]any{"type": "string", "description": "Destination server alias"},
-			"dst_role":   map[string]any{"type": "string", "description": "Destination workflow role."},
-			"dst_path":   map[string]any{"type": "string", "description": "Destination file path"},
-			"role":       map[string]any{"type": "string", "description": "Optional transfer workflow role."},
-			"channel":    map[string]any{"type": "string", "description": "Optional workflow channel."},
-			"overwrite":  map[string]any{"type": "boolean", "description": "Whether to overwrite destination file"},
+			"src":        map[string]any{"type": "string", "description": "Source endpoint path. Use alias:path, for example local:C:\\\\Users\\\\me\\\\file.zip or sandbox-server:/tmp/file.zip."},
+			"dst":        map[string]any{"type": "string", "description": "Destination endpoint path. Use alias:path, for example local:C:\\\\Users\\\\me\\\\file.zip or sandbox-server:/tmp/file.zip."},
+			"src_server": map[string]any{"type": "string", "description": "Source workspace alias, for example local or sandbox-server."},
+			"src_role":   map[string]any{"type": "string", "description": "Source workspace role."},
+			"src_path":   map[string]any{"type": "string", "description": "Source file path when src_server is provided separately."},
+			"dst_server": map[string]any{"type": "string", "description": "Destination workspace alias, for example local or sandbox-server."},
+			"dst_role":   map[string]any{"type": "string", "description": "Destination workspace role."},
+			"dst_path":   map[string]any{"type": "string", "description": "Destination file path when dst_server is provided separately."},
+			"role":       map[string]any{"type": "string", "description": "Transfer workspace role used as a default endpoint when configured."},
+			"channel":    map[string]any{"type": "string", "description": "Transfer workspace channel used as a default endpoint when configured."},
+			"overwrite":  map[string]any{"type": "boolean", "description": "Whether to overwrite the destination file. Defaults to true."},
 		},
 	}
 }
@@ -67,9 +70,9 @@ func (t *ServerCopyTool) MaxResultSizeChars() int {
 }
 
 func (t *ServerCopyTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
-	events := make(chan tool.ToolEvent, 2)
+	events := make(chan tool.ToolEvent, 64)
 	if ctx.Workspace == nil {
-		return nil, fmt.Errorf("workspace manager is unavailable")
+		return nil, fmt.Errorf("workspace manager is not available")
 	}
 
 	var req copyRequest
@@ -119,17 +122,13 @@ func (t *ServerCopyTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 		}
 
 		if srcEP.Alias == "" || srcEP.RawPath == "" || dstEP.Alias == "" || dstEP.RawPath == "" {
-			events <- tool.NewErrorEvent(fmt.Errorf("source and destination are required (src_server/src_path and dst_server/dst_path)"))
+			events <- tool.NewErrorEvent(fmt.Errorf("source and destination are required; provide src/dst or src_server/src_path and dst_server/dst_path"))
 			return
 		}
 
-		events <- tool.NewOutputEvent(fmt.Sprintf("Copying %s to %s...", srcEP.RawPath, dstEP.RawPath))
+		events <- tool.NewOutputEvent(fmt.Sprintf("copying %s to %s...", srcEP.RawPath, dstEP.RawPath))
 
-		// Get source file size for progress reporting
-		var totalBytes int64
-		if entries, err := ctx.Workspace.ListDir(ctx.Context, srcEP.Alias, srcEP.RawPath, false, 0); err == nil && len(entries) > 0 {
-			totalBytes = entries[0].Size
-		}
+		totalBytes := lookupFileSize(ctx, srcEP)
 
 		lastEmit := time.Now()
 		err = ctx.Workspace.CopyFileWithProgress(ctx.Context, srcEP.Alias, srcEP.RawPath, dstEP.Alias, dstEP.RawPath, overwrite, func(copied int64) {
@@ -151,7 +150,7 @@ func (t *ServerCopyTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 			events <- tool.NewErrorEvent(err)
 			return
 		}
-		events <- tool.NewOutputEvent(fmt.Sprintf("Successfully copied %s to %s", srcEP.RawPath, dstEP.RawPath))
+		events <- tool.NewOutputEvent(fmt.Sprintf("copied %s to %s", srcEP.RawPath, dstEP.RawPath))
 		events <- tool.NewDoneEvent()
 	}()
 
@@ -226,7 +225,55 @@ func requireExplicitCopyEndpoints(ctx tool.Context, req copyRequest) error {
 		return nil
 	}
 	aliases := tool.RegisteredWorkspaceAliases(ctx)
-	return fmt.Errorf("explicit source/destination server aliases are required for server_copy when multiple remote workspaces are registered. Use `src`/`dst` as alias:path or set both `src_server` and `dst_server`. Available aliases: %s", strings.Join(aliases, ", "))
+	return fmt.Errorf("multiple remote workspaces are registered; server_copy requires explicit source and destination aliases. Use src/dst as alias:path or provide both src_server and dst_server. Available aliases: %s", strings.Join(aliases, ", "))
+}
+
+// lookupFileSize returns the size of a single file at the given endpoint.
+// For local endpoints we use os.Stat directly. For remote endpoints we list
+// the parent directory and match the basename, because ListDir on a single
+// file path returns no entries.
+func lookupFileSize(ctx tool.Context, ep workspace.EndpointPath) int64 {
+	if !ep.IsRemote {
+		if info, err := os.Stat(ep.RawPath); err == nil && !info.IsDir() {
+			return info.Size()
+		}
+		return 0
+	}
+	if ctx.Workspace == nil {
+		return 0
+	}
+	parent, base := splitRemotePath(ep)
+	if parent == "" || base == "" {
+		return 0
+	}
+	entries, err := ctx.Workspace.ListDir(ctx.Context, ep.Alias, parent, false, 0)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if entry.IsDir {
+			continue
+		}
+		if entry.Name == base {
+			return entry.Size
+		}
+	}
+	return 0
+}
+
+// splitRemotePath splits an endpoint path into (parent, base) using the
+// separator appropriate for the endpoint OS.
+func splitRemotePath(ep workspace.EndpointPath) (string, string) {
+	raw := strings.TrimSpace(ep.RawPath)
+	if raw == "" {
+		return "", ""
+	}
+	if strings.EqualFold(ep.OSType, "windows") {
+		dir := filepath.Dir(raw)
+		base := filepath.Base(raw)
+		return dir, base
+	}
+	return path.Dir(raw), path.Base(raw)
 }
 
 func hasExplicitEndpointAlias(ctx tool.Context, endpointRaw, serverField string) bool {

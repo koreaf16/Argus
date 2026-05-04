@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -84,3 +85,33 @@ func laneInfoFromSnapshot(s channel.ChannelSnapshot) LaneInfo {
 		LastUsed:     s.LastUsed,
 	}
 }
+
+// WarmUpLane은 서버 연결 직후 비동기로 exec channel(lane)을 미리 열어둔다.
+// 첫 bash 명령 실행 시 SSH 세션 + PTY 초기화가 이미 완료되어 있어
+// priming 지연(~15–21초)이 사라진다.
+// 실패 시 무시한다 — 다음 Exec 호출에서 정상적으로 생성된다.
+func (m *Manager) WarmUpLane(alias string) {
+	alias = m.ResolveAlias(alias)
+	if !m.IsRemoteAlias(alias) {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+		// channel backbone이 활성이면 channel 경로로 warm-up
+		if m.shouldRouteViaChannel(alias, ExecOptions{}) {
+			_, _ = m.execViaChannel(ctx, alias, ":", ExecOptions{
+				Timeout: 10 * time.Second,
+			})
+			return
+		}
+
+		// legacy account shell 경로
+		_, _ = m.ExecWithOptions(ctx, alias, ":", ExecOptions{
+			Timeout: 10 * time.Second,
+		}, nil)
+	}()
+}
+

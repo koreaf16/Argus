@@ -36,24 +36,25 @@ func NewLSPTool() *LSPTool { return &LSPTool{} }
 func (t *LSPTool) Name() string { return "lsp" }
 
 func (t *LSPTool) Description(ctx tool.Context) string {
-	return "Manage local LSP servers (status/start/stop)"
+	return "로컬 LSP 서버를 관리합니다 (상태 확인/시작/중지)."
 }
 
 func (t *LSPTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"action":   map[string]any{"type": "string"},
-			"language": map[string]any{"type": "string"},
-			"command":  map[string]any{"type": "string"},
-			"args":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"workdir":  map[string]any{"type": "string"},
-			"uri":      map[string]any{"type": "string"},
-			"line":     map[string]any{"type": "integer"},
+			"action":   map[string]any{"type": "string", "description": "수행할 작업 (status, start, stop, hover, definition, references, symbols, diagnostics)"},
+			"language": map[string]any{"type": "string", "description": "프로그래밍 언어"},
+			"command":  map[string]any{"type": "string", "description": "LSP 서버 실행 명령"},
+			"args":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "LSP 서버 실행 인자"},
+			"workdir":  map[string]any{"type": "string", "description": "작업 디렉토리"},
+			"uri":      map[string]any{"type": "string", "description": "파일 URI"},
+			"line":     map[string]any{"type": "integer", "description": "줄 번호 (0부터 시작)"},
 			"character": map[string]any{
-				"type": "integer",
+				"type":        "integer",
+				"description": "문자 위치 (0부터 시작)",
 			},
-			"include_declaration": map[string]any{"type": "boolean"},
+			"include_declaration": map[string]any{"type": "boolean", "description": "참조 검색 시 선언 포함 여부"},
 		},
 		"required": []string{"action"},
 	}
@@ -101,9 +102,9 @@ func (t *LSPTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.Too
 				lines = append(lines, fmt.Sprintf("%s=%s", k, status[k]))
 			}
 			if len(lines) == 0 {
-				ch <- tool.NewOutputEvent("lsp servers: none")
+				ch <- tool.NewOutputEvent("LSP 서버: 없음")
 			} else {
-				ch <- tool.NewOutputEvent("lsp servers: " + strings.Join(lines, ", "))
+				ch <- tool.NewOutputEvent("LSP 서버: " + strings.Join(lines, ", "))
 			}
 		case "start":
 			workspaceDir := strings.TrimSpace(req.WorkDir)
@@ -114,13 +115,13 @@ func (t *LSPTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.Too
 				ch <- tool.NewErrorEvent(err)
 				return
 			}
-			ch <- tool.NewOutputEvent(fmt.Sprintf("lsp server started for %s", req.Language))
+			ch <- tool.NewOutputEvent(fmt.Sprintf("%s에 대한 LSP 서버가 시작되었습니다", req.Language))
 		case "stop":
 			if err := manager.Stop(req.Language); err != nil {
 				ch <- tool.NewErrorEvent(err)
 				return
 			}
-			ch <- tool.NewOutputEvent(fmt.Sprintf("lsp server stopped for %s", req.Language))
+			ch <- tool.NewOutputEvent(fmt.Sprintf("%s에 대한 LSP 서버가 중지되었습니다", req.Language))
 		case "hover":
 			text, err := manager.Hover(req.Language, req.URI, req.Line, req.Char)
 			if err != nil {
@@ -157,12 +158,12 @@ func (t *LSPTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.Too
 			}
 			sort.Strings(lines)
 			if len(lines) == 0 {
-				ch <- tool.NewOutputEvent("no diagnostics")
+				ch <- tool.NewOutputEvent("진단 정보 없음")
 			} else {
 				ch <- tool.NewOutputEvent(strings.Join(lines, ", "))
 			}
 		default:
-			ch <- tool.NewErrorEvent(fmt.Errorf("unsupported lsp action: %s", req.Action))
+			ch <- tool.NewErrorEvent(fmt.Errorf("지원되지 않는 LSP 작업입니다: %s", req.Action))
 			return
 		}
 		ch <- tool.NewDoneEvent()
@@ -172,7 +173,7 @@ func (t *LSPTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.Too
 
 func formatLocations(locs []lsp.Location) string {
 	if len(locs) == 0 {
-		return "no locations"
+		return "위치 정보 없음"
 	}
 	lines := make([]string, 0, len(locs))
 	for _, loc := range locs {
@@ -184,7 +185,7 @@ func formatLocations(locs []lsp.Location) string {
 
 func formatSymbols(symbols []lsp.DocumentSymbol) string {
 	if len(symbols) == 0 {
-		return "no symbols"
+		return "심볼 정보 없음"
 	}
 	lines := make([]string, 0, len(symbols))
 	lines = flattenSymbols(lines, symbols, "")

@@ -131,6 +131,10 @@ func Render(d Data, aiDebug bool) string {
 func renderPlain(cols int) string {
 	var b strings.Builder
 	for _, row := range topStarRows {
+		// 특수 문자들을 ASCII로 대체
+		row = strings.ReplaceAll(row, "●", "o")
+		row = strings.ReplaceAll(row, "·", ".")
+		row = strings.ReplaceAll(row, "∙", ".")
 		b.WriteString(centerPlain(row, cols))
 		b.WriteByte('\n')
 	}
@@ -140,10 +144,15 @@ func renderPlain(cols int) string {
 		b.WriteByte('\n')
 	}
 	b.WriteByte('\n')
-	b.WriteString(centerPlain(creatorTagline, cols))
+	// tagline에서도 특수 문자 제거
+	plainTagline := strings.ReplaceAll(creatorTagline, "·", "-")
+	b.WriteString(centerPlain(plainTagline, cols))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
 	for _, row := range bottomStarRows {
+		row = strings.ReplaceAll(row, "●", "o")
+		row = strings.ReplaceAll(row, "·", ".")
+		row = strings.ReplaceAll(row, "∙", ".")
 		b.WriteString(centerPlain(row, cols))
 		b.WriteByte('\n')
 	}

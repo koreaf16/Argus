@@ -2,10 +2,13 @@ package query
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/koreaf16/argus/internal/services/llm"
 	"github.com/koreaf16/argus/internal/state"
+	tool "github.com/koreaf16/argus/internal/tools"
+	"github.com/koreaf16/argus/internal/types"
 )
 
 type fakeThinkingLLM struct {
@@ -87,5 +90,93 @@ func TestSubmitMessage_NoLLM_DoesNotMutateMessages(t *testing.T) {
 	}
 	if len(engine.Messages()) != 0 {
 		t.Fatalf("expected messages to remain unchanged on llm-not-configured")
+	}
+}
+
+func TestSubmitMessage_GreetingDoesNotForceToolRetry(t *testing.T) {
+	stop := llm.StopReasonEndTurn
+	client := &scriptedLLM{
+		sequences: [][]llm.Event{
+			{
+				{Kind: llm.EventTextDelta, Delta: "안녕하세요! 무엇을 도와드릴까요?"},
+				{Kind: llm.EventStop, Stop: &stop},
+			},
+			{
+				{Kind: llm.EventTextDelta, Delta: "forced retry"},
+				{Kind: llm.EventStop, Stop: &stop},
+			},
+		},
+	}
+
+	reg := tool.NewRegistry()
+	if err := reg.Register(&scriptedTool{name: "noop", permission: types.BehaviorAllow}); err != nil {
+		t.Fatalf("register tool: %v", err)
+	}
+	engine := NewEngine(client, reg, state.NewAppState(), nil)
+	cfg := DefaultConfig()
+	cfg.MaxToolIterations = 3
+	engine.SetConfig(cfg)
+
+	ch, err := engine.SubmitMessage(context.Background(), "하이")
+	if err != nil {
+		t.Fatalf("submit message failed: %v", err)
+	}
+
+	var text strings.Builder
+	for evt := range ch {
+		if evt.Kind == UIEventError && evt.Err != nil {
+			t.Fatalf("unexpected error: %v", evt.Err)
+		}
+		if evt.Kind == UIEventAssistantDelta {
+			text.WriteString(evt.Delta)
+		}
+	}
+
+	client.mu.Lock()
+	calls := client.index
+	client.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("expected greeting to use one LLM call, got %d", calls)
+	}
+	if got := text.String(); got != "안녕하세요! 무엇을 도와드릴까요?" {
+		t.Fatalf("unexpected assistant text: %q", got)
+	}
+}
+
+func TestSubmitMessage_TaskRequestDoesNotForceToolRetryWhenTextOnly(t *testing.T) {
+	stop := llm.StopReasonEndTurn
+	client := &scriptedLLM{
+		sequences: [][]llm.Event{
+			{
+				{Kind: llm.EventTextDelta, Delta: "텍스트로만 답변했습니다."},
+				{Kind: llm.EventStop, Stop: &stop},
+			},
+		},
+	}
+
+	reg := tool.NewRegistry()
+	if err := reg.Register(&scriptedTool{name: "noop", permission: types.BehaviorAllow}); err != nil {
+		t.Fatalf("register tool: %v", err)
+	}
+	engine := NewEngine(client, reg, state.NewAppState(), nil)
+	cfg := DefaultConfig()
+	cfg.MaxToolIterations = 3
+	engine.SetConfig(cfg)
+
+	ch, err := engine.SubmitMessage(context.Background(), "현재 디렉터리 파일 목록 확인해줘")
+	if err != nil {
+		t.Fatalf("submit message failed: %v", err)
+	}
+	for evt := range ch {
+		if evt.Kind == UIEventError && evt.Err != nil {
+			t.Fatalf("unexpected error: %v", evt.Err)
+		}
+	}
+
+	client.mu.Lock()
+	calls := client.index
+	client.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("expected task request text response to finish without forced retry, got %d LLM calls", calls)
 	}
 }

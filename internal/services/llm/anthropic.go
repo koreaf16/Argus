@@ -180,7 +180,8 @@ func (a *anthropicLLM) Stream(ctx context.Context, req Request) (<-chan Event, e
 }
 
 type anthropicStreamDecoder struct {
-	tools map[int]*anthropicToolUseAccum
+	tools        map[int]*anthropicToolUseAccum
+	pendingUsage *UsageStats
 }
 
 type anthropicToolUseAccum struct {
@@ -201,6 +202,12 @@ func (d *anthropicStreamDecoder) Decode(raw string) ([]Event, bool) {
 	evt, ok := d.decode(raw)
 	if !ok {
 		return nil, false
+	}
+	// When message_delta carries both usage and a stop reason, emit usage first.
+	if evt.Kind == EventStop && d.pendingUsage != nil {
+		u := d.pendingUsage
+		d.pendingUsage = nil
+		return []Event{{Kind: EventUsage, Usage: u}, evt}, true
 	}
 	return []Event{evt}, true
 }
@@ -279,9 +286,27 @@ func (d *anthropicStreamDecoder) decode(raw string) (Event, bool) {
 				Input: normalizeToolInputJSON(input),
 			},
 		}, true
+	case "message_start":
+		// message_start.message.usage contains input_tokens and cache stats.
+		msg, _ := envelope["message"].(map[string]any)
+		usage, _ := msg["usage"].(map[string]any)
+		if len(usage) > 0 {
+			return Event{Kind: EventUsage, Usage: extractAnthropicUsage(usage)}, true
+		}
+		return Event{}, false
 	case "message_delta":
 		delta, _ := envelope["delta"].(map[string]any)
 		stop := mapAnthropicStop(asString(delta["stop_reason"]))
+		// message_delta also carries output_tokens and cache stats in its usage field.
+		usage, _ := envelope["usage"].(map[string]any)
+		if len(usage) > 0 {
+			u := extractAnthropicUsage(usage)
+			if stop == "" {
+				return Event{Kind: EventUsage, Usage: u}, true
+			}
+			// Emit usage; stop is handled via the separate EventStop path below.
+			d.pendingUsage = u
+		}
 		if stop == "" {
 			return Event{}, false
 		}
@@ -324,6 +349,24 @@ func normalizeToolInputJSON(input string) json.RawMessage {
 		return json.RawMessage(wrapped)
 	}
 	return json.RawMessage(`{}`)
+}
+
+func extractAnthropicUsage(u map[string]any) *UsageStats {
+	toInt := func(v any) int {
+		switch n := v.(type) {
+		case float64:
+			return int(n)
+		case int:
+			return n
+		}
+		return 0
+	}
+	return &UsageStats{
+		InputTokens:              toInt(u["input_tokens"]),
+		OutputTokens:             toInt(u["output_tokens"]),
+		CacheCreationInputTokens: toInt(u["cache_creation_input_tokens"]),
+		CacheReadInputTokens:     toInt(u["cache_read_input_tokens"]),
+	}
 }
 
 func mapAnthropicStop(s string) StopReason {

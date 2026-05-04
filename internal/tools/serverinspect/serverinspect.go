@@ -19,7 +19,7 @@ func (t *ServerInspectTool) Name() string {
 }
 
 func (t *ServerInspectTool) Description(ctx tool.Context) string {
-	return "Collect comprehensive environment information for a workspace (OS, kernel, shell, user, uptime, memory, disk, listening ports, running services, top processes, Docker containers). Works on both local and remote SSH workspaces. Results are cached and injected into the system context automatically."
+	return "워크스페이스의 종합적인 환경 정보(OS, 커널, 셸, 사용자, 가동 시간, 메모리, 디스크, 리스닝 포트, 실행 중인 서비스, 주요 프로세스, Docker 컨테이너 등)를 수집합니다. 로컬 및 원격 SSH 워크스페이스 모두에서 작동하며, 결과는 자동으로 캐시되어 시스템 컨텍스트에 삽입됩니다."
 }
 
 func (t *ServerInspectTool) InputSchema() tool.ToolInputJSONSchema {
@@ -28,10 +28,10 @@ func (t *ServerInspectTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"server": map[string]any{
 				"type":        "string",
-				"description": "Optional workspace alias. Defaults to the active workspace.",
+				"description": "선택적 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다.",
 			},
-			"role":    map[string]any{"type": "string", "description": "Optional workflow role."},
-			"channel": map[string]any{"type": "string", "description": "Optional workflow channel."},
+			"role":    map[string]any{"type": "string", "description": "선택적 워크플로우 역할."},
+			"channel": map[string]any{"type": "string", "description": "선택적 워크플로우 채널."},
 		},
 	}
 }
@@ -47,7 +47,7 @@ func (t *ServerInspectTool) MaxResultSizeChars() int {
 func (t *ServerInspectTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
 	events := make(chan tool.ToolEvent, 2)
 	if ctx.Workspace == nil {
-		return nil, fmt.Errorf("workspace manager is unavailable")
+		return nil, fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
 	}
 
 	var req struct {
@@ -69,7 +69,7 @@ func (t *ServerInspectTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 
 		snap, err := ctx.Workspace.RunInspect(ctx.Context, alias)
 		if err != nil {
-			events <- tool.NewErrorEvent(fmt.Errorf("inspect failed for %s: %w", alias, err))
+			events <- tool.NewErrorEvent(fmt.Errorf("%s 환경 정보 확인 실패: %w", alias, err))
 			return
 		}
 
@@ -85,7 +85,7 @@ func (t *ServerInspectTool) CheckPermission(ctx tool.Context, input json.RawMess
 	if ctx.Workspace == nil {
 		return tool.PermissionResult{
 			Behavior: types.BehaviorDeny,
-			Message:  "workspace manager is unavailable",
+			Message:  "워크스페이스 관리자를 사용할 수 없습니다",
 		}, nil
 	}
 	rawServer := tool.ExtractStringInput(input, "server")

@@ -18,14 +18,14 @@ func NewListMcpResourcesTool() *ListMcpResourcesTool { return &ListMcpResourcesT
 func (t *ListMcpResourcesTool) Name() string { return "list_mcp_resources" }
 
 func (t *ListMcpResourcesTool) Description(ctx tool.Context) string {
-	return "List resources from an MCP server"
+	return "MCP 서버에서 리소스 목록을 가져옵니다."
 }
 
 func (t *ListMcpResourcesTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"server": map[string]any{"type": "string"},
+			"server": map[string]any{"type": "string", "description": "MCP 서버 이름"},
 		},
 		"required": []string{"server"},
 	}

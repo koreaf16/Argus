@@ -19,7 +19,7 @@ func (t *ShellJobTool) Name() string {
 }
 
 func (t *ShellJobTool) Description(ctx tool.Context) string {
-	return "Inspect background shell jobs. Actions: list, status, tail."
+	return "백그라운드 쉘 작업을 검사합니다. 액션: list, status, tail."
 }
 
 func (t *ShellJobTool) IsVisible(ctx tool.Context) bool {
@@ -32,15 +32,15 @@ func (t *ShellJobTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"description": "One of: list, status, tail.",
+				"description": "다음 중 하나: list, status, tail.",
 			},
 			"job_id": map[string]any{
 				"type":        "string",
-				"description": "Required for status and tail.",
+				"description": "status와 tail 액션에 필수입니다.",
 			},
 			"tail_chars": map[string]any{
 				"type":        "integer",
-				"description": "Optional max character count for tail action (default 4000, max 20000).",
+				"description": "tail 액션을 위한 선택적인 최대 문자 수 (기본값 4000, 최대 20000).",
 			},
 		},
 	}
@@ -57,7 +57,7 @@ func (t *ShellJobTool) MaxResultSizeChars() int {
 func (t *ShellJobTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
 	out := make(chan tool.ToolEvent, 2)
 	if ctx.ShellJobs == nil {
-		return nil, fmt.Errorf("shell job manager is unavailable")
+		return nil, fmt.Errorf("쉘 작업 관리자를 사용할 수 없습니다")
 	}
 
 	var req struct {
@@ -87,12 +87,12 @@ func (t *ShellJobTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 		case "status":
 			jobID := strings.TrimSpace(req.JobID)
 			if jobID == "" {
-				out <- tool.NewErrorEvent(fmt.Errorf("job_id is required for status"))
+				out <- tool.NewErrorEvent(fmt.Errorf("status 액션에는 job_id가 필요합니다"))
 				return
 			}
 			snap, ok := ctx.ShellJobs.Snapshot(jobID)
 			if !ok {
-				out <- tool.NewErrorEvent(fmt.Errorf("job not found: %s", jobID))
+				out <- tool.NewErrorEvent(fmt.Errorf("작업을 찾을 수 없습니다: %s", jobID))
 				return
 			}
 			payload, _ := json.Marshal(map[string]any{
@@ -104,7 +104,7 @@ func (t *ShellJobTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 		case "tail":
 			jobID := strings.TrimSpace(req.JobID)
 			if jobID == "" {
-				out <- tool.NewErrorEvent(fmt.Errorf("job_id is required for tail"))
+				out <- tool.NewErrorEvent(fmt.Errorf("tail 액션에는 job_id가 필요합니다"))
 				return
 			}
 			maxChars := req.TailChars
@@ -127,7 +127,7 @@ func (t *ShellJobTool) Call(ctx tool.Context, input json.RawMessage) (<-chan too
 			out <- tool.NewDoneEvent()
 			return
 		default:
-			out <- tool.NewErrorEvent(fmt.Errorf("unknown action: %s", action))
+			out <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 액션: %s", action))
 			return
 		}
 	}()

@@ -16,11 +16,11 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		MaxTokens:              2048,
+		MaxTokens:              4096,
 		MaxToolIterations:      100,
 		DebugTools:             false,
-		EvidenceToolExposure:   true,
-		PersistenceEnabled:     true,
+		EvidenceToolExposure:   false,
+		PersistenceEnabled:     false,
 		MaxForcedContinuations: 4,
 		ResearchMinSearches:    2,
 		ResearchMinFetches:     2,

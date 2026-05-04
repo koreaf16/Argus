@@ -16,8 +16,8 @@ import (
 // 이 헬퍼들은 동일한 모양을 만들어낸다.
 const (
 	resultBranchPrefix = "  ⎿  " // 첫 줄 prefix (5칸 폭)
-	resultContPrefix   = "     " // 둘째 줄부터의 5칸 정렬 들여쓰기
-	hintIndent         = "     " // 키 힌트: claude_cli BackgroundHint paddingLeft=5 와 동일
+	resultContPrefix   = "     " // 둘째 줄부터의 정렬 들여쓰기
+	hintIndent         = "     " // 키 힌트 패딩
 	defaultMaxArg      = 160
 )
 
@@ -66,8 +66,10 @@ func FormatToolCall(toolName, args string, maxChars int, theme ThemeContext) str
 }
 
 // FormatResultLines는 결과 본문을 claude_cli MessageResponse 패턴으로 렌더한다.
-//   첫 줄: `  ⎿  content`
-//   둘째 줄부터: `     content` (5칸 정렬)
+//
+//	첫 줄: `  ⎿  content`
+//	둘째 줄부터: `     content` (5칸 정렬)
+//
 // sameBlock=true: 한 결과 블록의 멀티라인 (bash stdout 패턴) — 첫 줄에만 ⎿.
 // sameBlock=false: 각 라인이 독립 결과 (tool_group 자식 요약 패턴) — 모든 라인에 ⎿.
 // isError=true이면 본문 색을 ErrorColor로 칠한다.
@@ -145,10 +147,6 @@ func NormalizeToolName(internal string) string {
 		return "Grep"
 	case "glob":
 		return "Glob"
-	case "todowrite":
-		return "TodoWrite"
-	case "todoread":
-		return "TodoRead"
 	case "lsp":
 		return "LSP"
 	case "server_connect":

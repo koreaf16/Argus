@@ -1,0 +1,11 @@
+  The user provided a partial sentence "sandbox-server에서" (In sandbox-server). This indicates they want to perform some action on the `sandbox-server`. However, the instruction is incomplete. I need to ask the user what they want to do on the `sandbox-server`.
+  First, I should check the available tools and my current state.
+  - Active workspace is `local`.
+  - `sandbox-server` is a registered SSH workspace.
+  - I don't have any specific command or task yet.
+  Since the user's input is just a location/context, I must use `ask_user` to clarify their intent.
+  Plan:
+  1.  Recognize that the user's request is incomplete.
+  2.  Ask the user what they would like to do on `sandbox-server`.
+  어떤 작업을 도와드릴까요? sandbox-server에서 수행하고 싶은 명령이나 작업을 말씀해 주세요.                        
+

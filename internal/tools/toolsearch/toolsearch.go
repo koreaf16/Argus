@@ -33,7 +33,7 @@ func New() *Tool { return &Tool{} }
 func (t *Tool) Name() string { return "tool_search" }
 
 func (t *Tool) Description(ctx tool.Context) string {
-	return "Search the available tool catalog by user intent or evidence category. This only discovers tools; it does not execute them."
+	return "사용자 의도나 증거 카테고리에 따라 사용 가능한 도구 목록을 검색합니다. 도구를 찾기만 하며 실행하지는 않습니다."
 }
 
 func (t *Tool) InputSchema() tool.ToolInputJSONSchema {
@@ -42,7 +42,7 @@ func (t *Tool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"query": map[string]any{
 				"type":        "string",
-				"description": "Short description of the task, evidence needed, or tool capability to find.",
+				"description": "찾고자 하는 작업, 필요한 증거 또는 도구 기능에 대한 짧은 설명입니다.",
 			},
 			"evidence_categories": map[string]any{
 				"type": "array",
@@ -60,7 +60,7 @@ func (t *Tool) InputSchema() tool.ToolInputJSONSchema {
 			},
 			"limit": map[string]any{
 				"type":        "integer",
-				"description": "Maximum number of matching tools to return. Defaults to 8.",
+				"description": "반환할 최대 도구 수입니다. 기본값은 8입니다.",
 			},
 		},
 	}
@@ -85,7 +85,7 @@ func (t *Tool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEv
 	go func() {
 		defer close(ch)
 		if ctx.Registry == nil {
-			ch <- tool.NewErrorEvent(fmt.Errorf("tool_search requires a tool registry"))
+			ch <- tool.NewErrorEvent(fmt.Errorf("tool_search를 위해 도구 레지스트리가 필요합니다"))
 			return
 		}
 		limit := req.Limit

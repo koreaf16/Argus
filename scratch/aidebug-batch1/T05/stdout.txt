@@ -1,0 +1,18 @@
+  The user provided a partial sentence: "sandbox-server에서" (In/On sandbox-server). This is an incomplete instruction. I need to ask the user what they want to do on the `sandbox-server`.
+  Looking at the available tools:
+  - `server_inspect`: Can be used to get info about the server.
+  - `bash`, `powershell`: Can be used to run commands.
+  - `ask_user`: Can be used to ask for clarification.
+  Since the input is just a location, I should ask for the specific task.
+  Wait, the user might be expecting me to do something based on context that isn't here, or they just hit enter too early.
+  Plan:
+  1. Acknowledge the target server (`sandbox-server`).
+  2. Ask for the specific command or task they want to perform.
+  However, per "Output Efficiency" rules, I should be concise and direct.
+  "sandbox-server에서 무엇을 도와드릴까요?" (How can I help you on sandbox-server?) or similar.
+  Actually, if I can do something useful like inspecting the server first, I might, but that's presumptuous.
+  Let's check if there are any active sessions or if I should just ask.
+  The user said "sandbox-server에서" (In/On sandbox-server).
+  I will ask what they want to do.
+  sandbox-server에서 어떤 작업을 수행할까요? 원하시는 명령이나 작업을 말씀해 주세요.                               
+

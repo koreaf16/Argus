@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
+	"time"
 )
 
 // CredentialClearer is implemented by the password cache so the pool can clear
@@ -47,9 +49,22 @@ func NewConnectionPool(resolver EntryResolver, prompt PasswordPrompt, clearer Cr
 // pool keepalives it and returns it on success; on failure, it is closed and
 // replaced. Authentication failures retry once with cleared credentials.
 func (p *ConnectionPool) Get(ctx context.Context, alias string) (*Connection, error) {
+	debugCh := os.Getenv("ARGUS_LANE_DEBUG") != ""
+	overall := time.Now()
+
 	p.mu.Lock()
 	if existing, ok := p.connections[alias]; ok && !existing.IsClosed() {
-		if err := existing.Keepalive(); err == nil {
+		kaPhase := time.Now()
+		err := existing.Keepalive()
+		if debugCh {
+			result := "ok"
+			if err != nil {
+				result = "stale"
+			}
+			fmt.Fprintf(os.Stderr, "[channel-debug] pool alias=%s phase=keepalive elapsed=%s result=%s\n",
+				alias, time.Since(kaPhase), result)
+		}
+		if err == nil {
 			p.mu.Unlock()
 			return existing, nil
 		}
@@ -58,6 +73,8 @@ func (p *ConnectionPool) Get(ctx context.Context, alias string) (*Connection, er
 		p.mu.Unlock()
 		_ = existing.Close()
 		p.mu.Lock()
+	} else if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] pool alias=%s phase=cache_lookup result=miss\n", alias)
 	}
 	p.mu.Unlock()
 
@@ -69,7 +86,12 @@ func (p *ConnectionPool) Get(ctx context.Context, alias string) (*Connection, er
 		return nil, err
 	}
 
+	dialPhase := time.Now()
 	conn, err := p.dialWithAuthRetry(ctx, entry)
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] pool alias=%s phase=dial elapsed=%s err=%v total=%s\n",
+			alias, time.Since(dialPhase), err, time.Since(overall))
+	}
 	if err != nil {
 		return nil, err
 	}

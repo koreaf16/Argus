@@ -1,0 +1,93 @@
+package channel
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/koreaf16/argus/internal/services/workspace/lane"
+)
+
+func TestEnterAccountSkipsPasswordWaitWhenSudoProbeSucceeds(t *testing.T) {
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		serveNoPromptSudoShell(stdinR, stdoutW)
+	}()
+
+	ch := &execChannel{
+		key:       ChannelKey{Alias: "sandbox-server", Privilege: PrivilegeDefault, Purpose: PurposeExec},
+		loginUser: "sandbox",
+		defaultCWD: "/home/sandbox",
+		stdin:     stdinW,
+		reader:    lane.NewStreamReader(stdoutR),
+		stack:     lane.AccountStack{"sandbox"},
+		cwd:       "/home/sandbox",
+		user:      "sandbox",
+		state:     StateReady,
+		lastUsed:  time.Now(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+
+	if err := ch.EnterAccount(ctx, "root", "sudo", "cached-password"); err != nil {
+		t.Fatalf("EnterAccount returned error: %v", err)
+	}
+	if got := ch.stack.String(); got != "sandbox>root" {
+		t.Fatalf("stack = %q, want sandbox>root", got)
+	}
+	if got := ch.user; got != "root" {
+		t.Fatalf("user = %q, want root", got)
+	}
+
+	_ = ch.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("fake shell did not stop")
+	}
+}
+
+var codecPrintfRe = regexp.MustCompile(regexp.QuoteMeta(lane.SentinelPrefix) + `([0-9a-f]+):`)
+
+func serveNoPromptSudoShell(stdin io.Reader, stdout io.WriteCloser) {
+	defer stdout.Close()
+
+	currentUser := "sandbox"
+	currentCWD := "/home/sandbox"
+	br := bufio.NewReader(stdin)
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "exit" {
+			return
+		}
+		if strings.HasPrefix(trimmed, "sudo -n -i -u ") {
+			currentUser = "root"
+			currentCWD = "/root"
+			continue
+		}
+		if nonce := codecNonceFromPrintf(trimmed); nonce != "" {
+			fmt.Fprintf(stdout, "%s%s:0:%s:%s\n", lane.SentinelPrefix, nonce, currentCWD, currentUser)
+		}
+	}
+}
+
+func codecNonceFromPrintf(line string) string {
+	matches := codecPrintfRe.FindStringSubmatch(line)
+	if len(matches) != 2 {
+		return ""
+	}
+	return matches[1]
+}

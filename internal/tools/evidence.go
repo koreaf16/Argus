@@ -21,7 +21,7 @@ func ToolEvidenceCategories(name string, readOnly bool) []string {
 		return []string{EvidenceUserDecision}
 	case "tool_search":
 		return []string{EvidencePlanning}
-	case "task_plan_init", "enter_plan_mode", "exit_plan_mode", "todoread", "todowrite":
+	case "task_plan_init", "enter_plan_mode", "exit_plan_mode":
 		return []string{EvidencePlanning}
 	case "web_search", "webfetch", "mcp", "list_mcp_resources", "read_mcp_resource":
 		return []string{EvidenceExternalFresh}
@@ -40,10 +40,8 @@ func ToolEvidenceCategories(name string, readOnly bool) []string {
 		return []string{EvidenceServerState, EvidencePlanning}
 	case "server_copy", "server_tunnel", "account_shell":
 		return []string{EvidenceServerState, EvidenceMutation}
-	case "skill", "snip", "task_create", "task_update", "task_delete":
+	case "skill", "snip", "task_create", "task_update":
 		return []string{EvidencePlanning, EvidenceMutation}
-	case "task_list":
-		return []string{EvidencePlanning}
 	}
 	if readOnly {
 		return nil

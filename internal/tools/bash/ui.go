@@ -28,20 +28,23 @@ func init() {
 
 // BashInteractiveModel implements toolui.InteractiveModel for shell tools.
 type BashInteractiveModel struct {
-	toolName     string
-	targetAlias  string
-	showTarget   bool
-	isBackground bool
-	command      string
-	description  string
-	theme        toolui.ThemeContext
-	spinner      spinner.Model
-	output       string
-	isFocused    bool
-	isExpanded   bool
-	isFinished   bool
-	result       string
-	inputChan    chan string
+	toolName      string
+	targetAlias   string
+	showTarget    bool
+	isBackground  bool
+	command       string
+	description   string
+	theme         toolui.ThemeContext
+	spinner       spinner.Model
+	output        string
+	isFocused     bool
+	isExpanded    bool
+	isFinished    bool
+	result        string
+	inputChan     chan string
+	guardSummary  string
+	guardDecision string
+	execLabel     string
 }
 
 func (m *BashInteractiveModel) Init() tea.Cmd {
@@ -122,12 +125,12 @@ func (m *BashInteractiveModel) View() string {
 	case len(lines) == 0:
 		if m.isFinished {
 			if m.isBackground {
-				bodyLines = append(bodyLines, "Running in the background")
+				bodyLines = append(bodyLines, "백그라운드에서 실행 중")
 			} else {
 				bodyLines = append(bodyLines, m.statusForFinishedNoOutput())
 			}
 		} else {
-			bodyLines = append(bodyLines, "Running...")
+			bodyLines = append(bodyLines, "실행 중...")
 		}
 	case len(lines) > maxLines:
 		hidden := len(lines) - maxLines
@@ -144,18 +147,18 @@ func (m *BashInteractiveModel) View() string {
 		bodyLines = append(bodyLines, lines...)
 	}
 
-	body := toolui.FormatResultLines(bodyLines, true, false, m.theme)
+	body := m.renderBody(bodyLines)
 
 	var hint string
 	switch {
 	case m.isFinished:
 		hint = ""
 	case m.isBackground:
-		hint = toolui.FormatHintLine("(tab to focus)", m.isFocused, m.theme)
+		hint = toolui.FormatHintLine("(tab을 눌러 포커스)", m.isFocused, m.theme)
 	case m.isFocused:
-		hint = toolui.FormatHintLine("(tab/esc to defocus) · (ctrl+d for EOF) · (ctrl+c for INT)", true, m.theme)
+		hint = toolui.FormatHintLine("(tab/esc로 포커스 해제) - (ctrl+d로 EOF) - (ctrl+c로 INT)", true, m.theme)
 	default:
-		hint = toolui.FormatHintLine("(tab to focus) · (ctrl+d to background)", false, m.theme)
+		hint = toolui.FormatHintLine("(tab을 눌러 포커스) - (ctrl+d로 백그라운드 전환)", false, m.theme)
 	}
 
 	out := headline + "\n" + body
@@ -163,6 +166,29 @@ func (m *BashInteractiveModel) View() string {
 		out += "\n" + hint
 	}
 	return out
+}
+
+func (m *BashInteractiveModel) renderBody(bodyLines []string) string {
+	if strings.TrimSpace(m.guardSummary) == "" {
+		return toolui.FormatResultLines(bodyLines, true, false, m.theme)
+	}
+
+	isDenied := strings.EqualFold(m.guardDecision, "denied")
+	out := toolui.FormatResultLines([]string{"guard: " + m.guardSummary}, true, isDenied, m.theme)
+	if isDenied || strings.EqualFold(m.guardDecision, "ask") {
+		return out
+	}
+
+	execLabel := strings.TrimSpace(m.execLabel)
+	if execLabel == "" {
+		execLabel = strings.TrimSpace(m.targetAlias)
+	}
+	if execLabel == "" {
+		execLabel = "local"
+	}
+	execHead := "exec: " + execLabel + " - " + collapseToSingleLine(m.command)
+	execLines := append([]string{execHead}, bodyLines...)
+	return out + "\n" + toolui.FormatResultLines(execLines, true, false, m.theme)
 }
 
 // statusForFinishedNoOutput는 stdout/stderr가 모두 비어 종료한 명령에 대해
@@ -183,7 +209,28 @@ func (m *BashInteractiveModel) statusForFinishedNoOutput() string {
 }
 
 func (m *BashInteractiveModel) getFilteredLines() []string {
-	cleanOutput := strings.ReplaceAll(m.output, "\r\n", "\n")
+	// Normalize line endings
+	s := strings.ReplaceAll(m.output, "\r\n", "\n")
+
+	// Handle carriage returns by overwriting the current line
+	var processed strings.Builder
+	var currentLine strings.Builder
+
+	for _, r := range s {
+		if r == '\r' {
+			currentLine.Reset()
+			continue
+		}
+		if r == '\n' {
+			processed.WriteString(currentLine.String())
+			processed.WriteRune('\n')
+			currentLine.Reset()
+			continue
+		}
+		currentLine.WriteRune(r)
+	}
+	processed.WriteString(currentLine.String())
+	cleanOutput := processed.String()
 	cleanOutput = stripANSI(cleanOutput)
 
 	allLines := strings.Split(cleanOutput, "\n")
@@ -234,6 +281,7 @@ func (r *BashRenderer) CreateInteractiveModel(args map[string]any, theme toolui.
 		toolName = "bash"
 	}
 	targetAlias := resolveTargetAlias(args)
+	guardSummary, guardDecision, execLabel := parseShellGuard(args)
 	background, _ := args["background"].(bool)
 
 	showTarget := true
@@ -243,14 +291,17 @@ func (r *BashRenderer) CreateInteractiveModel(args map[string]any, theme toolui.
 	s.Style = theme.Style(theme.StatusWarningColor())
 
 	return &BashInteractiveModel{
-		toolName:     toolName,
-		targetAlias:  targetAlias,
-		showTarget:   showTarget,
-		isBackground: background,
-		command:      command,
-		description:  description,
-		theme:        theme,
-		spinner:      s,
+		toolName:      toolName,
+		targetAlias:   targetAlias,
+		showTarget:    showTarget,
+		isBackground:  background,
+		command:       command,
+		description:   description,
+		theme:         theme,
+		spinner:       s,
+		guardSummary:  guardSummary,
+		guardDecision: guardDecision,
+		execLabel:     execLabel,
 	}
 }
 
@@ -263,18 +314,22 @@ func (r *BashRenderer) RenderToolUse(args map[string]any, streamBody string, the
 		toolName = "bash"
 	}
 	targetAlias := resolveTargetAlias(args)
+	guardSummary, guardDecision, execLabel := parseShellGuard(args)
 	background, _ := args["background"].(bool)
 
 	showTarget := true
 
 	s := &BashInteractiveModel{
-		toolName:     toolName,
-		targetAlias:  targetAlias,
-		showTarget:   showTarget,
-		isBackground: background,
-		command:      command,
-		theme:        theme,
-		output:       streamBody,
+		toolName:      toolName,
+		targetAlias:   targetAlias,
+		showTarget:    showTarget,
+		isBackground:  background,
+		command:       command,
+		theme:         theme,
+		output:        streamBody,
+		guardSummary:  guardSummary,
+		guardDecision: guardDecision,
+		execLabel:     execLabel,
 	}
 	return s.View()
 }
@@ -398,6 +453,10 @@ func resolveTargetAlias(args map[string]any) string {
 	}
 
 	label := server
+	if asUser, ok := args["as_user"].(string); ok && strings.TrimSpace(asUser) != "" {
+		label += "/" + strings.TrimSpace(asUser)
+		return label
+	}
 	if channel, ok := args["channel"].(string); ok && strings.TrimSpace(channel) != "" {
 		label += "/" + strings.TrimSpace(channel)
 	}
@@ -405,4 +464,59 @@ func resolveTargetAlias(args map[string]any) string {
 		label += " role=" + strings.TrimSpace(role)
 	}
 	return label
+}
+
+func parseShellGuard(args map[string]any) (summary, decision, execLabel string) {
+	raw, ok := args["_shell_guard"]
+	if !ok || raw == nil {
+		return "", "", ""
+	}
+	var m map[string]any
+	switch v := raw.(type) {
+	case map[string]any:
+		m = v
+	case string:
+		_ = json.Unmarshal([]byte(v), &m)
+	default:
+		b, _ := json.Marshal(v)
+		_ = json.Unmarshal(b, &m)
+	}
+	if len(m) == 0 {
+		return "", "", ""
+	}
+	decision = stringValue(m, "decision")
+	risk := stringValue(m, "risk")
+	action := stringValue(m, "channel_action")
+	key := stringValue(m, "channel_key")
+	reason := stringValue(m, "reason")
+	execLabel = stringValue(m, "exec_label")
+
+	parts := []string{}
+	if decision != "" {
+		parts = append(parts, decision)
+	}
+	if risk != "" {
+		parts = append(parts, risk)
+	}
+	if strings.EqualFold(decision, "denied") {
+		if reason != "" {
+			parts = append(parts, reason)
+		}
+		return strings.Join(parts, " - "), decision, execLabel
+	}
+	channelPart := strings.TrimSpace(strings.TrimSpace(action + " " + key))
+	if channelPart != "" {
+		parts = append(parts, channelPart)
+	}
+	if len(parts) == 0 {
+		return "", "", execLabel
+	}
+	return strings.Join(parts, " - "), decision, execLabel
+}
+
+func stringValue(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
 }

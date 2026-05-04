@@ -1,6 +1,10 @@
 package tui
 
-import "strings"
+import (
+	"encoding/json"
+	"os"
+	"strings"
+)
 
 const (
 	DefaultUITheme   = "default"
@@ -28,16 +32,18 @@ type StreamingSettings struct {
 }
 
 type UISettings struct {
-	Theme     string            `json:"theme"`
-	Variant   string            `json:"variant"`
-	Motion    MotionSettings    `json:"motion"`
-	Streaming StreamingSettings `json:"streaming"`
+	Theme        string            `json:"theme"`
+	Variant      string            `json:"variant"`
+	ViewThinking bool              `json:"view_thinking"`
+	Motion       MotionSettings    `json:"motion"`
+	Streaming    StreamingSettings `json:"streaming"`
 }
 
 func DefaultUISettings() UISettings {
 	return UISettings{
-		Theme:   DefaultUITheme,
-		Variant: DefaultUIVariant,
+		Theme:        DefaultUITheme,
+		Variant:      DefaultUIVariant,
+		ViewThinking: false,
 		Motion: MotionSettings{
 			Enabled:   true,
 			Level:     DefaultMotionLevel,
@@ -65,6 +71,7 @@ func ResolveUISettings(in UISettings, fallbackTheme string, aiDebug bool) UISett
 	if strings.TrimSpace(in.Variant) != "" {
 		out.Variant = strings.TrimSpace(in.Variant)
 	}
+	out.ViewThinking = in.ViewThinking
 	if !isMotionFieldUnset(in.Motion) {
 		out.Motion = in.Motion
 	}
@@ -116,4 +123,75 @@ func isMotionFieldUnset(m MotionSettings) bool {
 
 func isStreamingFieldUnset(s StreamingSettings) bool {
 	return s.Mode == "" && !s.HideUnstableMarkdown && !s.FlushPlainTextPartial && !s.RenderCodeBlocksStable
+}
+
+func LoadUISettings(settingsPath string) UISettings {
+	settings := DefaultUISettings()
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return settings
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return settings
+	}
+	uiRaw, ok := root["ui"]
+	if !ok {
+		return settings
+	}
+	uiMap, ok := uiRaw.(map[string]any)
+	if !ok {
+		return settings
+	}
+
+	if v, ok := uiMap["theme"].(string); ok && strings.TrimSpace(v) != "" {
+		settings.Theme = strings.TrimSpace(v)
+	}
+	if v, ok := uiMap["variant"].(string); ok && strings.TrimSpace(v) != "" {
+		settings.Variant = strings.TrimSpace(v)
+	}
+	if v, ok := uiMap["view_thinking"].(bool); ok {
+		settings.ViewThinking = v
+	}
+
+	if motionRaw, ok := uiMap["motion"].(map[string]any); ok {
+		if v, ok := motionRaw["enabled"].(bool); ok {
+			settings.Motion.Enabled = v
+		}
+		if v, ok := motionRaw["level"].(string); ok && strings.TrimSpace(v) != "" {
+			settings.Motion.Level = strings.TrimSpace(v)
+		}
+		if v, ok := motionRaw["tick_ms"]; ok {
+			switch n := v.(type) {
+			case float64:
+				settings.Motion.TickMS = int(n)
+			case int:
+				settings.Motion.TickMS = n
+			}
+		}
+		if v, ok := motionRaw["reduced"].(bool); ok {
+			settings.Motion.Reduced = v
+		}
+		if v, ok := motionRaw["signature"].(bool); ok {
+			settings.Motion.Signature = v
+		}
+	}
+
+	if streamingRaw, ok := uiMap["streaming"].(map[string]any); ok {
+		if v, ok := streamingRaw["mode"].(string); ok && strings.TrimSpace(v) != "" {
+			settings.Streaming.Mode = strings.TrimSpace(v)
+		}
+		if v, ok := streamingRaw["hide_unstable_markdown_tail"].(bool); ok {
+			settings.Streaming.HideUnstableMarkdown = v
+		}
+		if v, ok := streamingRaw["flush_plain_text_partial"].(bool); ok {
+			settings.Streaming.FlushPlainTextPartial = v
+		}
+		if v, ok := streamingRaw["render_code_blocks_stable"].(bool); ok {
+			settings.Streaming.RenderCodeBlocksStable = v
+		}
+	}
+
+	return ResolveUISettings(settings, settings.Theme, false)
 }

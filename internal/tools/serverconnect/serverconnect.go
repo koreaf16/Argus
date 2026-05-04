@@ -21,7 +21,7 @@ func (t *ServerConnectTool) Name() string {
 }
 
 func (t *ServerConnectTool) Description(ctx tool.Context) string {
-	return "Establish a connection to a remote server. Supports auto-registration if ad-hoc host/user are provided."
+	return "원격 서버에 연결을 설정합니다. 호스트/사용자 정보가 제공되면 자동 등록을 지원합니다."
 }
 
 func (t *ServerConnectTool) InputSchema() tool.ToolInputJSONSchema {
@@ -30,45 +30,45 @@ func (t *ServerConnectTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"server": map[string]any{
 				"type":        "string",
-				"description": "Server alias (e.g., 'sandbox'). If host/user are provided, it will auto-register this alias.",
+				"description": "서버 별칭 (예: 'sandbox'). host/user 정보가 제공되면 이 별칭으로 자동 등록됩니다.",
 			},
 			"host": map[string]any{
 				"type":        "string",
-				"description": "Remote IP or hostname.",
+				"description": "원격 IP 또는 호스트 이름.",
 			},
 			"user": map[string]any{
 				"type":        "string",
-				"description": "SSH username.",
+				"description": "SSH 사용자 이름.",
 			},
 			"port": map[string]any{
 				"type":        "integer",
-				"description": "SSH port (default 22).",
+				"description": "SSH 포트 (기본값 22).",
 			},
 			"password": map[string]any{
 				"type":        "string",
-				"description": "Optional SSH login password.",
+				"description": "선택적 SSH 로그인 비밀번호.",
 			},
 			"elevation": map[string]any{
 				"type":        "object",
-				"description": "Optional elevation (sudo/su) policy to register together with the server. If omitted, elevation defaults to DISABLED and must be configured later via /server edit <alias>.",
+				"description": "서버와 함께 등록할 선택적 권한 상승(sudo/su) 정책입니다. 생략하면 권한 상승은 기본적으로 비활성화(DISABLED)되며, 나중에 /server edit <alias>를 통해 설정해야 합니다.",
 				"properties": map[string]any{
 					"allowed": map[string]any{
 						"type":        "boolean",
-						"description": "Whether sudo/su is permitted on this server.",
+						"description": "이 서버에서 sudo/su 허용 여부.",
 					},
 					"mode": map[string]any{
 						"type":        "string",
 						"enum":        []string{"password", "reuse_login"},
-						"description": "'password': use separately registered sudo password. 'reuse_login': forward the SSH login password as the sudo password.",
+						"description": "'password': 별도로 등록된 sudo 비밀번호를 사용합니다. 'reuse_login': SSH 로그인 비밀번호를 sudo 비밀번호로 전달합니다.",
 					},
 					"target_users": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "Restrict elevation to these target users (e.g. ['root', 'postgres']). Empty means any user.",
+						"description": "권한 상승을 특정 대상 사용자(예: ['root', 'postgres'])로 제한합니다. 비어 있으면 모든 사용자를 의미합니다.",
 					},
 					"sudo_password": map[string]any{
 						"type":        "string",
-						"description": "Sudo password to cache (only for mode='password'). Stored DPAPI-encrypted; never log or repeat in output.",
+						"description": "캐시할 sudo 비밀번호 (mode='password'인 경우에만 해당). DPAPI로 암호화되어 저장되며, 로그에 남기거나 출력에 표시하지 마십시오.",
 					},
 				},
 			},
@@ -109,12 +109,12 @@ func (t *ServerConnectTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 		defer close(events)
 		alias := strings.TrimSpace(req.Server)
 		if alias == "" {
-			events <- tool.NewErrorEvent(fmt.Errorf("server alias is required"))
+			events <- tool.NewErrorEvent(fmt.Errorf("서버 별칭이 필요합니다"))
 			return
 		}
 
 		if ctx.Workspace == nil {
-			events <- tool.NewErrorEvent(fmt.Errorf("workspace manager is unavailable"))
+			events <- tool.NewErrorEvent(fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다"))
 			return
 		}
 
@@ -171,15 +171,20 @@ func (t *ServerConnectTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 
 		resolvedAlias, err := ctx.Workspace.ConnectAndActivate(alias)
 		if err != nil {
-			events <- tool.NewErrorEvent(fmt.Errorf("failed to connect: %w", err))
+			events <- tool.NewErrorEvent(fmt.Errorf("연결 실패: %w", err))
 			return
 		}
+
+		// [Eager Priming] 연결 성공 즉시 비동기로 exec channel(lane)을 미리
+		// 워밍업한다. Inspect 결과를 기다리는 동안 백그라운드에서 SSH PTY가
+		// 초기화되어, 첫 bash 명령의 priming 지연(~15-21초)이 사라진다.
+		ctx.Workspace.WarmUpLane(resolvedAlias)
 
 		if ctx.State != nil {
 			ctx.State.SetActiveWorkspace(ctx.Workspace.ActiveAlias())
 		}
 
-		events <- tool.NewOutputEvent(fmt.Sprintf("Connected to %s. Inspecting...\n", resolvedAlias))
+		events <- tool.NewOutputEvent(fmt.Sprintf("%s에 연결되었습니다. 환경 정보를 확인 중입니다...\n", resolvedAlias))
 		snap, err := ctx.Workspace.RunInspect(ctx.Context, resolvedAlias)
 		if err == nil {
 			events <- tool.NewOutputEvent(workspace.FormatInspectSummary(snap))

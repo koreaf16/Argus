@@ -77,7 +77,7 @@ func (t *WebFetchTool) Name() string {
 
 func (t *WebFetchTool) Description(ctx tool.Context) string {
 	_ = ctx
-	return "Fetch and extract web page content via Crawl4AI, then apply a prompt to the extracted markdown. For time-sensitive or latest/news queries, extract publication/update date, key facts, what changed, and include the canonical source URL. For research, comparison, checklist, or procedure requests, fetch multiple candidate URLs in parallel and compare them; do not rely on one page unless the user supplied an exact URL or explicitly asked for one source."
+	return "Crawl4AI를 통해 웹 페이지 콘텐츠를 가져와 추출한 후, 추출된 마크다운에 프롬프트를 적용합니다. 시간에 민감하거나 최신/뉴스 쿼리의 경우 발행/업데이트 날짜, 핵심 사실, 변경 사항을 추출하고 정식 소스 URL을 포함하십시오. 조사, 비교, 체크리스트 또는 절차 요청의 경우 여러 후보 URL을 병렬로 가져와 비교하십시오. 사용자가 정확한 URL을 제공하거나 명시적으로 하나의 소스만 요청하지 않는 한 한 페이지에만 의존하지 마십시오."
 }
 
 func (t *WebFetchTool) InputSchema() tool.ToolInputJSONSchema {
@@ -86,11 +86,11 @@ func (t *WebFetchTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"url": map[string]any{
 				"type":        "string",
-				"description": "The URL to fetch",
+				"description": "가져올 URL",
 			},
 			"prompt": map[string]any{
 				"type":        "string",
-				"description": "What information to extract from the fetched content",
+				"description": "가져온 콘텐츠에서 추출할 정보",
 			},
 		},
 		"required":             []string{"url", "prompt"},

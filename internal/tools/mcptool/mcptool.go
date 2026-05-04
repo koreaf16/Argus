@@ -17,14 +17,14 @@ func NewMCPTool() *MCPTool { return &MCPTool{} }
 
 func (t *MCPTool) Name() string { return "mcp" }
 
-func (t *MCPTool) Description(ctx tool.Context) string { return "Call MCP bridge commands" }
+func (t *MCPTool) Description(ctx tool.Context) string { return "MCP 브릿지 명령을 호출합니다." }
 
 func (t *MCPTool) InputSchema() tool.ToolInputJSONSchema {
 	return tool.ToolInputJSONSchema{
 		"type": "object",
 		"properties": map[string]any{
-			"action": map[string]any{"type": "string"},
-			"server": map[string]any{"type": "string"},
+			"action": map[string]any{"type": "string", "description": "수행할 작업 (list, tools, resources)"},
+			"server": map[string]any{"type": "string", "description": "MCP 서버 이름"},
 		},
 	}
 }
@@ -58,13 +58,13 @@ func (t *MCPTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.Too
 		action := strings.ToLower(strings.TrimSpace(req.Action))
 		switch action {
 		case "", "list":
-			ch <- tool.NewOutputEvent(fmt.Sprintf("mcp servers: %v", manager.ServerNames()))
+			ch <- tool.NewOutputEvent(fmt.Sprintf("MCP 서버 목록: %v", manager.ServerNames()))
 		case "tools":
-			ch <- tool.NewOutputEvent(fmt.Sprintf("mcp tools for %s: %v", req.Server, manager.ListTools(req.Server)))
+			ch <- tool.NewOutputEvent(fmt.Sprintf("%s의 MCP 도구 목록: %v", req.Server, manager.ListTools(req.Server)))
 		case "resources":
-			ch <- tool.NewOutputEvent(fmt.Sprintf("mcp resources for %s: %v", req.Server, manager.ListResources(req.Server)))
+			ch <- tool.NewOutputEvent(fmt.Sprintf("%s의 MCP 리소스 목록: %v", req.Server, manager.ListResources(req.Server)))
 		default:
-			ch <- tool.NewErrorEvent(fmt.Errorf("unsupported mcp action: %s", req.Action))
+			ch <- tool.NewErrorEvent(fmt.Errorf("지원되지 않는 MCP 작업입니다: %s", req.Action))
 			return
 		}
 		ch <- tool.NewDoneEvent()

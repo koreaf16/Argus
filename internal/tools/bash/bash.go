@@ -42,23 +42,24 @@ func (t *BashTool) IsVisible(ctx tool.Context) bool {
 }
 
 func (t *BashTool) Description(ctx tool.Context) string {
-	base := "Execute bash shell commands. " +
-		"CRITICAL: Always use SINGLE QUOTES (') for passwords, URLs, or any string with special characters like '!', '&', etc. to avoid shell expansion. "
+	guardPrefix := "Shell Guard: choose account with `as_user`; never put sudo/su inside `command`. "
+	base := "bash 셸 명령을 실행합니다. " +
+		"중요: 비밀번호, URL 또는 '!', '&'와 같은 특수 문자가 포함된 문자열에는 반드시 작은따옴표(')를 사용하여 셸 확장을 방지하세요. "
 	if tool.RequiresExplicitServerAlias(ctx) {
 		aliases := tool.RegisteredWorkspaceAliases(ctx)
-		base += "Multiple workspaces are registered (" + strings.Join(aliases, ", ") + "); the `server` parameter is REQUIRED. "
+		base += "여러 워크스페이스가 등록되어 있습니다 (" + strings.Join(aliases, ", ") + "). `server` 매개변수가 필수입니다. "
 	}
-	base += "\n\nMULTI-CHANNEL & PRIVILEGE ESCALATION:\n" +
-		"- This bash tool routes commands through a multi-channel SSH backbone. Commands are isolated\n" +
-		"  by (server, role, channel) triplets. Use different roles/channels to run tasks in parallel\n" +
-		"  without sharing environment or current directory.\n" +
-		"- When the command starts with sudo/su -, the router picks or creates a privilege-specific\n" +
-		"  lane (e.g. alias|user>root). Subsequent commands on the same role/channel will stay in that lane.\n" +
-		"- BEFORE calling this tool with a sudo/su command, you MUST verify the target server's\n" +
-		"  elevation is ENABLED in the workspace block. If DISABLED, stop and guide the user.\n" +
-		"- To enter a persistent privilege lane, use `sudo -i`, `sudo -i -u <user>`, or `su - <user>`.\n" +
-		"  To run a one-shot privileged command (no lane switch), use `sudo -u <user> <body>`."
-	return base
+	base += "\n\n멀티 채널 및 권한 상승:\n" +
+		"- 이 bash 도구는 멀티 채널 SSH 백본을 통해 명령을 라우팅합니다. 명령은 (server, role, channel) 세 쌍으로 격리됩니다.\n" +
+		"  환경이나 현재 디렉토리를 공유하지 않고 작업을 병렬로 실행하려면 서로 다른 역할/채널을 사용하세요.\n" +
+		"- 명령이 sudo/su -로 시작하면 라우터가 권한 전용 레인(예: alias|user>root)을 선택하거나 생성합니다.\n" +
+		"  동일한 역할/채널의 후속 명령은 해당 레인에 유지됩니다.\n" +
+		"- sudo/su 명령으로 이 도구를 호출하기 전에, 워크스페이스 설정에서 대상 서버의 권한 상승(elevation)이\n" +
+		"  활성화(ENABLED)되어 있는지 확인해야 합니다. 비활성화된 경우 작업을 중단하고 사용자를 안내하세요.\n" +
+		"- 지속적인 권한 레인에 진입하려면 `sudo -i`, `sudo -i -u <user>` 또는 `su - <user>`를 사용하세요.\n" +
+		"  일회성 권한 명령을 실행하려면(레인 전환 없음) `sudo -u <user> <body>`를 사용하세요."
+	base += "\n\nShell Guard rule: do not put sudo/su inside `command`; set `as_user` (for example `root`) and send only the command body."
+	return guardPrefix + base
 }
 
 func (t *BashTool) InputSchema() tool.ToolInputJSONSchema {
@@ -67,63 +68,63 @@ func (t *BashTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"command": map[string]any{
 				"type":        "string",
-				"description": "The bash command to execute",
+				"description": "실행할 bash 명령",
 			},
 			"timeout_ms": map[string]any{
 				"type":        "integer",
-				"description": "Optional timeout in milliseconds",
+				"description": "선택 사항: 제한 시간(밀리초)",
 			},
 			"workdir": map[string]any{
 				"type":        "string",
-				"description": "Optional working directory (must be inside allowed roots)",
+				"description": "선택 사항: 작업 디렉토리 (허용된 루트 내부여야 함)",
 			},
 			"description": map[string]any{
 				"type":        "string",
-				"description": "Optional short summary of the command",
+				"description": "선택 사항: 명령에 대한 짧은 요약",
 			},
 			"server": map[string]any{
 				"type":        "string",
-				"description": "Optional workspace alias. Defaults to active workspace.",
+				"description": "선택 사항: 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다.",
 			},
 			"role": map[string]any{
 				"type":        "string",
-				"description": "Optional workflow role (e.g. source_db, target_app). Used to isolate session state (PTY/CWD/ENV).",
+				"description": "선택 사항: 워크플로우 역할 (예: source_db, target_app). 세션 상태(PTY/CWD/ENV)를 격리하는 데 사용됩니다.",
 			},
 			"channel": map[string]any{
 				"type":        "string",
-				"description": "Optional workflow channel (source, target, transfer, verify). Used to isolate session state.",
+				"description": "선택 사항: 워크플로우 채널 (source, target, transfer, verify). 세션 상태를 격리하는 데 사용됩니다.",
 			},
 			"password": map[string]any{
 				"type":        "string",
-				"description": "Optional password for remote server SSH authentication.",
+				"description": "선택 사항: 원격 서버 SSH 인증을 위한 비밀번호.",
 			},
 			"root_password": map[string]any{
 				"type":        "string",
-				"description": "Optional password for privilege escalation (sudo or su).",
+				"description": "선택 사항: 권한 상승(sudo 또는 su)을 위한 비밀번호.",
 			},
 			"as_user": map[string]any{
 				"type":        "string",
-				"description": "DEPRECATED. Send `su - <user>` or `sudo -i -u <user>` as the command instead — the lane tracks the account stack automatically.",
+				"description": "Execution account for this command. Use this instead of inline sudo/su; Shell Guard selects or creates the matching account channel.",
 			},
 			"privilege_method": map[string]any{
 				"type":        "string",
-				"description": "DEPRECATED. Use `sudo` / `su` directly in the command.",
+				"description": "Optional account switch method for as_user: sudo or su.",
 			},
 			"reuse_session": map[string]any{
 				"type":        "string",
-				"description": "DEPRECATED. The lane is always reused per host.",
+				"description": "권장되지 않음. 레인은 호스트별로 항상 재사용됩니다.",
 			},
 			"session_id": map[string]any{
 				"type":        "string",
-				"description": "DEPRECATED. Lanes are keyed by host alias; account stacks are tracked inside the lane.",
+				"description": "권장되지 않음. 레인은 호스트 별칭으로 식별되며 계정 스택은 레인 내부에서 추적됩니다.",
 			},
 			"pty_mode": map[string]any{
 				"type":        "string",
-				"description": "DEPRECATED. The lane always allocates a PTY for remote shells.",
+				"description": "권장되지 않음. 레인은 원격 셸을 위해 항상 PTY를 할당합니다.",
 			},
 			"background": map[string]any{
 				"type":        "boolean",
-				"description": "Run as a background job. Omit to auto-background after a few seconds for long-running commands.",
+				"description": "백그라운드 작업으로 실행합니다. 생략하면 오래 걸리는 명령의 경우 몇 초 후에 자동으로 백그라운드로 전환됩니다.",
 			},
 		},
 		"required": []string{"command"},
@@ -172,15 +173,15 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 		defer close(events)
 		command := strings.TrimSpace(req.Command)
 		if command == "" {
-			events <- tool.NewErrorEvent(fmt.Errorf("command cannot be empty"))
+			events <- tool.NewErrorEvent(fmt.Errorf("명령어는 비어 있을 수 없습니다"))
 			return
 		}
 
 		// ssh 직접 실행 차단: 워크스페이스 연결은 server_connect 도구를 사용해야 함
 		if strings.HasPrefix(command, "ssh ") || command == "ssh" {
 			events <- tool.NewErrorEvent(fmt.Errorf(
-				"direct ssh commands are not allowed in the bash tool. " +
-					"To connect to or switch to a workspace, use the `server_connect` tool with the server alias instead.",
+				"bash 도구에서는 직접적인 ssh 명령이 허용되지 않습니다. " +
+					"워크스페이스에 연결하거나 전환하려면 서버 별칭과 함께 `server_connect` 도구를 사용하세요.",
 			))
 			return
 		}
@@ -354,6 +355,7 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 
 		if tool.IsRemoteWorkspace(ctx, targetAlias) {
 			execOpts.WorkingDir = req.WorkDir
+			execOpts.Timeout = clampShellTimeout(req.TimeoutMS)
 			remoteCommand := finalCommand
 			// 비밀번호 prompt 의존을 끊기 위해 모든 unquoted sudo 토큰에
 			// `printf "%s\n" 'PW' | sudo -S` prefix를 사전 주입한다.
@@ -378,6 +380,9 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 				return
 			}
 			syncActiveTargetFromLane(ctx, targetAlias)
+			if result.Stdout == "" && result.Code == 0 && !result.Interrupted {
+				result.Stdout = "(command completed with no output)"
+			}
 			resJSON, _ := json.Marshal(result)
 			events <- tool.NewOutputEvent(string(resJSON))
 			events <- tool.NewDoneEvent()
@@ -408,6 +413,9 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 				events <- tool.NewErrorEvent(err)
 				return
 			}
+			if result.Stdout == "" && result.Code == 0 && !result.Interrupted {
+				result.Stdout = "(command completed with no output)"
+			}
 			resJSON, _ := json.Marshal(result)
 			events <- tool.NewOutputEvent(string(resJSON))
 			events <- tool.NewDoneEvent()
@@ -421,7 +429,7 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 				return
 			}
 			if strings.TrimSpace(shellPath) == "" {
-				events <- tool.NewErrorEvent(fmt.Errorf("bash shell not found"))
+				events <- tool.NewErrorEvent(fmt.Errorf("bash 셸을 찾을 수 없습니다"))
 				return
 			}
 			p, err := shell.CreateBashShellProvider(ctx.Context, shellPath, ibash.CreateAndSaveSnapshot)
@@ -458,6 +466,9 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 			return
 		}
 
+		if result.Stdout == "" && result.Code == 0 && !result.Interrupted {
+			result.Stdout = "(command completed with no output)"
+		}
 		resJSON, _ := json.Marshal(result)
 		events <- tool.NewOutputEvent(string(resJSON))
 		events <- tool.NewDoneEvent()
@@ -521,7 +532,7 @@ func (t *BashTool) CheckPermission(ctx tool.Context, input json.RawMessage) (too
 }
 
 const (
-	shellAutoBackgroundAfter = 3 * time.Second
+	shellAutoBackgroundAfter = 5 * time.Second
 	maxShellTailChars        = 128 * 1024
 )
 
@@ -537,10 +548,10 @@ func executeCommand(
 ) (utils.ExecResult, error) {
 	shellPath, err := utils.FindSuitableShell()
 	if err != nil {
-		return utils.ExecResult{}, fmt.Errorf("find shell: %w", err)
+		return utils.ExecResult{}, fmt.Errorf("셸 찾기 실패: %w", err)
 	}
 	if strings.TrimSpace(shellPath) == "" {
-		return utils.ExecResult{}, fmt.Errorf("bash shell not found")
+		return utils.ExecResult{}, fmt.Errorf("bash 셸을 찾을 수 없습니다")
 	}
 
 	timeout := clampShellTimeout(timeoutMS)
@@ -632,6 +643,10 @@ func executeCommand(
 			events <- tool.NewChunkEvent(chunk)
 			idleTimer.Stop()
 			idleTimer.Reset(idleDuration)
+			// 출력이 들어오는 동안은 백그라운드 전환 억제
+			if autoBgT != nil {
+				autoBgT.Reset(shellAutoBackgroundAfter)
+			}
 
 		case <-idleTimer.C:
 			if len(outputBuffer) > lastAnalyzedPos {
@@ -849,6 +864,10 @@ func executeRemoteCommand(
 			}
 			outputBuffer = appendShellTail(outputBuffer, chunk, maxShellTailChars)
 			events <- tool.NewChunkEvent(chunk)
+			// 출력이 들어오는 동안은 백그라운드 전환 억제
+			if autoBgT != nil {
+				autoBgT.Reset(shellAutoBackgroundAfter)
+			}
 
 		case res, ok := <-resultCh:
 			if !ok {

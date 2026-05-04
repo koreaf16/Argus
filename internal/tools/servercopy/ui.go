@@ -88,10 +88,15 @@ func (m *ServerCopyInteractiveModel) OnStreamDelta(delta string) {
 
 func (m *ServerCopyInteractiveModel) SetFinished(finished bool) { m.isFinished = finished }
 func (m *ServerCopyInteractiveModel) SetResult(result string) {
-	// If result starts with "Successfully", we consider it a success.
-	if !strings.Contains(result, "Successfully") && result != "" {
-		// This is a simple heuristic; in a real scenario, we'd check for error events.
+	trimmed := strings.TrimSpace(result)
+	if trimmed == "" {
+		return
 	}
+	if strings.Contains(trimmed, "성공적으로 복사했습니다") || strings.Contains(trimmed, "Successfully") {
+		m.err = nil
+		return
+	}
+	m.err = fmt.Errorf("%s", trimmed)
 }
 func (m *ServerCopyInteractiveModel) SetFocus(focus bool)          {}
 func (m *ServerCopyInteractiveModel) IsFocused() bool              { return false }

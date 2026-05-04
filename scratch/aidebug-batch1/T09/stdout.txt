@@ -1,0 +1,9 @@
+  The user provided a partial instruction "sandbox-server에서" which translates to "In sandbox-server...". It is incomplete. I need to ask the user what they want me to do on the `sandbox-server`.
+  The available tools include `ask_user`, `bash`, `powershell`, `server_connect`, etc.
+  Since the user's intent is unclear, the most appropriate action is to ask for clarification.
+  I will use `ask_user` to ask what they want to do on `sandbox-server`.
+●   Ask: sandbox-server에서 어떤 작업을 수행할까요? 구체적인 명령이나 요청을 말씀해 주세요.                            
+
+  사용자님, sandbox-server에서 어떤 작업을 수행할까요? 구체적인 명령이나 요청(예: 파일 확인, 소프트웨어 설치, 특정 
+  명령 실행 등)을 말씀해 주시면 바로 실행하겠습니다.                                                               
+

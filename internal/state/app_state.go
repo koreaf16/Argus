@@ -15,6 +15,9 @@ type AppState struct {
 	Permissions   string // "ask", "allow", "deny"
 	Metadata      map[string]interface{}
 	onStateChange func(field, before, after string)
+
+	workflowCard        *WorkflowCard
+	pendingWorkflowInit bool
 }
 
 // SetStateChangeHook registers a callback invoked after any state field changes.
@@ -134,10 +137,6 @@ func (s *AppState) MetadataSnapshot() map[string]interface{} {
 
 func cloneMetadataValue(v interface{}) interface{} {
 	switch x := v.(type) {
-	case *WorkflowCard:
-		return cloneWorkflowCard(x)
-	case WorkflowCard:
-		return cloneWorkflowCard(&x)
 	case []string:
 		return append([]string(nil), x...)
 	case []types.PermissionRule:

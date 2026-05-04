@@ -26,8 +26,8 @@ var ErrPrimingTimeout = errors.New("channel: priming exec failed")
 // non-default channels are spawned by sending an enter command on top of the
 // default channel before the codec sentinel takes over.
 type execChannel struct {
-	key       ChannelKey
-	loginUser string
+	key        ChannelKey
+	loginUser  string
 	defaultCWD string
 
 	session *ssh.Session
@@ -50,7 +50,14 @@ type execChannel struct {
 // channels are produced by ChannelManager calling EnterAccount on a default
 // channel and re-keying the result.
 func openExecChannel(ctx context.Context, client *ssh.Client, alias, loginUser, defaultCWD string) (*execChannel, error) {
+	debugCh := os.Getenv("ARGUS_LANE_DEBUG") != ""
+	overall := time.Now()
+
+	phase := time.Now()
 	session, err := client.NewSession()
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] open alias=%s phase=newSession elapsed=%s err=%v\n", alias, time.Since(phase), err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("channel: open ssh session: %w", err)
 	}
@@ -62,6 +69,7 @@ func openExecChannel(ctx context.Context, client *ssh.Client, alias, loginUser, 
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}
+	phase = time.Now()
 	if err := session.RequestPty("dumb", 200, 80, modes); err != nil {
 		_ = session.Close()
 		return nil, fmt.Errorf("channel: request pty: %w", err)
@@ -80,6 +88,9 @@ func openExecChannel(ctx context.Context, client *ssh.Client, alias, loginUser, 
 	if err := session.Shell(); err != nil {
 		_ = session.Close()
 		return nil, fmt.Errorf("channel: start shell: %w", err)
+	}
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] open alias=%s phase=pty_shell elapsed=%s\n", alias, time.Since(phase))
 	}
 
 	stack := lane.AccountStack{}
@@ -105,9 +116,13 @@ func openExecChannel(ctx context.Context, client *ssh.Client, alias, loginUser, 
 		lastUsed:   time.Now(),
 	}
 
+	phase = time.Now()
 	if _, err := io.WriteString(stdin, lane.LaneInitScript); err != nil {
 		_ = c.Close()
 		return nil, fmt.Errorf("channel: write init script: %w", err)
+	}
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] open alias=%s phase=write_init elapsed=%s\n", alias, time.Since(phase))
 	}
 
 	primingCtx := ctx
@@ -117,6 +132,7 @@ func openExecChannel(ctx context.Context, client *ssh.Client, alias, loginUser, 
 		defer cancel()
 	}
 
+	phase = time.Now()
 	codec := lane.NewCodec()
 	if _, err := io.WriteString(stdin, codec.Wrap(":")); err != nil {
 		_ = c.Close()
@@ -124,13 +140,20 @@ func openExecChannel(ctx context.Context, client *ssh.Client, alias, loginUser, 
 	}
 	res, err := c.reader.WaitFor(primingCtx, codec)
 	if err != nil {
-		if os.Getenv("ARGUS_LANE_DEBUG") != "" {
+		if debugCh {
 			buf := c.reader.SnapshotBuffer()
-			fmt.Fprintf(os.Stderr, "[channel-debug] priming timeout for %s: nonce=%s err=%v buf_len=%d buf=%q\n",
-				alias, codec.Nonce, err, len(buf), buf)
+			outcome := "other_err"
+			if errors.Is(err, context.DeadlineExceeded) {
+				outcome = "ctx_timeout"
+			}
+			fmt.Fprintf(os.Stderr, "[channel-debug] open alias=%s phase=priming elapsed=%s outcome=%s total=%s nonce=%s err=%v buf_len=%d buf=%q\n",
+				alias, time.Since(phase), outcome, time.Since(overall), codec.Nonce, err, len(buf), buf)
 		}
 		_ = c.Close()
 		return nil, fmt.Errorf("%w: %w", ErrPrimingTimeout, err)
+	}
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] open alias=%s phase=priming elapsed=%s outcome=ok total=%s\n", alias, time.Since(phase), time.Since(overall))
 	}
 	c.mu.Lock()
 	if res.CWD != "" {
@@ -183,7 +206,7 @@ func (c *execChannel) Exec(ctx context.Context, req ExecRequest) (ExecOutcome, e
 func (c *execChannel) execLocked(ctx context.Context, req ExecRequest) (ExecOutcome, error) {
 	timeout := req.Timeout
 	if timeout <= 0 {
-		timeout = 15 * time.Second
+		timeout = 30 * time.Second
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -252,6 +275,8 @@ func (c *execChannel) execLocked(ctx context.Context, req ExecRequest) (ExecOutc
 			continue
 		}
 		c.lastErr = err.Error()
+		// 타임아웃이나 기타 에러 발생 시 버퍼를 비워 다음 명령 오염 방지
+		c.reader.DropAll()
 		if debugCh {
 			buf := c.reader.SnapshotBuffer()
 			fmt.Fprintf(os.Stderr, "[channel-debug] exec failed alias=%s nonce=%s err=%v elapsed=%s cmd_len=%d buf_len=%d buf=%q\n",
@@ -277,49 +302,113 @@ func (c *execChannel) EnterAccount(ctx context.Context, user, method, password s
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	enterCmd := buildEnterCommand(user, method)
+	debugCh := os.Getenv("ARGUS_LANE_DEBUG") != ""
+	overall := time.Now()
+
+	noPromptSudo := false
+	if strings.EqualFold(strings.TrimSpace(method), "sudo") && strings.TrimSpace(password) != "" {
+		probePhase := time.Now()
+		noPromptSudo = c.sudoNoPasswordAvailableLocked(ctx, user)
+		if debugCh {
+			fmt.Fprintf(os.Stderr, "[channel-debug] enter alias=%s user=%s method=%s phase=sudo_probe elapsed=%s no_prompt=%t\n",
+				c.key.Alias, user, method, time.Since(probePhase), noPromptSudo)
+		}
+	}
+
+	enterCmd := buildEnterCommand(user, method, noPromptSudo)
+	phase := time.Now()
 	if _, err := io.WriteString(c.stdin, enterCmd+"\n"); err != nil {
 		return fmt.Errorf("channel: write enter command: %w", err)
 	}
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] enter alias=%s user=%s method=%s phase=write_enter elapsed=%s pw_present=%t\n",
+			c.key.Alias, user, method, time.Since(phase), strings.TrimSpace(password) != "")
+	}
 
-	if strings.TrimSpace(password) != "" {
+	if strings.TrimSpace(password) != "" && !noPromptSudo {
 		matcher := lane.MakePasswordPromptMatcher()
 		injected := 0
 		injectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
+		pwPhase := time.Now()
+		outcome := "no_match"
 	authLoop:
 		for injected < 1 {
 			fakeCodec := &lane.Codec{Nonce: "no-match-during-auth"}
 			_, err := c.reader.WaitForWithMatch(injectCtx, fakeCodec, matcher)
 			if errors.Is(err, lane.ErrPromptMatched) {
+				outcome = "prompt_matched"
 				if _, werr := io.WriteString(c.stdin, password+"\n"); werr != nil {
+					if debugCh {
+						fmt.Fprintf(os.Stderr, "[channel-debug] enter alias=%s user=%s phase=password_wait elapsed=%s outcome=%s err=write_failed\n",
+							c.key.Alias, user, time.Since(pwPhase), outcome)
+					}
 					return fmt.Errorf("channel: write password: %w", werr)
 				}
 				injected++
 				continue
 			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				outcome = "ctx_timeout"
+			} else if err != nil {
+				outcome = "other_err"
+			}
 			break authLoop
 		}
+		if debugCh {
+			fmt.Fprintf(os.Stderr, "[channel-debug] enter alias=%s user=%s phase=password_wait elapsed=%s outcome=%s injected=%d\n",
+				c.key.Alias, user, time.Since(pwPhase), outcome, injected)
+		}
+	} else if debugCh {
+		reason := "password_empty"
+		if noPromptSudo {
+			reason = "sudo_no_prompt"
+		}
+		fmt.Fprintf(os.Stderr, "[channel-debug] enter alias=%s user=%s phase=password_wait elapsed=0s outcome=skipped reason=%s\n",
+			c.key.Alias, user, reason)
 	}
 
+	phase = time.Now()
 	if _, err := io.WriteString(c.stdin, lane.LaneInitScript); err != nil {
 		return fmt.Errorf("channel: re-init child shell: %w", err)
+	}
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] enter alias=%s user=%s phase=write_init elapsed=%s\n",
+			c.key.Alias, user, time.Since(phase))
 	}
 
 	settleCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	codec := lane.NewCodec()
+	settlePhase := time.Now()
 	if _, err := io.WriteString(c.stdin, codec.Wrap(":")); err != nil {
 		return fmt.Errorf("channel: settle child shell: %w", err)
 	}
 	res, err := c.reader.WaitFor(settleCtx, codec)
+	if debugCh {
+		outcome := "ok"
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				outcome = "ctx_timeout"
+			} else {
+				outcome = "other_err"
+			}
+		}
+		fmt.Fprintf(os.Stderr, "[channel-debug] enter alias=%s user=%s phase=settle elapsed=%s outcome=%s total=%s\n",
+			c.key.Alias, user, time.Since(settlePhase), outcome, time.Since(overall))
+	}
 	if err != nil {
 		return fmt.Errorf("channel: settle child shell: %w", err)
 	}
 
-	c.stack = c.stack.Push(sanitizeUser(res.User))
+	settledUser := sanitizeUser(res.User)
+	if settledUser == "" || !strings.EqualFold(settledUser, user) {
+		return fmt.Errorf("channel: enter account settled as %q, want %q", settledUser, user)
+	}
+
+	c.stack = c.stack.Push(settledUser)
 	c.cwd = res.CWD
-	c.user = sanitizeUser(res.User)
+	c.user = settledUser
 	c.privState = "fresh"
 	c.lastUsed = time.Now()
 	c.key = ChannelKey{
@@ -328,6 +417,17 @@ func (c *execChannel) EnterAccount(ctx context.Context, user, method, password s
 		Purpose:   PurposeExec,
 	}
 	return nil
+}
+
+func (c *execChannel) sudoNoPasswordAvailableLocked(ctx context.Context, user string) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	out, err := c.execLocked(probeCtx, ExecRequest{
+		Command: "sudo -n -v -u " + posixSingleQuote(user),
+		Timeout: 3 * time.Second,
+	})
+	return err == nil && out.Code == 0
 }
 
 // ExitAccount leaves the topmost child shell, popping the account stack. Pops
@@ -343,17 +443,37 @@ func (c *execChannel) ExitAccount(ctx context.Context) error {
 		return errors.New("channel: cannot exit login shell")
 	}
 
+	debugCh := os.Getenv("ARGUS_LANE_DEBUG") != ""
+	overall := time.Now()
+
+	phase := time.Now()
 	if _, err := io.WriteString(c.stdin, "exit\n"); err != nil {
 		return fmt.Errorf("channel: write exit: %w", err)
+	}
+	if debugCh {
+		fmt.Fprintf(os.Stderr, "[channel-debug] exit alias=%s phase=write_exit elapsed=%s\n", c.key.Alias, time.Since(phase))
 	}
 
 	settleCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	codec := lane.NewCodec()
+	settlePhase := time.Now()
 	if _, err := io.WriteString(c.stdin, codec.Wrap(":")); err != nil {
 		return fmt.Errorf("channel: settle parent shell: %w", err)
 	}
 	res, err := c.reader.WaitFor(settleCtx, codec)
+	if debugCh {
+		outcome := "ok"
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				outcome = "ctx_timeout"
+			} else {
+				outcome = "other_err"
+			}
+		}
+		fmt.Fprintf(os.Stderr, "[channel-debug] exit alias=%s phase=settle elapsed=%s outcome=%s total=%s\n",
+			c.key.Alias, time.Since(settlePhase), outcome, time.Since(overall))
+	}
 	if err != nil {
 		return fmt.Errorf("channel: settle parent shell: %w", err)
 	}
@@ -435,10 +555,13 @@ func (c *execChannel) Close() error {
 	return nil
 }
 
-func buildEnterCommand(user, method string) string {
+func buildEnterCommand(user, method string, noPrompt bool) string {
 	user = strings.TrimSpace(user)
 	switch strings.ToLower(strings.TrimSpace(method)) {
 	case "sudo":
+		if noPrompt {
+			return "sudo -n -i -u " + posixSingleQuote(user)
+		}
 		return "sudo -i -u " + posixSingleQuote(user)
 	default:
 		return "su -s /bin/bash - " + posixSingleQuote(user)

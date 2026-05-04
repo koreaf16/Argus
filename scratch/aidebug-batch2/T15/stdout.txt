@@ -1,0 +1,12 @@
+  The user said "sandbox-server에서" (from/at sandbox-server). This is an incomplete sentence. The user is specifying a target server (`sandbox-server`) but hasn't provided an instruction or a command yet.
+  I need to ask the user what they want to do on `sandbox-server`.
+  However, looking at the available tools, `server_connect` is used to establish a connection. The user has already specified the server alias. I should probably confirm if they want to connect to it or if they are about to give a command for it.
+  Wait, the prompt says "Select the execution account with as_user, role, or channel, then send only the command body." and "If multiple servers are available, always set server explicitly."
+  Since the input is just the server name, I should respond by asking for the specific task they want to perform on that server.
+  Possible interpretations:
+  1. "Connect to sandbox-server."
+  2. "I want to do something on sandbox-server (waiting for me to ask)."
+  3. (Typo/Incomplete)
+  I will acknowledge the target server and ask for the command or task.
+  sandbox-server에서 어떤 작업을 수행할까요? 명령어나 요청 사항을 말씀해 주세요.                                   
+

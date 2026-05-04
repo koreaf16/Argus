@@ -1,0 +1,15 @@
+  The user provided a partial command: "sandbox-server에" (to/on sandbox-server).
+  This is an incomplete sentence in Korean. It looks like they are about to give an instruction related to the `sandbox-server`.
+  I need to acknowledge the input and wait for the rest of the instruction, or if they intended to ask something about it, I should wait for clarification. However, since I am an assistant, I should be ready to act.
+  Common actions on a server:
+  - Check status (`server_inspect`, `server_metrics`)
+  - Run commands (`bash`)
+  - Copy files (`server_copy`)
+  - Connect (`server_connect`)
+  Since the input is incomplete, I will ask the user what they would like to do with the `sandbox-server`.
+  Wait, looking at the prompt, I should be brief. "sandbox-server에" (On sandbox-server...)
+  I will respond by asking for the complete instruction.
+  "sandbox-server에 어떤 작업을 수행할까요? 명령이나 요청을 계속 말씀해 주세요." (What would you like to do on sandbox-server? Please continue with your command or request.)
+  Actually, the user might have just pressed enter accidentally. I'll provide a brief prompt.
+  sandbox-server에 어떤 작업을 수행할까요? 실행할 명령이나 요청 내용을 말씀해 주세요.                              
+

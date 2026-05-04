@@ -34,12 +34,14 @@ import (
 	"github.com/koreaf16/argus/internal/shelljobs"
 	"github.com/koreaf16/argus/internal/skills"
 	"github.com/koreaf16/argus/internal/state"
+	"github.com/koreaf16/argus/internal/tasks"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/types"
 
 	"github.com/koreaf16/argus/internal/tools/accountshell"
 	"github.com/koreaf16/argus/internal/tools/askuser"
 	"github.com/koreaf16/argus/internal/tools/bash"
+	"github.com/koreaf16/argus/internal/tools/connectortool"
 	"github.com/koreaf16/argus/internal/tools/enterplanmode"
 	"github.com/koreaf16/argus/internal/tools/enterworktree"
 	"github.com/koreaf16/argus/internal/tools/exitplanmode"
@@ -57,6 +59,7 @@ import (
 	"github.com/koreaf16/argus/internal/tools/readmcpresourcetool"
 	"github.com/koreaf16/argus/internal/tools/serverconnect"
 	"github.com/koreaf16/argus/internal/tools/servercopy"
+
 	"github.com/koreaf16/argus/internal/tools/serverinspect"
 	"github.com/koreaf16/argus/internal/tools/servermetrics"
 	"github.com/koreaf16/argus/internal/tools/servertunnel"
@@ -65,9 +68,6 @@ import (
 	"github.com/koreaf16/argus/internal/tools/skilltool"
 	"github.com/koreaf16/argus/internal/tools/snitptool"
 	"github.com/koreaf16/argus/internal/tools/task"
-	"github.com/koreaf16/argus/internal/tools/taskplaninit"
-	"github.com/koreaf16/argus/internal/tools/todoread"
-	"github.com/koreaf16/argus/internal/tools/todowrite"
 	"github.com/koreaf16/argus/internal/tools/toolsearch"
 	"github.com/koreaf16/argus/internal/tools/webfetch"
 	"github.com/koreaf16/argus/internal/tools/websearch"
@@ -77,14 +77,16 @@ import (
 )
 
 type parsedFlags struct {
-	help    bool
-	version bool
-	init    bool
-	model   string
-	print   string
-	resume  string
-	aidebug bool
-	autoOK  bool
+	help          bool
+	version       bool
+	init          bool
+	model         string
+	print         string
+	resume        string
+	aidebug       bool
+	aidebugTrace  bool // mirror + 풀 NDJSON 트레이스 (혼합)
+	aidebugRaw    bool // mirror 끄고 풀 NDJSON 트레이스만 (legacy 외부 자동화 호환)
+	autoOK        bool
 }
 
 func parseFlags() (*parsedFlags, error) {
@@ -102,7 +104,9 @@ func parseFlags() (*parsedFlags, error) {
 	fs.StringVar(&out.print, "p", "", "single prompt mode")
 	fs.StringVar(&out.resume, "resume", "", "resume a conversation by session ID")
 	fs.StringVar(&out.resume, "r", "", "resume a conversation by session ID")
-	fs.BoolVar(&out.aidebug, "aidebug", false, "emit NDJSON analysis trace (stdout + session file)")
+	fs.BoolVar(&out.aidebug, "aidebug", false, "headless mirror mode: stdout shows TUI ANSI rendering, session file gets full NDJSON")
+	fs.BoolVar(&out.aidebugTrace, "aidebug-trace", false, "with --aidebug: also stream NDJSON trace to stderr (mirror + trace)")
+	fs.BoolVar(&out.aidebugRaw, "aidebug-trace-only", false, "with --aidebug: skip mirror, emit NDJSON trace only (legacy)")
 	fs.BoolVar(&out.autoOK, "auto-approve", false, "auto-approve tool permission prompts")
 	fs.BoolVar(&out.autoOK, "yolo", false, "alias for --auto-approve")
 	if err := fs.Parse(os.Args[1:]); err != nil {
@@ -215,6 +219,32 @@ func runAIDebug(flags *parsedFlags, config *bootstrapConfig, engine *query.Engin
 		decisionLLM = client
 	}
 
+	// mirror 모드 활성화: --aidebug-trace-only가 명시되지 않은 경우 stdout에
+	// TUI ANSI 미러 출력을 흘린다. trace-only 모드에서는 nil로 두어 기존 동작 유지.
+	var mirror *tui.HeadlessMirror
+	if !flags.aidebugRaw {
+		mirror = tui.NewHeadlessMirror(tui.Config{
+			Engine:       engine,
+			Registry:     reg,
+			State:        config.State,
+			ModelPath:    constants.ModelsPath(),
+			SettingsPath: constants.SettingsPath(),
+			WorkDir:      config.WorkDir,
+			Memory:       config.Memory,
+			MCP:          config.MCP,
+			LSP:          config.LSP,
+			Workspace:    config.Workspace,
+			Connector:    config.Connector,
+			ShellJobs:    config.ShellJobs,
+			Credentials:  config.Credentials,
+			Skills:       config.Skills,
+			MCPReload:    config.MCPReload,
+			Theme:        config.Theme,
+			UI:           config.UI,
+			AutoApprove:  flags.autoOK,
+		}, os.Stdout)
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
 	engine.SetApprovalGate(query.ApprovalGate{
@@ -234,7 +264,22 @@ func runAIDebug(flags *parsedFlags, config *bootstrapConfig, engine *query.Engin
 				return true, nil
 			}
 
-			// JSON 주입(Injection) 지원
+			// -p (단일 프롬프트) 모드: stdin에 외부 컨트롤러가 데이터를 보내지 않으면
+			// reader.Peek 자체가 hang. JSON 주입/수동 입력 경로 모두 진입하지 않고
+			// 즉시 auto-deny로 안전하게 종료시킨다. 외부 컨트롤러 사용 시에는
+			// --auto-approve(--yolo)를 명시적으로 지정해야 한다.
+			if strings.TrimSpace(flags.print) != "" {
+				engine.EmitTrace("aidebug.decision", "", map[string]any{
+					"phase":      "tool_approval",
+					"tool":       toolName,
+					"decision":   "deny",
+					"handled_by": "auto-deny-single-prompt",
+					"reason":     "single-prompt mode requires --auto-approve/--yolo for tool approvals",
+				})
+				return false, nil
+			}
+
+			// JSON 주입(Injection) 지원 — REPL 모드에서만 동작
 			if peek, err := reader.Peek(1); err == nil && len(peek) > 0 && peek[0] == '{' {
 				line, _ := reader.ReadString('\n')
 				var inject struct {
@@ -255,7 +300,7 @@ func runAIDebug(flags *parsedFlags, config *bootstrapConfig, engine *query.Engin
 				}
 			}
 
-			// 수동 입력(Fallback)
+			// 수동 입력(Fallback) — REPL 모드 전용
 			fmt.Fprintf(os.Stderr, "Allow tool %s? [y/N]: ", toolName)
 			line, _ := reader.ReadString('\n')
 			allow := strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y")
@@ -279,6 +324,20 @@ func runAIDebug(flags *parsedFlags, config *bootstrapConfig, engine *query.Engin
 			pwPrompt := workspace.FormatPasswordPrompt(config.Workspace.Registry(), alias, kind, prompt)
 
 			fmt.Fprint(os.Stderr, pwPrompt+" ")
+
+			// -p (단일 프롬프트) 모드: reader.Peek 자체가 stdin에서 hang하므로
+			// REPL 진입 전에 즉시 에러로 종료시킨다.
+			if strings.TrimSpace(flags.print) != "" {
+				engine.EmitTrace("aidebug.decision", "", map[string]any{
+					"phase":      "workspace_prompt",
+					"prompt":     strings.TrimSpace(pwPrompt),
+					"decision":   "abort",
+					"handled_by": "auto-abort-single-prompt",
+					"reason":     "single-prompt mode does not support stdin credential prompts",
+				})
+				return "", fmt.Errorf("aidebug single-prompt mode: credential required for %s/%s", alias, kind)
+			}
+
 			if peek, err := reader.Peek(1); err == nil && len(peek) > 0 && peek[0] == '{' {
 				line, _ := reader.ReadString('\n')
 				var inject map[string]string
@@ -332,6 +391,13 @@ func runAIDebug(flags *parsedFlags, config *bootstrapConfig, engine *query.Engin
 				"name":     cmdName,
 				"is_error": err != nil,
 			})
+			// 설정 변경 가능성이 있는 명령 후 UI 설정 동기화
+			if cmdName == "viewthink" || cmdName == "config" {
+				config.UI = tui.LoadUISettings(constants.SettingsPath())
+				if mirror != nil {
+					mirror.UpdateUISettings(config.UI)
+				}
+			}
 			return err
 		}
 		events, err := engine.SubmitMessage(ctx, input)
@@ -343,8 +409,11 @@ func runAIDebug(flags *parsedFlags, config *bootstrapConfig, engine *query.Engin
 			streamFailed bool
 		)
 		for event := range events {
+			if mirror != nil {
+				mirror.Apply(event)
+			}
 			if event.Kind == query.UIEventAssistantDelta {
-				// 헤드리스 모드라도 텍스트 출력을 직접 하지 않음 (NDJSON 트레이스에 포함됨)
+				// 텍스트 자체는 mirror가 ANSI로 그려준다.
 			}
 			if event.Kind == query.UIEventToolUse {
 				// tool.call.start trace는 engine이 이미 발행함 — 중복 출력 불필요
@@ -490,6 +559,9 @@ func runAIDebug(flags *parsedFlags, config *bootstrapConfig, engine *query.Engin
 			if event.Kind == query.UIEventError {
 				streamFailed = true
 			}
+		}
+		if mirror != nil {
+			mirror.FlushAll()
 		}
 		fmt.Println() // AI 응답 종료 후 개행 추가
 		if len(plannedSteps) > 0 && !streamFailed {
@@ -698,8 +770,19 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 	var debugSink *aidebug.Sink
 	if flags != nil && flags.aidebug {
 		tracePath := memStore.TracePath(appState.SessionID())
-		// TUI/UI 환경에서 Stdout을 사용하면 NDJSON이 화면을 덮어버리므로 Stderr로 출력
-		debugSink, err = aidebug.NewSink(os.Stderr, tracePath)
+		// 외부 writer는 항상 stderr (mirror ANSI는 stdout으로 분리).
+		// 모드별 필터:
+		//   --aidebug-trace-only → 풀 NDJSON (legacy 동작)
+		//   --aidebug-trace      → 풀 NDJSON + mirror 동시
+		//   --aidebug 단독       → mirror만 (NDJSON은 세션 파일에만)
+		mode := aidebug.FilterDropAll
+		switch {
+		case flags.aidebugRaw:
+			mode = aidebug.FilterFull
+		case flags.aidebugTrace:
+			mode = aidebug.FilterMirror
+		}
+		debugSink, err = aidebug.NewSinkWithMode(os.Stderr, tracePath, mode)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("initialize aidebug sink: %w", err)
 		}
@@ -753,8 +836,6 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		toolsearch.New(),
 		enterplanmode.NewEnterPlanModeTool(),
 		exitplanmode.NewExitPlanModeTool(),
-		taskplaninit.New(),
-		todowrite.NewTodoWriteTool(),
 		websearch.NewWebSearchTool(),
 		fileread.NewFileReadTool(),
 		fslist.NewFSListTool(),
@@ -769,6 +850,7 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		mcpauthtool.NewMcpAuthTool(),
 		serverconnect.NewServerConnectTool(),
 		servercopy.NewServerCopyTool(),
+		connectortool.New(connectorManager),
 		serverinspect.NewServerInspectTool(),
 		servermetrics.NewServerMetricsTool(),
 		servertunnel.NewServerTunnelTool(),
@@ -778,13 +860,10 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		skilltool.NewSkillTool(skillRegistry),
 		&snitptool.SnipTool{},
 		task.NewTaskCreateTool(),
-		task.NewTaskListTool(),
 		task.NewTaskUpdateTool(),
-		task.NewTaskDeleteTool(),
 		askuser.NewAskUserQuestionTool(),
 		enterworktree.NewEnterWorktreeTool(),
 		exitworktree.NewExitWorktreeTool(),
-		todoread.NewTodoReadTool(),
 	} {
 		if err := toolRegistry.Register(t); err != nil {
 			return nil, nil, nil, fmt.Errorf("register %s tool: %w", t.Name(), err)
@@ -884,7 +963,7 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		})
 	}
 
-	uiSettings := loadUISettings(constants.SettingsPath())
+	uiSettings := tui.LoadUISettings(constants.SettingsPath())
 
 	return engine, reg, &bootstrapConfig{
 		State:       appState,
@@ -902,74 +981,6 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		Theme:       uiSettings.Theme,
 		UI:          uiSettings,
 	}, nil
-}
-
-func loadUISettings(settingsPath string) tui.UISettings {
-	settings := tui.DefaultUISettings()
-
-	data, err := os.ReadFile(settingsPath)
-	if err != nil {
-		return settings
-	}
-	var root map[string]any
-	if err := json.Unmarshal(data, &root); err != nil {
-		return settings
-	}
-	uiRaw, ok := root["ui"]
-	if !ok {
-		return settings
-	}
-	uiMap, ok := uiRaw.(map[string]any)
-	if !ok {
-		return settings
-	}
-
-	if v, ok := uiMap["theme"].(string); ok && strings.TrimSpace(v) != "" {
-		settings.Theme = strings.TrimSpace(v)
-	}
-	if v, ok := uiMap["variant"].(string); ok && strings.TrimSpace(v) != "" {
-		settings.Variant = strings.TrimSpace(v)
-	}
-
-	if motionRaw, ok := uiMap["motion"].(map[string]any); ok {
-		if v, ok := motionRaw["enabled"].(bool); ok {
-			settings.Motion.Enabled = v
-		}
-		if v, ok := motionRaw["level"].(string); ok && strings.TrimSpace(v) != "" {
-			settings.Motion.Level = strings.TrimSpace(v)
-		}
-		if v, ok := motionRaw["tick_ms"]; ok {
-			switch n := v.(type) {
-			case float64:
-				settings.Motion.TickMS = int(n)
-			case int:
-				settings.Motion.TickMS = n
-			}
-		}
-		if v, ok := motionRaw["reduced"].(bool); ok {
-			settings.Motion.Reduced = v
-		}
-		if v, ok := motionRaw["signature"].(bool); ok {
-			settings.Motion.Signature = v
-		}
-	}
-
-	if streamingRaw, ok := uiMap["streaming"].(map[string]any); ok {
-		if v, ok := streamingRaw["mode"].(string); ok && strings.TrimSpace(v) != "" {
-			settings.Streaming.Mode = strings.TrimSpace(v)
-		}
-		if v, ok := streamingRaw["hide_unstable_markdown_tail"].(bool); ok {
-			settings.Streaming.HideUnstableMarkdown = v
-		}
-		if v, ok := streamingRaw["flush_plain_text_partial"].(bool); ok {
-			settings.Streaming.FlushPlainTextPartial = v
-		}
-		if v, ok := streamingRaw["render_code_blocks_stable"].(bool); ok {
-			settings.Streaming.RenderCodeBlocksStable = v
-		}
-	}
-
-	return tui.ResolveUISettings(settings, settings.Theme, false)
 }
 
 func initializeSession(flags *parsedFlags, appState *state.AppState, store *memdir.Store) (*session.Snapshot, error) {
@@ -1003,6 +1014,10 @@ func initializeSession(flags *parsedFlags, appState *state.AppState, store *memd
 		return nil, fmt.Errorf("create session id: %w", err)
 	}
 	appState.SetSessionID(id)
+
+	// 새로운 세션 시작 시 기존 Task 초기화
+	_ = tasks.ClearAllTasks()
+
 	return nil, nil
 }
 
@@ -1047,6 +1062,8 @@ func registerLegacyToolAliases(registry *tool.Registry) error {
 		{alias: constants.LegacyExitPlanModeToolName, target: constants.ExitPlanModeToolName},
 		{alias: constants.LegacyAskUserToolName, target: constants.AskUserToolName},
 		{alias: constants.LegacyAskUserAliasName, target: constants.AskUserToolName},
+		{alias: "EnterWorktreeTool", target: "enter_worktree"},
+		{alias: "ExitWorktreeTool", target: "exit_worktree"},
 	}
 	for _, item := range aliases {
 		if err := registry.RegisterAlias(item.alias, item.target); err != nil {

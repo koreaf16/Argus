@@ -140,7 +140,6 @@ func (r *ServerConnectRenderer) CreateInteractiveModel(args map[string]any, them
 	s.Style = theme.Style(theme.ClaudeAccentColor())
 	return &ServerConnectInteractiveModel{alias: alias, theme: theme, sp: s}
 }
-
 func (r *ServerConnectRenderer) RenderToolUse(args map[string]any, streamBody string, theme toolui.ThemeContext) string {
 	alias, _ := args["server"].(string)
 	alias = strings.TrimSpace(alias)
@@ -156,7 +155,7 @@ func (r *ServerConnectRenderer) RenderToolUse(args map[string]any, streamBody st
 
 	var lines []string
 	if strings.Contains(streamBody, "Connected to") {
-		lines = append(lines, "✔ Connected to "+alias)
+		lines = append(lines, "✔ "+alias+"에 연결됨")
 		for _, line := range strings.Split(streamBody, "\n") {
 			l := strings.TrimSpace(line)
 			if strings.Contains(l, "OS:") || strings.Contains(l, "user:") {

@@ -105,8 +105,29 @@ func normalizeShellText(input string) string {
 }
 
 func normalizeGenericText(input string) string {
+	// Normalize line endings
 	s := strings.ReplaceAll(input, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
+
+	// Handle carriage returns by overwriting the current line
+	var processed strings.Builder
+	var currentLine strings.Builder
+
+	for _, r := range s {
+		if r == '\r' {
+			currentLine.Reset()
+			continue
+		}
+		if r == '\n' {
+			processed.WriteString(currentLine.String())
+			processed.WriteRune('\n')
+			currentLine.Reset()
+			continue
+		}
+		currentLine.WriteRune(r)
+	}
+	processed.WriteString(currentLine.String())
+	s = processed.String()
+
 	s = ansiOSCRegex.ReplaceAllString(s, "")
 	s = ansiCSIRegex.ReplaceAllString(s, "")
 	s = ansiSingleRegex.ReplaceAllString(s, "")

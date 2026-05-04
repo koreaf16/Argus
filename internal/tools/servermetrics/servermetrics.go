@@ -21,7 +21,7 @@ func (t *ServerMetricsTool) Name() string {
 }
 
 func (t *ServerMetricsTool) Description(ctx tool.Context) string {
-	return "Collect remote server metrics over the active SSH workspace (CPU/memory/disk/uptime/process/GPU)."
+	return "활성 SSH 워크스페이스에서 원격 서버 메트릭(CPU/메모리/디스크/가동 시간/프로세스/GPU)을 수집합니다."
 }
 
 func (t *ServerMetricsTool) InputSchema() tool.ToolInputJSONSchema {
@@ -30,10 +30,10 @@ func (t *ServerMetricsTool) InputSchema() tool.ToolInputJSONSchema {
 		"properties": map[string]any{
 			"server": map[string]any{
 				"type":        "string",
-				"description": "Optional workspace alias. Defaults to active workspace.",
+				"description": "선택적 워크스페이스 별칭. 기본값은 활성 워크스페이스입니다.",
 			},
-			"role":    map[string]any{"type": "string", "description": "Optional workflow role."},
-			"channel": map[string]any{"type": "string", "description": "Optional workflow channel."},
+			"role":    map[string]any{"type": "string", "description": "선택적 워크플로우 역할."},
+			"channel": map[string]any{"type": "string", "description": "선택적 워크플로우 채널."},
 		},
 	}
 }
@@ -49,7 +49,7 @@ func (t *ServerMetricsTool) MaxResultSizeChars() int {
 func (t *ServerMetricsTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.ToolEvent, error) {
 	events := make(chan tool.ToolEvent, 2)
 	if ctx.Workspace == nil {
-		return nil, fmt.Errorf("workspace manager is unavailable")
+		return nil, fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
 	}
 
 	var req struct {
@@ -70,11 +70,11 @@ func (t *ServerMetricsTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 		}
 		entry, ok := ctx.Workspace.Registry().Get(alias)
 		if !ok {
-			events <- tool.NewErrorEvent(fmt.Errorf("unknown server alias: %s", alias))
+			events <- tool.NewErrorEvent(fmt.Errorf("알 수 없는 서버 별칭: %s", alias))
 			return
 		}
 		if entry.Kind != workspace.ServerKindSSH {
-			events <- tool.NewErrorEvent(fmt.Errorf("server_metrics requires an SSH workspace"))
+			events <- tool.NewErrorEvent(fmt.Errorf("server_metrics는 SSH 워크스페이스가 필요합니다"))
 			return
 		}
 
@@ -95,7 +95,7 @@ func (t *ServerMetricsTool) CheckPermission(ctx tool.Context, input json.RawMess
 	if ctx.Workspace == nil {
 		return tool.PermissionResult{
 			Behavior: types.BehaviorDeny,
-			Message:  "workspace manager is unavailable",
+			Message:  "워크스페이스 관리자를 사용할 수 없습니다",
 		}, nil
 	}
 
@@ -113,13 +113,13 @@ func (t *ServerMetricsTool) CheckPermission(ctx tool.Context, input json.RawMess
 	if !ok {
 		return tool.PermissionResult{
 			Behavior: types.BehaviorDeny,
-			Message:  fmt.Sprintf("unknown server alias: %s", alias),
+			Message:  fmt.Sprintf("알 수 없는 서버 별칭: %s", alias),
 		}, nil
 	}
 	if entry.Kind != workspace.ServerKindSSH {
 		return tool.PermissionResult{
 			Behavior: types.BehaviorDeny,
-			Message:  "server_metrics requires an SSH workspace",
+			Message:  "server_metrics는 SSH 워크스페이스가 필요합니다",
 		}, nil
 	}
 	return tool.DefaultAllowPermission(), nil

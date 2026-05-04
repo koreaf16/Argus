@@ -1,0 +1,15 @@
+  The user provided a partial instruction: "sandbox-server에서" (In sandbox-server). This is an incomplete sentence/request.
+  1.  **Identify the user's intent**: The user wants to do something on the `sandbox-server`. However, the instruction is cut off.
+  2.  **Analyze available information**:
+      *   `sandbox-server` is a registered SSH workspace.
+      *   The current active workspace is `local`.
+  3.  **Determine the necessary action**:
+      *   Since the request is incomplete, I cannot perform any technical task yet.
+      *   I should ask the user to complete their instruction.
+  4.  **Formulate the response**:
+      *   Acknowledge that I understand they want to work on `sandbox-server`.
+      *   Ask what specific task they want to perform on that server.
+      *   Keep it concise as per "Output Efficiency" rules.
+  Response: "sandbox-server에서 어떤 작업을 수행할까요? 명령어나 요청 내용을 말씀해 주세요." (What task would you like to perform on sandbox-server? Please tell me the command or request.)
+  sandbox-server에서 어떤 작업을 수행할까요? 명령어나 요청 내용을 말씀해 주세요.                                   
+

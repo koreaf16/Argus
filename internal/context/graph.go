@@ -231,7 +231,10 @@ func (g *Graph) MarkProtected(currentUserText string) {
 
 		// plan/todo 관련 노드 보호
 		if nd.Kind == NodeKindToolUse &&
-			(strings.EqualFold(nd.ToolName, "todowrite") ||
+			(strings.EqualFold(nd.ToolName, "taskcreate") ||
+				strings.EqualFold(nd.ToolName, "task_create") ||
+				strings.EqualFold(nd.ToolName, "taskupdate") ||
+				strings.EqualFold(nd.ToolName, "task_update") ||
 				strings.EqualFold(nd.ToolName, "enterplanmode") ||
 				strings.EqualFold(nd.ToolName, "exitplanmode")) {
 			nd.Protected = true
