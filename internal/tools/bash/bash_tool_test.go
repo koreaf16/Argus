@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/koreaf16/argus/internal/services/inventory"
 	"github.com/koreaf16/argus/internal/services/workspace"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/types"
@@ -22,10 +23,13 @@ func TestCheckPermissionDeniesWindowsTargetWithoutBash(t *testing.T) {
 		t.Fatalf("add server: %v", err)
 	}
 	mgr := workspace.NewManager(reg, nil)
-	mgr.SetInspectSnapshot("winbox", workspace.InspectSnapshot{
-		Alias: "winbox",
-		OS:    "Microsoft Windows Server 2022",
-		Shell: "PowerShell",
+	mgr.SetInventorySnapshot("winbox", inventory.InventorySnapshot{
+		Alias:  "winbox",
+		Status: inventory.StatusReady,
+		System: &inventory.SystemInfo{
+			OS:    "Microsoft Windows Server 2022",
+			Shell: "PowerShell",
+		},
 	})
 
 	input, _ := json.Marshal(map[string]any{
@@ -57,10 +61,13 @@ func TestCheckPermissionAllowsWindowsTargetWithBash(t *testing.T) {
 		t.Fatalf("add server: %v", err)
 	}
 	mgr := workspace.NewManager(reg, nil)
-	mgr.SetInspectSnapshot("winbox", workspace.InspectSnapshot{
-		Alias: "winbox",
-		OS:    "Microsoft Windows Server 2022",
-		Shell: "Git Bash /usr/bin/bash",
+	mgr.SetInventorySnapshot("winbox", inventory.InventorySnapshot{
+		Alias:  "winbox",
+		Status: inventory.StatusReady,
+		System: &inventory.SystemInfo{
+			OS:    "Microsoft Windows Server 2022",
+			Shell: "Git Bash /usr/bin/bash",
+		},
 	})
 
 	input, _ := json.Marshal(map[string]any{

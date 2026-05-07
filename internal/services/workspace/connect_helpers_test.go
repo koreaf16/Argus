@@ -53,30 +53,3 @@ func TestFormatPasswordPromptWithoutRegistry(t *testing.T) {
 	}
 }
 
-func TestFormatInspectSummary(t *testing.T) {
-	snap := InspectSnapshot{
-		OS:        "Linux kernel\nNAME=Ubuntu",
-		User:      "oracle",
-		Shell:     "/bin/bash\n",
-		Uptime:    " 1 day ",
-		Services:  "svc-a\nsvc-b\n",
-		Listeners: "80\n443\n22\n",
-	}
-
-	got := FormatInspectSummary(snap)
-	if !strings.Contains(got, "OS: Linux kernel") {
-		t.Fatalf("missing OS summary: %q", got)
-	}
-	if !strings.Contains(got, "user: oracle") {
-		t.Fatalf("missing user summary: %q", got)
-	}
-	if !strings.Contains(got, "shell: /bin/bash") {
-		t.Fatalf("missing shell summary: %q", got)
-	}
-	if !strings.Contains(got, "services: 2 running") {
-		t.Fatalf("missing services summary: %q", got)
-	}
-	if !strings.Contains(got, "listeners: 3 ports") {
-		t.Fatalf("missing listeners summary: %q", got)
-	}
-}

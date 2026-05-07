@@ -250,6 +250,7 @@ func systemHeaderToInfo(hdr *probes.SystemHeaderResult) *SystemInfo {
 		OS:            hdr.OS,
 		OSPretty:      hdr.OSPretty,
 		User:          hdr.User,
+		CWD:           hdr.CWD,
 		Shell:         hdr.Shell,
 		Uptime:        hdr.Uptime,
 		Memory:        hdr.Memory,

@@ -38,6 +38,7 @@ type SystemInfo struct {
 	OS            string // trimmed uname (e.g. "Linux host 5.14.0")
 	OSPretty      string // /etc/os-release PRETTY_NAME (e.g. "Red Hat Enterprise Linux 9.4")
 	User          string
+	CWD           string // working directory at SSH login (typically home dir)
 	Shell         string
 	Uptime        string // already trimmed (e.g. "31 days, 13:43")
 	Memory        string // free -h first data line

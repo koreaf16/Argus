@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/koreaf16/argus/internal/services/inventory"
 	"github.com/koreaf16/argus/internal/utils"
 )
 
@@ -24,8 +25,8 @@ func (m *Manager) DetectPlatform(ctx context.Context, alias string) (string, err
 		return PlatformUnix, nil
 	}
 
-	if snap, ok := m.GetInspectSnapshot(alias); ok {
-		if p := classifyPlatformText(snap.OS + "\n" + snap.Shell); p != PlatformUnknown {
+	if snap, ok := m.GetInventorySnapshot(alias); ok && snap.System != nil {
+		if p := classifyPlatformText(snap.System.OS + "\n" + snap.System.Shell); p != PlatformUnknown {
 			return p, nil
 		}
 	}
@@ -39,7 +40,7 @@ func (m *Manager) DetectPlatform(ctx context.Context, alias string) (string, err
 		return PlatformUnknown, err
 	}
 	if platform != PlatformUnknown {
-		m.mergeProbeSnapshot(alias, platform, evidence)
+		m.mergePlatformToInventory(alias, platform, evidence)
 	}
 	return platform, nil
 }
@@ -66,8 +67,8 @@ func (m *Manager) DetectBashAvailability(ctx context.Context, alias string) (boo
 		return true, nil
 	}
 
-	if snap, ok := m.GetInspectSnapshot(alias); ok {
-		if strings.Contains(strings.ToLower(snap.Shell), "bash") {
+	if snap, ok := m.GetInventorySnapshot(alias); ok && snap.System != nil {
+		if strings.Contains(strings.ToLower(snap.System.Shell), "bash") {
 			return true, nil
 		}
 	}
@@ -81,22 +82,29 @@ func (m *Manager) DetectBashAvailability(ctx context.Context, alias string) (boo
 		return false, probeErr
 	}
 	if ok {
-		m.mergeProbeSnapshot(alias, platform, evidence)
+		m.mergePlatformToInventory(alias, platform, evidence)
 	}
 	return ok, nil
 }
 
-func (m *Manager) mergeProbeSnapshot(alias, platform, evidence string) {
-	snap, _ := m.GetInspectSnapshot(alias)
+// mergePlatformToInventory seeds the inventory cache with probed platform/shell data
+// so subsequent DetectPlatform calls skip the SSH round-trip.
+func (m *Manager) mergePlatformToInventory(alias, platform, evidence string) {
+	snap, _ := m.GetInventorySnapshot(alias)
 	snap.Alias = alias
-	snap.CollectedAt = time.Now()
-	if strings.TrimSpace(snap.OS) == "" && platform != PlatformUnknown {
-		snap.OS = platform + " (probed)"
+	if snap.CollectedAt.IsZero() {
+		snap.CollectedAt = time.Now()
 	}
-	if strings.TrimSpace(evidence) != "" && strings.TrimSpace(snap.Shell) == "" {
-		snap.Shell = evidence
+	if snap.System == nil {
+		snap.System = &inventory.SystemInfo{}
 	}
-	m.SetInspectSnapshot(alias, snap)
+	if strings.TrimSpace(snap.System.OS) == "" && platform != PlatformUnknown {
+		snap.System.OS = platform + " (probed)"
+	}
+	if strings.TrimSpace(evidence) != "" && strings.TrimSpace(snap.System.Shell) == "" {
+		snap.System.Shell = evidence
+	}
+	m.SetInventorySnapshot(alias, snap)
 }
 
 func classifyPlatformText(text string) string {

@@ -28,8 +28,6 @@ type Manager struct {
 
 	promptFn PasswordRequestFunc
 
-	inspectCache map[string]InspectSnapshot
-
 	// channel-based multi-channel SSH backbone (MobaXterm-style). Privilege x
 	// purpose channels multiplex over a single master *ssh.Client per host.
 	// Built lazily on first use so existing code paths keep functioning while
@@ -72,7 +70,6 @@ func NewManager(reg *Registry, promptFn PasswordRequestFunc) *Manager {
 		sessions:      make(map[string]*sshSession),
 		accountShells: make(map[string]*accountShellSession),
 		pwCache:       make(map[string]map[string]string),
-		inspectCache:  make(map[string]InspectSnapshot),
 		promptFn:      promptFn,
 		active:        active,
 		activePriv:    make(map[string]channel.PrivilegeKey),
@@ -296,19 +293,6 @@ func (m *Manager) SetActive(alias string) error {
 	return nil
 }
 
-func (m *Manager) SetInspectSnapshot(alias string, snapshot InspectSnapshot) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.inspectCache[alias] = snapshot
-}
-
-func (m *Manager) GetInspectSnapshot(alias string) (InspectSnapshot, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	res, ok := m.inspectCache[alias]
-	return res, ok
-}
-
 func (m *Manager) Connect(alias string) error {
 	alias = m.ResolveAlias(alias)
 	if alias == LocalAlias {
@@ -376,8 +360,8 @@ func (m *Manager) Disconnect(alias string) error {
 		m.activePrivMu.Unlock()
 		m.mu.Lock()
 		delete(m.pwCache, alias)
-		delete(m.inspectCache, alias)
 		m.mu.Unlock()
+		m.InvalidateInventory(alias)
 		return nil
 	}
 	hostAlias := target.HostAlias
@@ -397,12 +381,14 @@ func (m *Manager) Disconnect(alias string) error {
 	session = m.sessions[hostAlias]
 	delete(m.sessions, hostAlias)
 	delete(m.pwCache, hostAlias)
-	delete(m.inspectCache, hostAlias)
 	for _, child := range m.accountAliasesForHost(hostAlias) {
 		delete(m.pwCache, child)
-		delete(m.inspectCache, child)
 	}
 	m.mu.Unlock()
+	m.InvalidateInventory(hostAlias)
+	for _, child := range m.accountAliasesForHost(hostAlias) {
+		m.InvalidateInventory(child)
+	}
 
 	if session != nil {
 		return session.Close()

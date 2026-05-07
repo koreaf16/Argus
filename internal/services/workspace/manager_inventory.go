@@ -64,6 +64,12 @@ func (m *Manager) GetInventorySnapshot(alias string) (inventory.InventorySnapsho
 	return globalInventoryRunner.Cache().Get(m.ResolveAlias(alias))
 }
 
+// SetInventorySnapshot seeds the inventory cache for alias. Used in tests and
+// for pre-populating known system state without running a full scan.
+func (m *Manager) SetInventorySnapshot(alias string, snap inventory.InventorySnapshot) {
+	globalInventoryRunner.Cache().Set(m.ResolveAlias(alias), snap)
+}
+
 // RescanInventory forces a fresh inventory scan and waits for completion.
 // Deprecated: prefer RescanInventoryStreaming for streaming phase callbacks.
 func (m *Manager) RescanInventory(ctx context.Context, alias string) (inventory.InventorySnapshot, error) {

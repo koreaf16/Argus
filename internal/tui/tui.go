@@ -416,8 +416,8 @@ func (a *app) buildFooterMsg() footerStateMsg {
 		if a.cfg.State != nil && a.cfg.State.ActiveWorkspace() != activeAlias {
 			a.cfg.State.SetActiveWorkspace(activeAlias)
 		}
-		if snap, ok := ws.GetInspectSnapshot(activeAlias); ok && snap.CWD != "" {
-			cwd = snap.CWD
+		if invSnap, ok := ws.GetInventorySnapshot(activeAlias); ok && invSnap.System != nil && invSnap.System.CWD != "" {
+			cwd = invSnap.System.CWD
 		}
 	}
 	footer := presentation.BuildFooterState(a.cfg.State, cwd)

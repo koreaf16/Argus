@@ -205,20 +205,12 @@ func (m *uiModel) executeServerAction(action serverAction) {
 				Footer: presentation.BuildFooterState(m.app.cfg.State, m.app.cfg.WorkDir),
 			})
 
-			// Connected 마커 + inspect 진행 중
+			// Connected 마커 emit — inventory PhaseHeader(~1s)가 환경 정보를 표시한다.
 			m.app.send(presentationEventMsg{Event: presentation.Event{
 				Kind:   presentation.EventToolDelta,
-				Text:   fmt.Sprintf("[ARGUS_SERVER_CONNECT:connected]\n%s에 연결되었습니다. 환경 정보를 확인 중입니다...\n", resolvedAlias),
+				Text:   fmt.Sprintf("[ARGUS_SERVER_CONNECT:connected]\n%s에 연결되었습니다.\n", resolvedAlias),
 				TaskID: taskID,
 			}})
-			snap, inspectErr := ws.RunInspect(m.app.ctx, resolvedAlias)
-			if inspectErr == nil {
-				m.app.send(presentationEventMsg{Event: presentation.Event{
-					Kind:   presentation.EventToolDelta,
-					Text:   workspace.FormatInspectSummary(snap),
-					TaskID: taskID,
-				}})
-			}
 
 			// 인벤토리 스캔 (streaming, inventoryChannel 사용, PTY lane 점유 없음)
 			m.app.send(presentationEventMsg{Event: presentation.Event{

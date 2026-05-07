@@ -541,13 +541,7 @@ func handleServer(args []string, ctx CommandContext) error {
 		}
 		syncActiveWorkspaceState(ctx)
 		fmt.Fprintf(ctx.Stdout, "connected: %s (active workspace switched)\n", resolvedAlias)
-		fmt.Fprintf(ctx.Stdout, "inspecting environment...\n")
-		snap, inspectErr := ctx.Workspace.RunInspect(ctx.Context, resolvedAlias)
-		if inspectErr != nil {
-			fmt.Fprintf(ctx.Stdout, "inspect failed: %v\n", inspectErr)
-		} else {
-			fmt.Fprintf(ctx.Stdout, workspace.FormatInspectSummary(snap))
-		}
+		fmt.Fprintf(ctx.Stdout, "인벤토리 수집 중 (백그라운드)...\n")
 		ctx.Workspace.StartInventoryScan(ctx.Context, resolvedAlias, nil)
 		return nil
 	case "scan":

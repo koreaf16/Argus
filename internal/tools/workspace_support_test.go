@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/koreaf16/argus/internal/services/inventory"
 	"github.com/koreaf16/argus/internal/services/workspace"
 )
 
@@ -101,10 +102,13 @@ func TestResolveShellTargetInfo_ReadsSnapshotPlatform(t *testing.T) {
 		t.Fatalf("add server: %v", err)
 	}
 	mgr := workspace.NewManager(reg, nil)
-	mgr.SetInspectSnapshot("winbox", workspace.InspectSnapshot{
-		Alias: "winbox",
-		OS:    "Microsoft Windows Server 2022",
-		Shell: "PowerShell",
+	mgr.SetInventorySnapshot("winbox", inventory.InventorySnapshot{
+		Alias:  "winbox",
+		Status: inventory.StatusReady,
+		System: &inventory.SystemInfo{
+			OS:    "Microsoft Windows Server 2022",
+			Shell: "PowerShell",
+		},
 	})
 
 	ctx := Context{Context: context.Background(), Workspace: mgr}

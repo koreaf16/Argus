@@ -12,6 +12,7 @@ type SystemHeaderResult struct {
 	OS            string // trimmed uname -srm  (e.g. "Linux host 5.14.0")
 	OSPretty      string // /etc/os-release PRETTY_NAME (e.g. "Red Hat Enterprise Linux 9.4")
 	User          string // whoami output
+	CWD           string // pwd at login time (typically user's home dir)
 	Shell         string // $SHELL value
 	Uptime        string // trimmed uptime string (e.g. "31 days, 13:43")
 	Memory        string // first data line of free -h
@@ -27,6 +28,8 @@ printf '<<HDR:pretty>>\n'
 grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"'
 printf '<<HDR:user>>\n'
 whoami 2>/dev/null
+printf '<<HDR:cwd>>\n'
+pwd 2>/dev/null
 printf '<<HDR:shell>>\n'
 echo "$SHELL"
 printf '<<HDR:uptime>>\n'
@@ -79,6 +82,7 @@ func parseSystemHeader(stdout string) *SystemHeaderResult {
 	info.OS = trimOSString(rawOS)
 	info.OSPretty = firstNonEmptyLine(sections["pretty"])
 	info.User = firstNonEmptyLine(sections["user"])
+	info.CWD = firstNonEmptyLine(sections["cwd"])
 	info.Shell = firstNonEmptyLine(sections["shell"])
 	info.Uptime = trimUptimeString(firstNonEmptyLine(sections["uptime"]))
 	info.Memory = firstNonEmptyLine(sections["mem"])
