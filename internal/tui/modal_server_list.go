@@ -220,23 +220,42 @@ func (m *uiModel) executeServerAction(action serverAction) {
 				}})
 			}
 
-			// 동기 인벤토리 스캔 (inventoryChannel 사용, PTY lane 점유 없음)
-			if resolvedAlias != workspace.LocalAlias {
-				m.app.send(presentationEventMsg{Event: presentation.Event{
-					Kind:   presentation.EventToolDelta,
-					Text:   "[ARGUS_INVENTORY_SCANNING]\n",
-					TaskID: taskID,
-				}})
-				invSnap, invErr := ws.RescanInventory(m.app.ctx, resolvedAlias)
-				if invErr == nil {
-					cardLines := inventory.FormatUICard(invSnap)
+			// 인벤토리 스캔 (streaming, inventoryChannel 사용, PTY lane 점유 없음)
+			m.app.send(presentationEventMsg{Event: presentation.Event{
+				Kind:   presentation.EventToolDelta,
+				Text:   "[ARGUS_INVENTORY_SCANNING]\n",
+				TaskID: taskID,
+			}})
+			ws.RescanInventoryStreaming(m.app.ctx, resolvedAlias, func(phase inventory.InventoryPhase, snap inventory.InventorySnapshot, err error) {
+				switch phase {
+				case inventory.PhaseHeader:
+					cardLines := inventory.FormatUICard(snap)
+					if len(cardLines) > 0 {
+						m.app.send(presentationEventMsg{Event: presentation.Event{
+							Kind:   presentation.EventToolDelta,
+							Text:   "[ARGUS_INVENTORY_HEADER]\n" + strings.Join(cardLines, "\n"),
+							TaskID: taskID,
+						}})
+					}
+				case inventory.PhaseReady:
+					cardLines := inventory.FormatUICard(snap)
 					m.app.send(presentationEventMsg{Event: presentation.Event{
 						Kind:   presentation.EventToolDelta,
-						Text:   fmt.Sprintf("[ARGUS_INVENTORY_READY:%d]\n%s", invSnap.DurationMs, strings.Join(cardLines, "\n")),
+						Text:   fmt.Sprintf("[ARGUS_INVENTORY_READY:%d]\n%s", snap.DurationMs, strings.Join(cardLines, "\n")),
+						TaskID: taskID,
+					}})
+				case inventory.PhaseFailed:
+					errMsg := ""
+					if err != nil {
+						errMsg = err.Error()
+					}
+					m.app.send(presentationEventMsg{Event: presentation.Event{
+						Kind:   presentation.EventToolDelta,
+						Text:   "[ARGUS_INVENTORY_FAILED]\n" + errMsg,
 						TaskID: taskID,
 					}})
 				}
-			}
+			})
 
 			// 성공 결과 (SetResult가 마커를 제거하므로 빈 결과로 처리됨)
 			m.app.send(presentationEventMsg{Event: presentation.Event{

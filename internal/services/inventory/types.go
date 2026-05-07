@@ -6,10 +6,11 @@ import "time"
 type Status string
 
 const (
-	StatusPending Status = "pending"
-	StatusReady   Status = "ready"
-	StatusPartial Status = "partial"
-	StatusFailed  Status = "failed"
+	StatusPending  Status = "pending"
+	StatusReady    Status = "ready"
+	StatusPartial  Status = "partial"
+	StatusFailed   Status = "failed"
+	StatusDisabled Status = "disabled" // inventory not supported (e.g. Windows without bash)
 )
 
 // InventorySnapshot is the result of a full inventory scan for one server alias.
@@ -19,12 +20,26 @@ type InventorySnapshot struct {
 	DurationMs  int64
 	Status      Status
 
+	System     *SystemInfo
 	Containers []ContainerInfo
 	Kubernetes *K8sInfo
 	LLMServing []LLMServingInfo
 
 	Errors     map[string]string // probe name → error message
 	ArtifactID string
+}
+
+// SystemInfo holds basic system identity from the system_header probe.
+type SystemInfo struct {
+	OS            string // trimmed uname (e.g. "Linux host 5.14.0")
+	OSPretty      string // /etc/os-release PRETTY_NAME (e.g. "Red Hat Enterprise Linux 9.4")
+	User          string
+	Shell         string
+	Uptime        string // already trimmed (e.g. "31 days, 13:43")
+	Memory        string // free -h first data line
+	Disk          string // df -h / tail line
+	ListenerCount int
+	ServiceCount  int
 }
 
 // ContainerInfo describes a single Docker/Podman container.

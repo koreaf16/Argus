@@ -27,6 +27,30 @@ func FormatSummaryForPrompt(snap InventorySnapshot) string {
 	fmt.Fprintf(&sb, "서버 인벤토리 (alias=%s, 수집=%s, %.1fs):\n\n",
 		snap.Alias, ts, float64(snap.DurationMs)/1000)
 
+	if snap.System != nil {
+		s := snap.System
+		os := s.OSPretty
+		if os == "" {
+			os = s.OS
+		}
+		if os != "" {
+			fmt.Fprintf(&sb, "[시스템] OS: %s", os)
+			if s.User != "" {
+				fmt.Fprintf(&sb, ", user: %s", s.User)
+			}
+			if s.Shell != "" {
+				fmt.Fprintf(&sb, ", shell: %s", s.Shell)
+			}
+			if s.Uptime != "" {
+				fmt.Fprintf(&sb, ", uptime: %s", s.Uptime)
+			}
+			if s.ServiceCount > 0 || s.ListenerCount > 0 {
+				fmt.Fprintf(&sb, ", services: %d running / %d listeners", s.ServiceCount, s.ListenerCount)
+			}
+			sb.WriteString("\n\n")
+		}
+	}
+
 	if len(snap.Containers) > 0 {
 		running := 0
 		for _, c := range snap.Containers {
@@ -131,8 +155,42 @@ func FormatSummaryForPrompt(snap InventorySnapshot) string {
 
 // FormatUICard returns compact display lines for the TUI connect card.
 // Format: "category   value" (3 spaces) for category lines, "   value" for continuations.
+// System lines come first, followed by docker/k8s/llm lines.
 func FormatUICard(snap InventorySnapshot) []string {
 	var lines []string
+
+	if snap.System != nil {
+		s := snap.System
+		osLabel := s.OSPretty
+		if osLabel == "" {
+			osLabel = s.OS
+		}
+		if osLabel != "" {
+			lines = append(lines, "os   "+osLabel)
+		}
+		userLabel := s.User
+		if s.Shell != "" {
+			shell := s.Shell
+			if idx := strings.LastIndex(shell, "/"); idx >= 0 {
+				shell = shell[idx+1:]
+			}
+			if userLabel != "" {
+				userLabel += " / " + shell
+			} else {
+				userLabel = shell
+			}
+		}
+		if userLabel != "" {
+			lines = append(lines, "user   "+userLabel)
+		}
+		if s.Uptime != "" {
+			lines = append(lines, "uptime   "+s.Uptime)
+		}
+		if s.ServiceCount > 0 || s.ListenerCount > 0 {
+			lines = append(lines, fmt.Sprintf("services   %d running / %d listeners", s.ServiceCount, s.ListenerCount))
+		}
+	}
+
 	if len(snap.Containers) > 0 {
 		running := 0
 		for _, c := range snap.Containers {

@@ -186,22 +186,29 @@ func (t *ServerConnectTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 		}
 
 		events <- tool.NewOutputEvent(fmt.Sprintf("[ARGUS_SERVER_CONNECT:connected]\n%s에 연결되었습니다. 환경 정보를 확인 중입니다...\n", resolvedAlias))
-		snap, err := ctx.Workspace.RunInspect(ctx.Context, resolvedAlias)
-		if err == nil {
-			events <- tool.NewOutputEvent(workspace.FormatInspectSummary(snap))
-		}
 
-		// 인벤토리 스캔 (동기): tool goroutine을 블록해 LLM이 다음 턴에 인벤토리를 받도록 함.
+		// 인벤토리 스캔 (동기 streaming): header phase ~1s, ready phase ~5-25s.
 		// inventoryChannel을 사용하므로 PTY exec lane은 점유하지 않음.
-		if resolvedAlias != workspace.LocalAlias {
-			events <- tool.NewOutputEvent(inventoryScanningMarker + "\n")
-			invSnap, invErr := ctx.Workspace.RescanInventory(ctx.Context, resolvedAlias)
-			if invErr == nil {
-				cardLines := inventory.FormatUICard(invSnap)
+		events <- tool.NewOutputEvent(inventoryScanningMarker + "\n")
+		ctx.Workspace.RescanInventoryStreaming(ctx.Context, resolvedAlias, func(phase inventory.InventoryPhase, snap inventory.InventorySnapshot, err error) {
+			switch phase {
+			case inventory.PhaseHeader:
+				cardLines := inventory.FormatUICard(snap)
+				if len(cardLines) > 0 {
+					events <- tool.NewOutputEvent(inventoryHeaderMarker + "\n" + strings.Join(cardLines, "\n"))
+				}
+			case inventory.PhaseReady:
+				cardLines := inventory.FormatUICard(snap)
 				events <- tool.NewOutputEvent(fmt.Sprintf("%s%d]\n%s",
-					inventoryReadyPrefix, invSnap.DurationMs, strings.Join(cardLines, "\n")))
+					inventoryReadyPrefix, snap.DurationMs, strings.Join(cardLines, "\n")))
+			case inventory.PhaseFailed:
+				errMsg := ""
+				if err != nil {
+					errMsg = err.Error()
+				}
+				events <- tool.NewOutputEvent(inventoryFailedMarker + "\n" + errMsg)
 			}
-		}
+		})
 
 		events <- tool.NewDoneEvent()
 	}()

@@ -26,14 +26,21 @@ type serverConnectPhase int
 const (
 	phaseConnecting        serverConnectPhase = iota
 	phaseInspecting                           // inspect 결과 수신 중
-	phaseInventoryScanning                    // 인벤토리 스캔 중
-	phaseInventoryReady                       // 인벤토리 완료
+	phaseInventoryScanning                    // 인벤토리 스캔 중 (header 수신 전)
+	phaseInventoryHeader                      // system_header 수신 완료, 나머지 스캔 중
+	phaseInventoryReady                       // 인벤토리 전체 완료
+	phaseInventoryFailed                      // 인벤토리 실패
 )
 
-// inventoryMarkerPrefix — 스트림에서 인벤토리 완료를 알리는 접두사.
-// 형식: [ARGUS_INVENTORY_READY:<durationMs>]
-const inventoryReadyPrefix = "[ARGUS_INVENTORY_READY:"
-const inventoryScanningMarker = "[ARGUS_INVENTORY_SCANNING]"
+// Stream markers used by the serverconnect tool and renderer.
+// These strings must stay in sync with the constants used in modal_server_list.go.
+const (
+	inventoryScanningMarker = "[ARGUS_INVENTORY_SCANNING]"
+	inventoryHeaderMarker   = "[ARGUS_INVENTORY_HEADER]"
+	// inventoryReadyPrefix — 형식: [ARGUS_INVENTORY_READY:<durationMs>]
+	inventoryReadyPrefix  = "[ARGUS_INVENTORY_READY:"
+	inventoryFailedMarker = "[ARGUS_INVENTORY_FAILED]"
+)
 
 type ServerConnectInteractiveModel struct {
 	alias      string
@@ -45,9 +52,10 @@ type ServerConnectInteractiveModel struct {
 	isFinished bool
 
 	// 인벤토리 페이즈 데이터
-	inventoryLines       []string
-	inventoryDurationMs  int64
-	inventoryScanStart   time.Time
+	inventoryLines      []string
+	inventoryDurationMs int64
+	inventoryScanStart  time.Time
+	inventoryErr        string // phaseInventoryFailed 시 에러 메시지
 }
 
 func (m *ServerConnectInteractiveModel) Init() tea.Cmd { return m.sp.Tick }
@@ -68,14 +76,19 @@ func (m *ServerConnectInteractiveModel) View() string {
 
 	var body strings.Builder
 
+	errorStyle := m.theme.Style(m.theme.StatusErrorColor())
+
 	if m.isFinished {
 		if m.errResult != "" {
 			body.WriteString(branch)
-			body.WriteString(m.theme.Style(m.theme.StatusErrorColor()).Render("✘ " + m.errResult))
+			body.WriteString(errorStyle.Render("✘ " + m.errResult))
 		} else {
 			m.renderConnectedSection(&body, branch)
-			if m.phase == phaseInventoryReady {
+			switch m.phase {
+			case phaseInventoryReady:
 				m.renderInventoryReadySection(&body, branch)
+			case phaseInventoryFailed:
+				m.renderInventoryFailedSection(&body, branch)
 			}
 		}
 	} else {
@@ -84,14 +97,22 @@ func (m *ServerConnectInteractiveModel) View() string {
 			body.WriteString(branch)
 			body.WriteString(fmt.Sprintf("%s Inspecting...", m.sp.View()))
 		case phaseInventoryScanning:
-			// connected 정보 표시 후 scanning 라인 추가
 			m.renderConnectedSection(&body, branch)
 			body.WriteString("\n")
 			body.WriteString(branch)
 			body.WriteString(branchStyle.Render(fmt.Sprintf("%s inventory scanning...", m.sp.View())))
+		case phaseInventoryHeader:
+			m.renderConnectedSection(&body, branch)
+			m.renderInventoryHeaderSection(&body, branch)
+			body.WriteString("\n")
+			body.WriteString(scContPrefix)
+			body.WriteString(branchStyle.Render(fmt.Sprintf("  %s scanning services...", m.sp.View())))
 		case phaseInventoryReady:
 			m.renderConnectedSection(&body, branch)
 			m.renderInventoryReadySection(&body, branch)
+		case phaseInventoryFailed:
+			m.renderConnectedSection(&body, branch)
+			m.renderInventoryFailedSection(&body, branch)
 		default:
 			body.WriteString(branch)
 			body.WriteString(fmt.Sprintf("%s Connecting to %s...", m.sp.View(), m.alias))
@@ -146,6 +167,45 @@ func (m *ServerConnectInteractiveModel) renderInventoryReadySection(b *strings.B
 	}
 }
 
+// renderInventoryHeaderSection shows partial inventory lines during the header phase.
+func (m *ServerConnectInteractiveModel) renderInventoryHeaderSection(b *strings.Builder, branch string) {
+	catStyle := m.theme.Style(m.theme.ToolUseColor())
+	mutedStyle := m.theme.Style(m.theme.MutedColor())
+	b.WriteString("\n")
+	b.WriteString(branch)
+	b.WriteString(mutedStyle.Render("inventory scanning..."))
+	for _, line := range m.inventoryLines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		b.WriteString("\n")
+		b.WriteString(scContPrefix)
+		if idx := strings.Index(line, "   "); idx >= 0 {
+			cat := strings.TrimSpace(line[:idx])
+			val := strings.TrimSpace(line[idx+3:])
+			b.WriteString(catStyle.Render("▸ " + cat))
+			b.WriteString("  ")
+			b.WriteString(mutedStyle.Render(val))
+		} else {
+			b.WriteString(mutedStyle.Render("  " + line))
+		}
+	}
+}
+
+// renderInventoryFailedSection shows the inventory failure indicator.
+func (m *ServerConnectInteractiveModel) renderInventoryFailedSection(b *strings.Builder, branch string) {
+	errorStyle := m.theme.Style(m.theme.StatusErrorColor())
+	mutedStyle := m.theme.Style(m.theme.MutedColor())
+	b.WriteString("\n")
+	b.WriteString(branch)
+	b.WriteString(errorStyle.Render("✘ inventory failed"))
+	if m.inventoryErr != "" {
+		b.WriteString("\n")
+		b.WriteString(scContPrefix)
+		b.WriteString(mutedStyle.Render(m.inventoryErr))
+	}
+}
+
 func (m *ServerConnectInteractiveModel) OnStreamDelta(delta string) {
 	if strings.Contains(delta, "[ARGUS_SERVER_CONNECT:connected]") {
 		m.phase = phaseInspecting
@@ -154,6 +214,15 @@ func (m *ServerConnectInteractiveModel) OnStreamDelta(delta string) {
 	if strings.HasPrefix(delta, inventoryScanningMarker) {
 		m.phase = phaseInventoryScanning
 		m.inventoryScanStart = time.Now()
+		return
+	}
+	if strings.HasPrefix(delta, inventoryHeaderMarker) {
+		m.phase = phaseInventoryHeader
+		rest := delta[len(inventoryHeaderMarker):]
+		rest = strings.TrimPrefix(rest, "\n")
+		if strings.TrimSpace(rest) != "" {
+			m.inventoryLines = strings.Split(rest, "\n")
+		}
 		return
 	}
 	if strings.HasPrefix(delta, inventoryReadyPrefix) {
@@ -175,6 +244,13 @@ func (m *ServerConnectInteractiveModel) OnStreamDelta(delta string) {
 		}
 		return
 	}
+	if strings.HasPrefix(delta, inventoryFailedMarker) {
+		m.phase = phaseInventoryFailed
+		rest := delta[len(inventoryFailedMarker):]
+		rest = strings.TrimPrefix(rest, "\n")
+		m.inventoryErr = strings.TrimSpace(rest)
+		return
+	}
 	if m.phase == phaseInspecting {
 		if d := strings.TrimSpace(delta); d != "" {
 			m.details = d
@@ -189,10 +265,12 @@ func (m *ServerConnectInteractiveModel) SetResult(text string) {
 	if text == "" {
 		return
 	}
-	// 성공 마커 제거
+	// 성공/스캔 마커 제거
 	text = strings.ReplaceAll(text, "[ARGUS_SERVER_CONNECT:connected]", "")
 	text = strings.ReplaceAll(text, inventoryScanningMarker, "")
-	// 인벤토리 완료 마커 제거
+	text = strings.ReplaceAll(text, inventoryHeaderMarker, "")
+	text = strings.ReplaceAll(text, inventoryFailedMarker, "")
+	// inventoryReadyPrefix 마커 제거 ([ARGUS_INVENTORY_READY:<ms>])
 	if idx := strings.Index(text, inventoryReadyPrefix); idx >= 0 {
 		endBracket := strings.Index(text[idx:], "]")
 		if endBracket >= 0 {

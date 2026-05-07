@@ -7,24 +7,27 @@ import (
 )
 
 // inventorySystemBlocks injects the server inventory into the LLM system prompt.
-// Returns nil when the active workspace is local or no inventory exists yet.
+// Returns nil when no inventory exists or collection is disabled.
 func inventorySystemBlocks(manager *workspace.Manager) []llm.SystemBlock {
 	if manager == nil {
 		return nil
 	}
 	active := manager.ActiveAlias()
-	if active == workspace.LocalAlias {
-		return nil
-	}
 
 	snap, ok := manager.GetInventorySnapshot(active)
 	if !ok {
+		if active == workspace.LocalAlias {
+			return nil
+		}
 		return []llm.SystemBlock{{
 			Type: "text",
 			Text: "서버 인벤토리: 아직 수집되지 않았습니다. server_inventory 도구로 수집하거나 잠시 후 재시도하세요.",
 		}}
 	}
-	if snap.Status == inventory.StatusPending {
+	switch snap.Status {
+	case inventory.StatusDisabled:
+		return nil
+	case inventory.StatusPending:
 		return []llm.SystemBlock{{
 			Type: "text",
 			Text: "서버 인벤토리: 백그라운드 수집 진행 중. 다음 턴에서 자동 갱신됩니다.",

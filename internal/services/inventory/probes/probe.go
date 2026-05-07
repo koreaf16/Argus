@@ -14,9 +14,10 @@ type Probe interface {
 
 // Result is a sum-type returned by Probe.Parse. Only one field is set.
 type Result struct {
-	Docker     []DockerContainer
-	Kubernetes *K8sResult
-	LLMServing []LLMServingResult
+	Docker       []DockerContainer
+	Kubernetes   *K8sResult
+	LLMServing   []LLMServingResult
+	SystemHeader *SystemHeaderResult
 }
 
 // DockerContainer is one line of `docker ps -a --format json` output.
