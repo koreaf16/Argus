@@ -7,13 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/koreaf16/argus/internal/services/inventory/probes"
 )
 
-const (
-	markerFmt     = "<<ARGUS_INV:%s>>"
-	globalTimeout = 25 * time.Second
-)
+const globalTimeout = 25 * time.Second
 
 // InventoryPhase identifies each callback point during a streaming collection.
 type InventoryPhase = string
@@ -32,10 +31,10 @@ type ExecFunc func(ctx context.Context, script string) (string, error)
 
 // Runner orchestrates probe collection for one server at a time.
 type Runner struct {
-	cache  *cache
+	cache     *cache
 	probeList []probes.Probe
 
-	sf   sfGroup // per-alias singleflight
+	sf sfGroup // per-alias singleflight
 }
 
 // sfGroup is a minimal per-alias singleflight: only one scan per alias at a time.
@@ -85,15 +84,16 @@ func (r *Runner) CollectAsync(ctx context.Context, alias string, execFn ExecFunc
 	if !r.sf.try(alias) {
 		return
 	}
-	// Store pending snapshot immediately so prompt injection can say "收집 중".
 	r.cache.Set(alias, InventorySnapshot{Alias: alias, Status: StatusPending, CollectedAt: time.Now()})
 	go func() {
 		defer r.sf.done(alias)
-		snap, _ := r.collect(ctx, alias, execFn)
-		r.cache.Set(alias, snap)
-		if onDone != nil {
-			onDone(snap)
-		}
+		r.CollectStreaming(ctx, alias, execFn, func(phase InventoryPhase, snap InventorySnapshot, _ error) {
+			if phase == PhaseReady || phase == PhaseFailed {
+				if onDone != nil {
+					onDone(snap)
+				}
+			}
+		})
 	}()
 }
 
@@ -105,106 +105,25 @@ func (r *Runner) CollectSync(ctx context.Context, alias string, execFn ExecFunc,
 			return snap, nil
 		}
 	}
-	snap, err := r.collect(ctx, alias, execFn)
-	if err == nil {
-		r.cache.Set(alias, snap)
-	}
-	return snap, err
-}
-
-func (r *Runner) collect(ctx context.Context, alias string, execFn ExecFunc) (InventorySnapshot, error) {
-	start := time.Now()
-	snap := InventorySnapshot{
-		Alias:       alias,
-		CollectedAt: start,
-		Errors:      make(map[string]string),
-	}
-
-	gctx, cancel := context.WithTimeout(ctx, globalTimeout)
-	defer cancel()
-
-	script := r.buildScript()
-	raw, err := execFn(gctx, script)
-	if err != nil {
-		snap.Status = StatusFailed
-		snap.Errors["exec"] = err.Error()
-		snap.DurationMs = time.Since(start).Milliseconds()
-		return snap, err
-	}
-
-	sections := splitSections(raw, r.probeList)
-	allOK := true
-	for i, pr := range r.probeList {
-		section := sections[i]
-		res, parseErr := pr.Parse(section)
-		if parseErr != nil {
-			snap.Errors[pr.Name()] = parseErr.Error()
-			allOK = false
-			continue
+	var result InventorySnapshot
+	r.CollectStreaming(ctx, alias, execFn, func(phase InventoryPhase, snap InventorySnapshot, _ error) {
+		if phase == PhaseReady || phase == PhaseFailed {
+			result = snap
 		}
-		applyResult(&snap, res)
-	}
-
-	snap.DurationMs = time.Since(start).Milliseconds()
-	if allOK {
-		snap.Status = StatusReady
-	} else {
-		snap.Status = StatusPartial
-	}
-	if len(snap.Errors) == 0 {
-		snap.Errors = nil
-	}
-	return snap, nil
-}
-
-func (r *Runner) buildScript() string {
-	var sb strings.Builder
-	sb.WriteString("set +e\n")
-	for _, pr := range r.probeList {
-		fmt.Fprintf(&sb, "printf '%s\\n'\n", fmt.Sprintf(markerFmt, pr.Name()))
-		sb.WriteString(pr.ScriptFragment())
-		sb.WriteString("\n")
-	}
-	fmt.Fprintf(&sb, "printf '%s\\n'\n", fmt.Sprintf(markerFmt, "END"))
-	return sb.String()
-}
-
-func splitSections(raw string, probeList []probes.Probe) []string {
-	sections := make([]string, len(probeList))
-	for i, pr := range probeList {
-		startMark := fmt.Sprintf(markerFmt, pr.Name())
-		startIdx := strings.Index(raw, startMark)
-		if startIdx < 0 {
-			continue
-		}
-		startIdx += len(startMark)
-
-		var endMark string
-		if i+1 < len(probeList) {
-			endMark = fmt.Sprintf(markerFmt, probeList[i+1].Name())
-		} else {
-			endMark = fmt.Sprintf(markerFmt, "END")
-		}
-		endIdx := strings.Index(raw[startIdx:], endMark)
-		if endIdx < 0 {
-			sections[i] = strings.TrimSpace(raw[startIdx:])
-		} else {
-			sections[i] = strings.TrimSpace(raw[startIdx : startIdx+endIdx])
-		}
-	}
-	return sections
+	})
+	return result, nil
 }
 
 // CollectStreaming runs the collection in two phases:
-//  1. system_header probe only (fast, ~2s) → onPhase(PhaseHeader, partial, nil)
-//  2. remaining probes in existing batched mode → onPhase(PhaseReady, full, nil)
+//  1. system_header probe only (fast, ~3s) → onPhase(PhaseHeader, partial, nil)
+//  2. remaining probes in parallel via errgroup → onPhase(PhaseReady, full, nil)
 //
 // On system_header failure → onPhase(PhaseFailed, empty, err) and returns immediately.
-// This call blocks until PhaseReady or PhaseFailed.
+// This call blocks until PhaseReady or PhaseFailed. onPhase may be nil.
 func (r *Runner) CollectStreaming(ctx context.Context, alias string, execFn ExecFunc, onPhase OnPhaseFunc) {
 	totalStart := time.Now()
 
-	// Phase 1: system_header
+	// Phase 1: system_header (fast, ~3s)
 	var hdrProbe probes.SystemHeaderProbe
 	hdr, err := hdrProbe.RunDirect(ctx, probes.ProbeExec(execFn))
 	if err != nil {
@@ -216,7 +135,9 @@ func (r *Runner) CollectStreaming(ctx context.Context, alias string, execFn Exec
 			Errors:      map[string]string{"system_header": err.Error()},
 		}
 		r.cache.Set(alias, failed)
-		onPhase(PhaseFailed, failed, err)
+		if onPhase != nil {
+			onPhase(PhaseFailed, failed, err)
+		}
 		return
 	}
 
@@ -227,19 +148,18 @@ func (r *Runner) CollectStreaming(ctx context.Context, alias string, execFn Exec
 		System:      systemHeaderToInfo(hdr),
 	}
 	r.cache.Set(alias, partial)
-	onPhase(PhaseHeader, partial, nil)
+	if onPhase != nil {
+		onPhase(PhaseHeader, partial, nil)
+	}
 
-	// Phase 2: batched remaining probes (docker, k8s, llm_serving)
-	rest, restErr := r.collect(ctx, alias, execFn)
+	// Phase 2: remaining probes in parallel
+	rest := r.collectRestParallel(ctx, alias, execFn)
 	rest.System = partial.System
 	rest.DurationMs = time.Since(totalStart).Milliseconds()
-	if restErr != nil {
-		r.cache.Set(alias, rest)
-		onPhase(PhaseFailed, rest, restErr)
-		return
-	}
 	r.cache.Set(alias, rest)
-	onPhase(PhaseReady, rest, nil)
+	if onPhase != nil {
+		onPhase(PhaseReady, rest, nil)
+	}
 }
 
 // CollectHeader runs only the system_header probe and caches the partial result.
@@ -257,6 +177,58 @@ func (r *Runner) CollectHeader(ctx context.Context, alias string, execFn ExecFun
 		System:      systemHeaderToInfo(hdr),
 	}
 	r.cache.Set(alias, snap)
+}
+
+// collectRestParallel runs all probeList probes in parallel using errgroup.
+// Per-probe errors are stored in the returned snapshot; the function itself
+// never returns a non-nil error.
+func (r *Runner) collectRestParallel(ctx context.Context, alias string, execFn ExecFunc) InventorySnapshot {
+	start := time.Now()
+
+	gctx, cancel := context.WithTimeout(ctx, globalTimeout)
+	defer cancel()
+
+	eg, egCtx := errgroup.WithContext(gctx)
+	eg.SetLimit(4) // SSH MaxSessions protection
+
+	results := make([]probes.Result, len(r.probeList))
+	errMap := make(map[string]string)
+	var errMu sync.Mutex
+
+	for i, pr := range r.probeList {
+		eg.Go(func() error {
+			pCtx, pCancel := context.WithTimeout(egCtx, pr.PreferredTimeout())
+			defer pCancel()
+			res, runErr := pr.Run(pCtx, probes.ProbeExec(execFn))
+			if runErr != nil {
+				errMu.Lock()
+				errMap[pr.Name()] = runErr.Error()
+				errMu.Unlock()
+				return nil // don't cancel sibling probes
+			}
+			results[i] = res
+			return nil
+		})
+	}
+	_ = eg.Wait()
+
+	snap := InventorySnapshot{
+		Alias:       alias,
+		CollectedAt: start,
+	}
+	// Apply in probeList order for deterministic LLM hosting resolution
+	// (llm_serving needs docker/k8s results already in snap).
+	for _, res := range results {
+		applyResult(&snap, res)
+	}
+	snap.DurationMs = time.Since(start).Milliseconds()
+	if len(errMap) == 0 {
+		snap.Status = StatusReady
+	} else {
+		snap.Status = StatusPartial
+		snap.Errors = errMap
+	}
+	return snap
 }
 
 func systemHeaderToInfo(hdr *probes.SystemHeaderResult) *SystemInfo {
@@ -335,7 +307,6 @@ func resolveLLMHosting(llm probes.LLMServingResult, snap *InventorySnapshot) LLM
 	}
 
 	if strings.Contains(cg, "kubepods") {
-		// Try to find the matching pod in k8s results by container ID
 		podName := ""
 		if snap.Kubernetes != nil {
 			for _, w := range snap.Kubernetes.Workloads {
@@ -349,7 +320,6 @@ func resolveLLMHosting(llm probes.LLMServingResult, snap *InventorySnapshot) LLM
 	}
 
 	if strings.Contains(cg, "docker") || strings.Contains(cg, "containerd") {
-		// Extract container ID from cgroup path
 		containerName := ""
 		for _, c := range snap.Containers {
 			if strings.Contains(cg, c.ID) {

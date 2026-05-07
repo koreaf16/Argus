@@ -1,18 +1,22 @@
 // Package probes contains individual system-inspection probes used by the
-// inventory runner. Each probe contributes a bash script fragment that is
-// assembled by the runner into a single batched SSH call, then receives its
-// section of the output to parse.
+// inventory runner. Each probe runs a bash script on the target machine and
+// parses the output into a Result.
 package probes
 
-// Probe contributes a bash fragment and parses its output section.
+import (
+	"context"
+	"time"
+)
+
+// Probe describes a system inspection probe.
 // Probes must be safe to run as the SSH login user (no sudo).
 type Probe interface {
 	Name() string
-	ScriptFragment() string
-	Parse(stdout string) (Result, error)
+	PreferredTimeout() time.Duration
+	Run(ctx context.Context, fn ProbeExec) (Result, error)
 }
 
-// Result is a sum-type returned by Probe.Parse. Only one field is set.
+// Result is a sum-type returned by Probe.Run. Only one field is set per probe.
 type Result struct {
 	Docker       []DockerContainer
 	Kubernetes   *K8sResult

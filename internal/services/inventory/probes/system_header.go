@@ -52,6 +52,16 @@ func (p *SystemHeaderProbe) Parse(stdout string) (Result, error) {
 	return Result{SystemHeader: parseSystemHeader(stdout)}, nil
 }
 
+func (p *SystemHeaderProbe) PreferredTimeout() time.Duration { return 3 * time.Second }
+
+func (p *SystemHeaderProbe) Run(ctx context.Context, fn ProbeExec) (Result, error) {
+	out, err := fn(ctx, systemHeaderScript)
+	if err != nil {
+		return Result{}, err
+	}
+	return p.Parse(out)
+}
+
 // RunDirect executes the probe directly with a 3s timeout and returns the parsed result.
 func (p *SystemHeaderProbe) RunDirect(ctx context.Context, fn ProbeExec) (*SystemHeaderResult, error) {
 	out, err := runScript(ctx, fn, 3*time.Second, systemHeaderScript)
