@@ -29,12 +29,13 @@ func (r *WebFetchRenderer) RenderToolUse(args map[string]any, _ string, theme to
 func (r *WebFetchRenderer) RenderToolResult(resultText string, durationMs int64, theme toolui.ThemeContext) string {
 	var out fetchOutput
 	if err := json.Unmarshal([]byte(resultText), &out); err != nil {
-		return resultText
+		// Distiller에 의해 truncate됐거나 plain-text로 처리된 경우 — body 크기로 표시
+		msg := fmt.Sprintf("Fetched %s", formatFileSize(len(resultText)))
+		return toolui.FormatResultLines([]string{msg}, true, false, theme)
 	}
 
 	// claude_cli WebFetchTool/UI.tsx renderToolResultMessage:
 	//   `Received <bold>{formattedSize}</bold> ({code} {codeText})`
-	// formatFileSize: 1024^2 ≥ "X.XMB", 1024 ≥ "X.XKB", else "N bytes"
 	sizeDisp := formatFileSize(out.Bytes)
 	statusPart := ""
 	switch {
@@ -45,9 +46,8 @@ func (r *WebFetchRenderer) RenderToolResult(resultText string, durationMs int64,
 	default:
 		statusPart = fmt.Sprintf("(%d)", out.Code)
 	}
-	msg := fmt.Sprintf("Received %s %s", sizeDisp, statusPart)
 	_ = durationMs
-	return toolui.FormatResultLines([]string{msg}, true, false, theme)
+	return toolui.FormatResultLines([]string{fmt.Sprintf("Received %s %s", sizeDisp, statusPart)}, true, false, theme)
 }
 
 func formatFileSize(bytes int) string {
