@@ -370,6 +370,10 @@ func (m *uiModel) applyPresentationEvent(evt presentation.Event) {
 			m.toolUseOpen = false
 			m.toolUseStreamIdx = -1
 		}
+		if isShellTool(evt.ToolName) {
+			m.toolFocused = false
+			m.activeTool = nil
+		}
 		// 성공(exit_code: 0)이고 stdout/stderr가 모두 비어 있으면 결과 entry 자체를 만들지 않는다.
 		// ● tool_use 헤드라인이 그린으로 표시되어 성공임을 충분히 알 수 있고,
 		// "⎿ exit_code: 0"는 잡음일 뿐이라 claude_cli도 표시하지 않는다.
@@ -653,10 +657,12 @@ func (m *uiModel) closeAssistantEntry() {
 }
 
 // isCollapsibleTool returns true for read/search operations that should be grouped.
+// webfetch / web_search 는 자체 ToolRenderer(WebFetchRenderer / WebSearchRenderer)
+// 가 등록되어 있으므로 그룹화에서 제외해 개별 UI 로 표시한다.
 func isCollapsibleTool(toolName string) bool {
 	tn := tool.CanonicalName(toolName)
 	switch tn {
-	case "grep", "glob", "fileread", "webfetch", "web_search", "lsp", "read_mcp_resource", "list_mcp_resources":
+	case "grep", "glob", "fileread", "lsp", "read_mcp_resource", "list_mcp_resources":
 		return true
 	}
 	return false
@@ -693,11 +699,11 @@ func (m *uiModel) lastBashToolUseIdx() int {
 func classifyTool(toolName string) (isSearch, isRead, isList bool) {
 	tn := tool.CanonicalName(toolName)
 	switch tn {
-	case "grep", "web_search":
+	case "grep":
 		return true, false, false
 	case "glob", "list_mcp_resources":
 		return false, false, true
-	case "fileread", "webfetch", "lsp", "read_mcp_resource":
+	case "fileread", "lsp", "read_mcp_resource":
 		return false, true, false
 	}
 	return false, false, false
@@ -1005,6 +1011,12 @@ func (m *uiModel) handleParallelBatch(taskIDs []string) {
 	parallelGroupIdx := firstIdx
 
 	// Update lookups
+	if m.parallelSubLookup == nil {
+		m.parallelSubLookup = make(map[string]parallelSubRef)
+	}
+	if m.toolEntryByTaskID == nil {
+		m.toolEntryByTaskID = make(map[string]int)
+	}
 	for taskID, childIdx := range subByTaskID {
 		m.parallelSubLookup[taskID] = parallelSubRef{
 			parentIdx: parallelGroupIdx,
