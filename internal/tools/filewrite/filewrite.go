@@ -30,13 +30,12 @@ func (r *FileWriteRenderer) RenderToolUse(args map[string]any, _ string, theme t
 	server := renderTargetAlias(args)
 
 	var sb strings.Builder
-	sb.WriteString(theme.Style(theme.ToolUseColor()).Bold(true).Render("  Write: "))
-	sb.WriteString(theme.Style(theme.BodyColor()).Render(path))
+	sb.WriteString(path)
 	if server != "" {
-		sb.WriteString(theme.Style(theme.MutedColor()).Render(" [" + server + "]"))
+		sb.WriteString(" [" + server + "]")
 	}
-	sb.WriteString(theme.Style(theme.MutedColor()).Render(fmt.Sprintf(" (%d bytes)", len(content))))
-	return sb.String()
+	sb.WriteString(fmt.Sprintf(" (%d bytes)", len(content)))
+	return toolui.FormatToolCall("Write", sb.String(), 160, theme)
 }
 
 func (r *FileWriteRenderer) RenderToolResult(resultText string, durationMs int64, theme toolui.ThemeContext) string {
@@ -44,7 +43,7 @@ func (r *FileWriteRenderer) RenderToolResult(resultText string, durationMs int64
 	if durationMs > 0 {
 		msg += fmt.Sprintf(" in %dms", durationMs)
 	}
-	return theme.Style(theme.StatusSuccessColor()).Render("  [done] " + msg)
+	return toolui.FormatResultLines([]string{msg}, true, false, theme)
 }
 
 func NewFileWriteTool() *FileWriteTool {
@@ -248,5 +247,3 @@ func renderTargetAlias(args map[string]any) string {
 	}
 	return label
 }
-
-

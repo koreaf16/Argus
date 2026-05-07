@@ -80,10 +80,9 @@ type AppState struct {
 
 ## 6. TodoState
 
-[`internal/state/todo_state.go`](internal/state/todo_state.go) 는 세션 Todo 목록을 관리합니다.
+[`internal/state/todo_state.go`](internal/state/todo_state.go) 는 세션별 태스크(Todo) 목록을 관리합니다. 이 데이터는 TUI 하단의 태스크 리스트 패널을 렌더링하는 데 사용됩니다.
 
 | 메서드 | 설명 |
 |--------|------|
-| `SetTodos(todos)` | Todo 목록 설정 |
-| `GetTodos()` | Todo 목록 반환 |
-| `ClearTodos()` | Todo 목록 삭제 |
+| `SetTodos(sessionID, todos)` | 특정 세션의 Todo 목록 설정 |
+| `Todos(sessionID)` | 특정 세션의 Todo 목록 반환 |

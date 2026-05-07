@@ -7,8 +7,8 @@ import (
 )
 
 func init() {
-	toolui.Register("TaskCreate", &TaskCreateRenderer{})
-	toolui.Register("TaskUpdate", &TaskUpdateRenderer{})
+	toolui.Register("task_create", &TaskCreateRenderer{})
+	toolui.Register("task_update", &TaskUpdateRenderer{})
 }
 
 type TaskCreateRenderer struct{}

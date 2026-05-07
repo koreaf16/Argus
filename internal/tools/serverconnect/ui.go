@@ -124,13 +124,28 @@ func (m *ServerConnectInteractiveModel) View() string {
 
 func (m *ServerConnectInteractiveModel) renderConnectedSection(b *strings.Builder, branch string) {
 	successStyle := m.theme.Style(m.theme.StatusSuccessColor())
+	mutedStyle := m.theme.Style(m.theme.MutedColor())
 	b.WriteString(branch)
 	b.WriteString(successStyle.Render("✔ Connected to " + m.alias))
-	if m.details != "" {
+	if m.details == "" {
+		return
+	}
+	// " / " 구분자로 필드 분리 후 두 줄로 표시:
+	//   1번 줄: OS / user / shell
+	//   2번 줄: uptime / services / listeners (/ docker)
+	parts := strings.Split(strings.TrimSuffix(m.details, "\n"), " / ")
+	if len(parts) <= 3 {
 		b.WriteString("\n")
 		b.WriteString(scContPrefix)
-		b.WriteString(m.theme.Style(m.theme.MutedColor()).Render(m.details))
+		b.WriteString(mutedStyle.Render(strings.Join(parts, " / ")))
+		return
 	}
+	b.WriteString("\n")
+	b.WriteString(scContPrefix)
+	b.WriteString(mutedStyle.Render(strings.Join(parts[:3], " / ")))
+	b.WriteString("\n")
+	b.WriteString(scContPrefix)
+	b.WriteString(mutedStyle.Render(strings.Join(parts[3:], " / ")))
 }
 
 func (m *ServerConnectInteractiveModel) renderInventoryReadySection(b *strings.Builder, branch string) {
@@ -265,6 +280,21 @@ func (m *ServerConnectInteractiveModel) SetResult(text string) {
 	if text == "" {
 		return
 	}
+	if durationMs, lines, ok := parseInventoryReady(text); ok {
+		m.phase = phaseInventoryReady
+		m.inventoryDurationMs = durationMs
+		if len(lines) > 0 {
+			m.inventoryLines = lines
+		}
+	} else if lines, ok := parseInventoryHeader(text); ok {
+		m.phase = phaseInventoryHeader
+		if len(lines) > 0 {
+			m.inventoryLines = lines
+		}
+	} else if errText, ok := parseInventoryFailed(text); ok {
+		m.phase = phaseInventoryFailed
+		m.inventoryErr = errText
+	}
 	// 성공/스캔 마커 제거
 	text = strings.ReplaceAll(text, "[ARGUS_SERVER_CONNECT:connected]", "")
 	text = strings.ReplaceAll(text, inventoryScanningMarker, "")
@@ -299,10 +329,10 @@ func (m *ServerConnectInteractiveModel) SetResult(text string) {
 	}
 }
 
-func (m *ServerConnectInteractiveModel) SetFocus(bool)               {}
-func (m *ServerConnectInteractiveModel) IsFocused() bool             { return false }
-func (m *ServerConnectInteractiveModel) SetExpanded(bool)            {}
-func (m *ServerConnectInteractiveModel) IsExpanded() bool            { return false }
+func (m *ServerConnectInteractiveModel) SetFocus(bool)                {}
+func (m *ServerConnectInteractiveModel) IsFocused() bool              { return false }
+func (m *ServerConnectInteractiveModel) SetExpanded(bool)             {}
+func (m *ServerConnectInteractiveModel) IsExpanded() bool             { return false }
 func (m *ServerConnectInteractiveModel) SetInputResponse(chan string) {}
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
@@ -337,11 +367,19 @@ func (r *ServerConnectRenderer) RenderToolUse(args map[string]any, streamBody st
 	var lines []string
 	if strings.Contains(streamBody, "[ARGUS_SERVER_CONNECT:connected]") {
 		lines = append(lines, "✔ "+alias+"에 연결됨")
-		for _, line := range strings.Split(streamBody, "\n") {
-			l := strings.TrimSpace(line)
-			if strings.Contains(l, "OS:") || strings.Contains(l, "user:") {
-				lines = append(lines, l)
-				break
+		if durationMs, invLines, ok := parseInventoryReady(streamBody); ok {
+			lines = append(lines, fmt.Sprintf("✔ inventory ready (%.1fs)", float64(durationMs)/1000))
+			lines = append(lines, invLines...)
+		} else if invLines, ok := parseInventoryHeader(streamBody); ok {
+			lines = append(lines, "inventory scanning...")
+			lines = append(lines, invLines...)
+		} else {
+			for _, line := range strings.Split(streamBody, "\n") {
+				l := strings.TrimSpace(line)
+				if strings.Contains(l, "OS:") || strings.Contains(l, "user:") {
+					lines = append(lines, l)
+					break
+				}
 			}
 		}
 	} else {
@@ -377,4 +415,89 @@ func (r *ServerConnectRenderer) RenderToolResult(resultText string, _ int64, the
 		}
 	}
 	return toolui.FormatResultLines(lines, true, true, theme)
+}
+
+func parseInventoryReady(text string) (int64, []string, bool) {
+	normalized := normalizeInventoryMarkers(text)
+	idx := strings.LastIndex(normalized, inventoryReadyPrefix)
+	if idx < 0 {
+		return 0, nil, false
+	}
+	segment := normalized[idx:]
+	endBracket := strings.Index(segment, "]")
+	if endBracket < 0 {
+		return 0, nil, false
+	}
+	durationStr := segment[len(inventoryReadyPrefix):endBracket]
+	durationMs, _ := strconv.ParseInt(strings.TrimSpace(durationStr), 10, 64)
+	return durationMs, inventoryPayloadLines(segment[endBracket+1:]), true
+}
+
+func parseInventoryHeader(text string) ([]string, bool) {
+	normalized := normalizeInventoryMarkers(text)
+	idx := strings.LastIndex(normalized, inventoryHeaderMarker)
+	if idx < 0 {
+		return nil, false
+	}
+	segment := normalized[idx+len(inventoryHeaderMarker):]
+	return inventoryPayloadLines(segment), true
+}
+
+func parseInventoryFailed(text string) (string, bool) {
+	normalized := normalizeInventoryMarkers(text)
+	idx := strings.LastIndex(normalized, inventoryFailedMarker)
+	if idx < 0 {
+		return "", false
+	}
+	segment := normalized[idx+len(inventoryFailedMarker):]
+	return strings.TrimSpace(trimAtNextInventoryMarker(segment)), true
+}
+
+func normalizeInventoryMarkers(text string) string {
+	replacements := []string{
+		"[ARGUS_SERVER_CONNECT:connected]",
+		inventoryScanningMarker,
+		inventoryHeaderMarker,
+		inventoryFailedMarker,
+		inventoryReadyPrefix,
+	}
+	out := text
+	for _, marker := range replacements {
+		out = strings.ReplaceAll(out, marker, "\n"+marker)
+	}
+	return strings.TrimLeft(out, "\n")
+}
+
+func inventoryPayloadLines(payload string) []string {
+	payload = strings.TrimSpace(trimAtNextInventoryMarker(payload))
+	if payload == "" {
+		return nil
+	}
+	raw := strings.Split(payload, "\n")
+	lines := make([]string, 0, len(raw))
+	for _, line := range raw {
+		if l := strings.TrimSpace(line); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+func trimAtNextInventoryMarker(text string) string {
+	next := -1
+	for _, marker := range []string{
+		"[ARGUS_SERVER_CONNECT:connected]",
+		inventoryScanningMarker,
+		inventoryHeaderMarker,
+		inventoryFailedMarker,
+		inventoryReadyPrefix,
+	} {
+		if idx := strings.Index(text, marker); idx >= 0 && (next < 0 || idx < next) {
+			next = idx
+		}
+	}
+	if next >= 0 {
+		return text[:next]
+	}
+	return text
 }

@@ -28,12 +28,11 @@ func (r *GlobRenderer) RenderToolUse(args map[string]any, _ string, theme toolui
 	server := renderTargetAlias(args)
 
 	var sb strings.Builder
-	sb.WriteString(theme.Style(theme.ToolUseColor()).Bold(true).Render("  Glob: "))
-	sb.WriteString(theme.Style(theme.BodyColor()).Render(pattern))
+	sb.WriteString(pattern)
 	if server != "" {
-		sb.WriteString(theme.Style(theme.MutedColor()).Render(" [" + server + "]"))
+		sb.WriteString(" [" + server + "]")
 	}
-	return sb.String()
+	return toolui.FormatToolCall("Glob", sb.String(), 160, theme)
 }
 
 func (r *GlobRenderer) RenderToolResult(resultText string, durationMs int64, theme toolui.ThemeContext) string {
@@ -46,7 +45,7 @@ func (r *GlobRenderer) RenderToolResult(resultText string, durationMs int64, the
 	if durationMs > 0 {
 		msg += fmt.Sprintf(" in %dms", durationMs)
 	}
-	return theme.Style(theme.StatusSuccessColor()).Render("  [done] " + msg)
+	return toolui.FormatResultLines([]string{msg}, true, false, theme)
 }
 
 func NewGlobTool() *GlobTool {

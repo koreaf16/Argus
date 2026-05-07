@@ -159,7 +159,7 @@ invokeTool()
 ## 5. Plan Mode 동작
 
 - Plan 모드 진입 (`EnterPlanMode`): 이전 권한 모드 저장 → 계획 모드 설정 → 세션 plan 파일 초기화
-- Plan 모드 실행: Read-Only 도구만 허용 (`TodoWrite`, `ExitPlanMode` 제외)
+- Plan 모드 실행: Read-Only 도구만 허용 (`TaskCreate`, `ExitPlanMode` 제외)
 - Plan 모드退出 (`ExitPlanMode`): `plan_execution_ready` 이벤트 발화
 - REPL은 승인된 단계들을 순차적으로 실행 (단계별 확인)
 - 실행 중 Todo 상태 동기화 (`pending` → `in_progress` → `completed`)

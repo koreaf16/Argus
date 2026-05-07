@@ -57,7 +57,7 @@ type Registry struct {
 | **셸 도구** | `bash`, `powershell`, `shelljob`, `shelljobcontrol` |
 | **파일/FS** | `fileread`, `filewrite`, `fslist`, `glob`, `grep` |
 | **웹** | `webfetch`, `websearch` |
-| **계획/관리** | `todowrite`, `todoread`, `task`, `enterplanmode`, `exitplanmode` |
+| **계획/관리** | `task_create`, `task_update`, `enter_plan_mode`, `exit_plan_mode` |
 | **외부 통합** | `mcptool`, `lsptool`, `listmcpresources`, `readmcpresource`, `mcpauth` |
 | **서버 관리** | `serverconnect`, `servercopy`, `serverinspect`, `servermetrics`, `servertunnel` |
 | **기타** | `skilltool`, `sniptool`, `askuser`, `enterworktree`, `exitworktree` |

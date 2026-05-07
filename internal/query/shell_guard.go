@@ -25,7 +25,12 @@ type shellGuardPayload struct {
 	Server        string `json:"server"`
 	EffectiveUser string `json:"effective_user"`
 	ExecLabel     string `json:"exec_label"`
-	Reason        string `json:"reason,omitempty"`
+	// Shell records the effective shell only when it differs from the tool name.
+	// For example, the bash tool on a Windows local workspace runs under
+	// PowerShell, so this field lets the UI surface "(powershell)" alongside
+	// the tool name. Empty when the tool name and effective shell match.
+	Shell  string `json:"shell,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 var shellControlRE = regexp.MustCompile(`[;&|()]`)
@@ -99,10 +104,34 @@ func (e *Engine) prepareShellToolCall(ctx context.Context, call llm.ToolUseStart
 		Server:        server,
 		EffectiveUser: effectiveUser,
 		ExecLabel:     execLabel,
+		Shell:         effectiveShellForGuard(toolCtx, shellKind, args),
 		Reason:        reason,
 	}
 	call.Input = mustMarshalRaw(args)
 	return call, false, ""
+}
+
+// effectiveShellForGuard returns the shell that the tool will actually use,
+// but only when it differs from the tool's name. The bash tool on a Windows
+// local workspace transparently falls back to PowerShell (see
+// internal/tools/bash.resolveBashLocalShell), and surfacing that in the guard
+// payload lets the UI render "(powershell)" alongside the tool label.
+// Returns "" when the effective shell matches the tool name (no surprise).
+func effectiveShellForGuard(toolCtx tool.Context, shellKind string, args map[string]any) string {
+	if shellKind != "bash" {
+		return ""
+	}
+	rawServer, _ := args["server"].(string)
+	targetInfo, err := tool.ResolveShellTargetInfo(toolCtx, rawServer, false)
+	if err != nil {
+		return ""
+	}
+	alias := tool.ResolveWorkspaceAlias(toolCtx, rawServer)
+	isRemote := tool.IsRemoteWorkspace(toolCtx, alias)
+	if !isRemote && targetInfo.Platform == workspace.PlatformWindows {
+		return "powershell"
+	}
+	return ""
 }
 
 func (e *Engine) classifyShellGuardRisk(ctx context.Context, shellKind, command string, turnIndex int) (string, string) {

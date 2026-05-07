@@ -46,7 +46,7 @@
 - Affected files: `internal/tui/tui.go`, `internal/tui/render.go`, `internal/tui/model.go`, `internal/tui/transcript.go`.
 
 ## 2026-04-22
-- Implemented core execution hardening and plan/todo runtime behavior:
+- Implemented core execution hardening and plan/task runtime behavior:
   - Improved terminal tool execution context:
     - `bash`/`powershell` tools now accept optional `workdir`.
     - shell commands now run in validated working directory (default: tool context `WorkingDir`).
@@ -63,23 +63,23 @@
     - `filewrite` now enforces path boundaries and atomic writes.
     - `glob` now enforces pattern/root boundaries.
     - `grep` now prefers `rg` and falls back to Go-native search when `rg` is unavailable.
-  - Reworked plan/todo behavior:
+  - Reworked plan/task behavior:
     - `EnterPlanMode` now stores pre-plan mode, sets plan mode, and ensures session plan file.
     - `ExitPlanMode` now normalizes `allowedPrompts`, restores previous mode, returns `allowed_prompts`, and writes numbered approved steps to plan file.
-    - `TodoWrite` now validates todo schema, persists session todo list, and clears list when all items are completed.
+    - `TaskCreate` now validates todo schema, persists session todo list, and clears list when all items are completed.
     - Added multi-step execution flow:
       - `query.Engine` emits `plan_execution_ready` event when `ExitPlanMode` returns approved prompts.
       - REPL now executes approved steps sequentially with per-step confirmation.
-      - Planned steps auto-approve `ask` permission checks (but still respect `deny`) and sync status to session todos.
-  - Added shared todo persistence helper package `internal/todostore` for `TodoWrite` + REPL step runner.
+      - Planned steps auto-approve `ask` permission checks (but still respect `deny`) and sync status to session tasks.
+  - Added shared task persistence helper package `internal/tasks` for `TaskCreate` + REPL step runner.
   - Added state/session metadata helpers:
     - pre-plan mode and additional working directories (`internal/state/permission_state.go`)
-    - per-session todos (`internal/state/todo_state.go`)
+    - per-session tasks (`internal/state/todo_state.go`)
   - Added `internal/types/todo.go` and `internal/tools/toolfs/toolfs.go`.
-  - Updated `query.Engine` plan-mode guard to allow explicit plan write exceptions (`TodoWrite`, `ExitPlanMode`).
+  - Updated `query.Engine` plan-mode guard to allow explicit plan write exceptions (`TaskCreate`, `ExitPlanMode`).
   - Updated `/plan` slash command to sync both app mode and permission mode.
-  - Extended `internal/memdir` with `plans` bootstrap and todo/plan persistence helpers.
-  - Added `internal/memdir/store_test.go` coverage for todo/plan persistence.
+  - Extended `internal/memdir` with `plans` bootstrap and task/plan persistence helpers.
+  - Added `internal/memdir/store_test.go` coverage for task/plan persistence.
 - Fixed root baseline so `go test ./...` passes.
 - Removed Windows case-collision tool directories under `internal/tools/*Tool`.
 - Removed API-mismatched files:

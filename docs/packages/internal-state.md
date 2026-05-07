@@ -62,6 +62,5 @@ type AppState struct {
 
 | 메서드 | 설명 |
 |--------|------|
-| `SetTodos(todos)` | Todo 목록 설정 |
-| `GetTodos()` | Todo 목록 반환 |
-| `ClearTodos()` | Todo 목록 삭제 |
+| `SetTodos(sessionID, todos)` | 특정 세션의 Todo 목록 설정 |
+| `Todos(sessionID)` | 특정 세션의 Todo 목록 반환 |

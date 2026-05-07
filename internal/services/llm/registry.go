@@ -29,17 +29,30 @@ const (
 	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
 )
 
+// SamplingParams는 모델별 sampling 기본값을 .Argus/models.json에서 override할 때 사용한다.
+// 모든 필드는 optional이며 nil이면 어댑터의 모델별 default(또는 Request 측 값)가 적용된다.
+type SamplingParams struct {
+	Temperature       *float64 `json:"temperature,omitempty"`
+	TopP              *float64 `json:"top_p,omitempty"`
+	TopK              *int     `json:"top_k,omitempty"`
+	MinP              *float64 `json:"min_p,omitempty"`
+	PresencePenalty   *float64 `json:"presence_penalty,omitempty"`
+	FrequencyPenalty  *float64 `json:"frequency_penalty,omitempty"`
+	RepetitionPenalty *float64 `json:"repetition_penalty,omitempty"`
+}
+
 type ModelEntry struct {
-	Alias       string   `json:"alias"`
-	ModelID     string   `json:"model_id"`
-	Provider    Provider `json:"provider"`
-	BaseURL     string   `json:"base_url,omitempty"`
-	APIKeyEnv   string   `json:"api_key_env,omitempty"`
-	Display     string   `json:"display"`
-	ContextWin  int      `json:"context_win,omitempty"`
-	Caps        Caps     `json:"caps"`
-	Preset      bool     `json:"preset,omitempty"`
-	ServerAlias string   `json:"server_alias,omitempty"`
+	Alias       string          `json:"alias"`
+	ModelID     string          `json:"model_id"`
+	Provider    Provider        `json:"provider"`
+	BaseURL     string          `json:"base_url,omitempty"`
+	APIKeyEnv   string          `json:"api_key_env,omitempty"`
+	Display     string          `json:"display"`
+	ContextWin  int             `json:"context_win,omitempty"`
+	Caps        Caps            `json:"caps"`
+	Preset      bool            `json:"preset,omitempty"`
+	ServerAlias string          `json:"server_alias,omitempty"`
+	Sampling    *SamplingParams `json:"sampling,omitempty"`
 }
 
 type ServerEntry struct {

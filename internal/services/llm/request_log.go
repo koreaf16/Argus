@@ -50,6 +50,12 @@ func formatRequestLogEntry(provider, model string, req Request, now time.Time) s
 	if req.MaxTokens > 0 {
 		sb.WriteString(fmt.Sprintf("Max tokens: %d\n", req.MaxTokens))
 	}
+	if req.Temperature != nil {
+		sb.WriteString(fmt.Sprintf("Temperature: %.2f\n", *req.Temperature))
+	}
+	if req.TopP != nil {
+		sb.WriteString(fmt.Sprintf("Top-P: %.2f\n", *req.TopP))
+	}
 	if req.Thinking != nil {
 		sb.WriteString("Thinking:\n")
 		if strings.TrimSpace(req.Thinking.Type) != "" {

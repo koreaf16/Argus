@@ -40,12 +40,14 @@ var noisyTraceTypes = map[string]struct{}{
 
 type Sink struct {
 	mu        sync.Mutex
+	sendMu    sync.RWMutex
 	out       io.Writer
 	file      *os.File
 	mode      FilterMode
 	ch        chan query.TraceRecord
 	done      chan struct{}
 	closeOnce sync.Once
+	closed    bool
 	dropped   atomic.Int64
 	lastDrop  atomic.Int64
 }
@@ -150,6 +152,14 @@ func (s *Sink) shouldEmitToWriter(traceType string) bool {
 }
 
 func (s *Sink) Emit(record query.TraceRecord) {
+	if s == nil {
+		return
+	}
+	s.sendMu.RLock()
+	defer s.sendMu.RUnlock()
+	if s.closed {
+		return
+	}
 	select {
 	case s.ch <- record:
 	default:
@@ -174,7 +184,10 @@ func (s *Sink) Emit(record query.TraceRecord) {
 func (s *Sink) Close() error {
 	var closeErr error
 	s.closeOnce.Do(func() {
+		s.sendMu.Lock()
+		s.closed = true
 		close(s.ch)
+		s.sendMu.Unlock()
 		<-s.done
 
 		s.mu.Lock()

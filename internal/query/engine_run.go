@@ -133,9 +133,14 @@ func (e *Engine) ExecutePlannedStep(ctx context.Context, step PlannedStep) (stri
 	return result, nil
 }
 
-func (e *Engine) SubmitMessage(ctx context.Context, userInput string) (<-chan UIEvent, error) {
-	text := strings.TrimSpace(userInput)
-	if text == "" {
+func (e *Engine) SubmitMessages(ctx context.Context, userInputs []string) (<-chan UIEvent, error) {
+	var texts []string
+	for _, input := range userInputs {
+		if t := strings.TrimSpace(input); t != "" {
+			texts = append(texts, t)
+		}
+	}
+	if len(texts) == 0 {
 		return nil, fmt.Errorf("empty user input")
 	}
 
@@ -150,25 +155,27 @@ func (e *Engine) SubmitMessage(ctx context.Context, userInput string) (<-chan UI
 	e.mu.Unlock()
 
 	if dispatcher != nil && !dispatcher.IsEmpty() {
-		t0 := time.Now()
-		agg := dispatcher.Dispatch(ctx, types.HookEventUserPrompt, hooks.HookInput{
-			UserPrompt: text,
-		})
-		e.emitTrace(turnIndex, "hook.dispatch", "", "", "", map[string]any{
-			"event":        "UserPromptSubmit",
-			"continue":     agg.Continue,
-			"block_reason": agg.BlockReason,
-			"duration_ms":  time.Since(t0).Milliseconds(),
-		})
-		if !agg.Continue {
-			errCh := make(chan UIEvent, 1)
-			reason := agg.BlockReason
-			if reason == "" {
-				reason = "UserPromptSubmit hook blocked the prompt"
+		for _, text := range texts {
+			t0 := time.Now()
+			agg := dispatcher.Dispatch(ctx, types.HookEventUserPrompt, hooks.HookInput{
+				UserPrompt: text,
+			})
+			e.emitTrace(turnIndex, "hook.dispatch", "", "", "", map[string]any{
+				"event":        "UserPromptSubmit",
+				"continue":     agg.Continue,
+				"block_reason": agg.BlockReason,
+				"duration_ms":  time.Since(t0).Milliseconds(),
+			})
+			if !agg.Continue {
+				errCh := make(chan UIEvent, 1)
+				reason := agg.BlockReason
+				if reason == "" {
+					reason = "UserPromptSubmit hook blocked the prompt"
+				}
+				errCh <- UIEvent{Kind: UIEventError, Err: fmt.Errorf("hook: %s", reason)}
+				close(errCh)
+				return errCh, nil
 			}
-			errCh <- UIEvent{Kind: UIEventError, Err: fmt.Errorf("hook: %s", reason)}
-			close(errCh)
-			return errCh, nil
 		}
 	}
 
@@ -178,18 +185,19 @@ func (e *Engine) SubmitMessage(ctx context.Context, userInput string) (<-chan UI
 		e.mu.Unlock()
 		return nil, fmt.Errorf("llm is not configured")
 	}
-	e.messages = append(e.messages, newUserTextMessage(text))
-	e.graph.AppendUser(text)
+	currentUserText := strings.Join(texts, "\n\n")
+	for _, text := range texts {
+		e.messages = append(e.messages, newUserTextMessage(text))
+	}
+	// 연속 user 노드는 API(Anthropic 등)에서 거부되므로 graph에는 하나의 병합 노드만 추가.
+	e.graph.AppendUser(currentUserText)
 	cfg := e.cfg
 	systemFn := e.systemFn
 	registry := e.registry
 	appState := e.state
 	deps := e.deps
-	if appState != nil {
-	}
 	stopHooksCopy := append([]StopHook(nil), e.stopHooks...)
 	hookDispatcher := e.hookDispatcher
-	currentUserText := text
 	if turnIndex == 0 && deps.AIDebug.Enabled && deps.AIDebug.Emitter != nil {
 		e.debugTurn++
 		turnIndex = e.debugTurn
@@ -204,6 +212,10 @@ func (e *Engine) SubmitMessage(ctx context.Context, userInput string) (<-chan UI
 	out := make(chan UIEvent, 64)
 	go e.run(ctx, out, client, cfg, systemFn, registry, appState, deps, stopHooksCopy, hookDispatcher, currentUserText, turnIndex)
 	return out, nil
+}
+
+func (e *Engine) SubmitMessage(ctx context.Context, userInput string) (<-chan UIEvent, error) {
+	return e.SubmitMessages(ctx, []string{userInput})
 }
 
 func (e *Engine) run(
@@ -305,6 +317,9 @@ func (e *Engine) run(
 			exposedToolNames = toolSpecNameSet(toolSpecs)
 		}
 
+		// Sampling 파라미터는 어댑터(openai.go 등)가 모델별 default와 ModelEntry.Sampling을
+		// 적용하도록 nil로 두고 위임한다. greedy decoding(temp=0)은 Qwen 등 일부 모델에서
+		// endless repetitions를 유발하므로 호출자 측에서 강제하지 않는다.
 		req := llm.Request{
 			System:    sysBlocks,
 			Messages:  messages,
@@ -480,6 +495,9 @@ func (e *Engine) run(
 						}
 					}
 				}
+			case llm.EventToolUseDelta:
+				// tool_use JSON 파싱 중 stall 방지 — assistantLastDelta 갱신용
+				out <- UIEvent{Kind: UIEventAssistantDelta, Delta: ""}
 			case llm.EventToolUseStart:
 				if evt.ToolUse != nil {
 					if thinkingOpen {
@@ -960,7 +978,7 @@ func (e *Engine) invokeTool(
 		switch te.Kind {
 		case tool.ToolEventChunk:
 			safeOutput := sanitizeTextWithSecrets(te.Output, toolSecrets)
-			if out != nil && (isShellTool(call.Name) || te.InputResponse != nil) {
+			if out != nil && (isShellTool(call.Name) || isProgressStreamingTool(call.Name) || te.InputResponse != nil) {
 				out <- UIEvent{
 					Kind:          UIEventToolDelta,
 					Delta:         safeOutput,

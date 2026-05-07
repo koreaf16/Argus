@@ -708,6 +708,9 @@ func (m uiModel) isStreamStalled() bool {
 	if !m.busy {
 		return false
 	}
+	if m.toolUseOpen {
+		return false
+	}
 	last := m.busyStartedAt
 	if !m.assistantLastDelta.IsZero() && m.assistantLastDelta.After(last) {
 		last = m.assistantLastDelta
@@ -906,6 +909,33 @@ func (m uiModel) renderInput() string {
 		t.IndicatorChar, t.IndicatorColor = "*", m.theme.ModeYOLOColor
 	}
 	return promptinput.RenderTextInputWithTheme(m.input.View(), m.width, t)
+}
+
+func (m uiModel) renderQueuedPreview() string {
+	if m.modal.Kind != modalNone || len(m.queuedPrompts) == 0 {
+		return ""
+	}
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.MutedColor))
+	const maxShow = 5
+	var lines []string
+	for i, q := range m.queuedPrompts {
+		if i >= maxShow {
+			remaining := len(m.queuedPrompts) - maxShow
+			lines = append(lines, style.Render(fmt.Sprintf("  ▸ ... (+%d more queued)", remaining)))
+			break
+		}
+		display := strings.TrimSpace(q.Submission.Display)
+		maxWidth := m.width - 6
+		if maxWidth < 10 {
+			maxWidth = 10
+		}
+		runes := []rune(display)
+		if len(runes) > maxWidth {
+			display = string(runes[:maxWidth-1]) + "…"
+		}
+		lines = append(lines, style.Render("  ▸ "+display))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m uiModel) renderModal() string {

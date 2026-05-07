@@ -195,18 +195,18 @@ func (t *ServerConnectTool) Call(ctx tool.Context, input json.RawMessage) (<-cha
 			case inventory.PhaseHeader:
 				cardLines := inventory.FormatUICard(snap)
 				if len(cardLines) > 0 {
-					events <- tool.NewOutputEvent(inventoryHeaderMarker + "\n" + strings.Join(cardLines, "\n"))
+					events <- tool.NewOutputEvent(inventoryHeaderMarker + "\n" + strings.Join(cardLines, "\n") + "\n")
 				}
 			case inventory.PhaseReady:
 				cardLines := inventory.FormatUICard(snap)
-				events <- tool.NewOutputEvent(fmt.Sprintf("%s%d]\n%s",
+				events <- tool.NewOutputEvent(fmt.Sprintf("%s%d]\n%s\n",
 					inventoryReadyPrefix, snap.DurationMs, strings.Join(cardLines, "\n")))
 			case inventory.PhaseFailed:
 				errMsg := ""
 				if err != nil {
 					errMsg = err.Error()
 				}
-				events <- tool.NewOutputEvent(inventoryFailedMarker + "\n" + errMsg)
+				events <- tool.NewOutputEvent(inventoryFailedMarker + "\n" + errMsg + "\n")
 			}
 		})
 

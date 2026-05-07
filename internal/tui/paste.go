@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"time"
 	"unicode/utf8"
 )
 
@@ -27,6 +28,12 @@ type pastedTextRef struct {
 type promptSubmission struct {
 	Display  string
 	Expanded string
+}
+
+type queuedPrompt struct {
+	Submission promptSubmission
+	IsSlash    bool
+	EnqueuedAt time.Time
 }
 
 var pastedTextRefPattern = regexp.MustCompile(`\[Pasted text #(\d+)(?: \+\d+ lines)?\]`)

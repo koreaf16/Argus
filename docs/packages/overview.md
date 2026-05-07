@@ -26,8 +26,7 @@ github.com/koreaf16/argus
 │   ├── shelljobs/                # 백그라운드 셸 작업 관리
 │   ├── skills/                   # Skills 레지스트리
 │   ├── state/                    # 앱 상태 관리
-│   ├── tasks/                    # Task 생성 도구
-│   ├── todostore/                # Todo 영속화
+│   ├── tasks/                    # 태스크(Task) 관리 및 영속화
 │   ├── tools/                    # Tool 시스템
 │   ├── tui/                      # BubbleTea 기반 TUI
 │   ├── types/                    # 공통 타입 정의

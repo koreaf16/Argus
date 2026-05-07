@@ -124,7 +124,11 @@ func (t *BashTool) InputSchema() tool.ToolInputJSONSchema {
 			},
 			"background": map[string]any{
 				"type":        "boolean",
-				"description": "백그라운드 작업으로 실행합니다. 생략하면 오래 걸리는 명령의 경우 몇 초 후에 자동으로 백그라운드로 전환됩니다.",
+				"description": "true면 즉시 백그라운드 잡으로 시작하고 background_task_id를 반환합니다(자동 5초 대기 없음). false면 포그라운드를 유지하며 자동 백그라운드 전환도 비활성화됩니다. 생략하면 오래 걸리는 명령의 경우 5초 후 자동으로 백그라운드로 전환됩니다.",
+			},
+			"stdin": map[string]any{
+				"type":        "string",
+				"description": "선택 사항: 명령 시작 시 stdin으로 한 번에 전달할 페이로드. 큰 텍스트(SQL 덤프, JSON, 패치 등)는 command 인라인 대신 이 필드를 사용하세요. command는 `psql -`, `jq .`, `cat`처럼 stdin을 읽는 reader로 작성합니다.",
 			},
 		},
 		"required": []string{"command"},
@@ -164,6 +168,7 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 		SessionID       string `json:"session_id"`
 		PTYMode         string `json:"pty_mode"`
 		Background      *bool  `json:"background"`
+		Stdin           string `json:"stdin"`
 	}
 	if err := json.Unmarshal(input, &req); err != nil {
 		return nil, err
@@ -221,10 +226,12 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 			return
 		}
 
+		isRemote := tool.IsRemoteWorkspace(ctx, targetAlias)
+
 		// 시스템에 저장된 인증 정보(ID/PW) 자동 연동
 		finalCommand := command
 		execOpts := workspace.ExecOptions{
-			Shell:           "bash",
+			Shell:           resolveBashLocalShell(targetInfo, isRemote),
 			Password:        req.Password,
 			RootPassword:    req.RootPassword,
 			AsUser:          strings.TrimSpace(req.AsUser),
@@ -270,7 +277,6 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 		// 매 호출마다 새 SSH exec를 여는 대신 캐시된 PTY 세션을 재사용한다.
 		// 원격 Unix 세션의 경우 SSH 멀티플렉싱 효과를 극대화하기 위해 기본적으로 account shell을 사용한다.
 		channelDecision := "single_exec"
-		isRemote := tool.IsRemoteWorkspace(ctx, targetAlias)
 		if targetInfo.Platform == workspace.PlatformUnix && isRemote &&
 			!strings.EqualFold(execOpts.ReuseSession, workspace.ReuseSessionNever) &&
 			!strings.EqualFold(execOpts.PTYMode, workspace.PTYNever) {
@@ -300,6 +306,7 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 				"tool":               "bash",
 				"alias":              targetAlias,
 				"decision":           channelDecision,
+				"shell":              execOpts.Shell,
 				"reuse_session":      execOpts.ReuseSession,
 				"privilege_method":   execOpts.PrivilegeMethod,
 				"as_user":            execOpts.AsUser,
@@ -374,6 +381,7 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 				forceBackground,
 				allowAutoBackground,
 				execOpts,
+				req.Stdin,
 			)
 			if err != nil {
 				events <- tool.NewErrorEvent(err)
@@ -408,6 +416,7 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 				forceBackground,
 				allowAutoBackground,
 				execOpts,
+				req.Stdin,
 			)
 			if err != nil {
 				events <- tool.NewErrorEvent(err)
@@ -460,6 +469,7 @@ func (t *BashTool) Call(ctx tool.Context, input json.RawMessage) (<-chan tool.To
 			targetAlias,
 			forceBackground,
 			allowAutoBackground,
+			req.Stdin,
 		)
 		if err != nil {
 			events <- tool.NewErrorEvent(err)
@@ -545,6 +555,7 @@ func executeCommand(
 	targetAlias string,
 	forceBackground bool,
 	allowAutoBackground bool,
+	stdinPayload string,
 ) (utils.ExecResult, error) {
 	shellPath, err := utils.FindSuitableShell()
 	if err != nil {
@@ -573,6 +584,14 @@ func executeCommand(
 	events <- tool.ToolEvent{
 		Kind:          tool.ToolEventChunk,
 		InputResponse: inputChan,
+	}
+
+	if stdinPayload != "" && cmd.Stdin != nil {
+		// 큰 페이로드는 별도 고루틴에서 비동기로 흘려보내 select 루프 블로킹을 피한다.
+		// stdin은 Close 하지 않는다 — 사용자의 후속 키 입력 경로를 보존하기 위함.
+		go func(payload string) {
+			_, _ = cmd.Stdin.Write([]byte(payload))
+		}(stdinPayload)
 	}
 
 	var (
@@ -772,6 +791,7 @@ func executeRemoteCommand(
 	forceBackground bool,
 	allowAutoBackground bool,
 	execOpts workspace.ExecOptions,
+	stdinPayload string,
 ) (utils.ExecResult, error) {
 	if ctx.Workspace == nil {
 		return utils.ExecResult{}, fmt.Errorf("workspace manager is unavailable")
@@ -806,6 +826,13 @@ func executeRemoteCommand(
 	events <- tool.ToolEvent{
 		Kind:          tool.ToolEventChunk,
 		InputResponse: inputChan,
+	}
+
+	if stdinPayload != "" && handle.Write != nil {
+		// 원격 핸들도 동일하게 별도 고루틴으로 비동기 write.
+		go func(payload string) {
+			_ = handle.Write(payload)
+		}(stdinPayload)
 	}
 
 	var outputBuffer string
@@ -1035,6 +1062,18 @@ func appendShellTail(current, chunk string, maxChars int) string {
 		return merged
 	}
 	return merged[len(merged)-maxChars:]
+}
+
+// resolveBashLocalShell picks the effective shell for bash tool execution.
+// Windows + local workspace falls back to powershell because Windows lacks
+// bash by default and cmd/PowerShell builtins (dir, type, Get-*, $env:) are
+// what naturally exists there. Remote workspaces keep "bash" — SSH targets
+// resolve their own shell via opts.Shell at the ssh_session layer.
+func resolveBashLocalShell(targetInfo tool.ShellTargetInfo, isRemote bool) string {
+	if !isRemote && targetInfo.Platform == workspace.PlatformWindows {
+		return "powershell"
+	}
+	return "bash"
 }
 
 func firstNonEmpty(values ...string) string {

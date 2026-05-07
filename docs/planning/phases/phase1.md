@@ -112,9 +112,9 @@ argus/
 │   ├── tools/
 │   │   ├── bash/                            # ← src/tools/BashTool/ (18개 파일 전부)
 │   │   ├── websearch/                       # ← src/tools/WebSearchTool/ (3개 파일)
-│   │   ├── todowrite/                       # ← src/tools/TodoWriteTool/ (3개 파일)
-│   │   ├── enterplanmode/                   # ← src/tools/EnterPlanModeTool/ (4개 파일)
-│   │   └── exitplanmode/                    # ← src/tools/ExitPlanModeTool/ (4개 파일)
+│   │   ├── task/                            # ← src/tools/TodoWriteTool/ (3개 파일)
+│   │   ├── enter_plan_mode/                 # ← src/tools/EnterPlanModeTool/ (4개 파일)
+│   │   └── exit_plan_mode/                  # ← src/tools/ExitPlanModeTool/ (4개 파일)
 │   ├── services/
 │   │   ├── api/                             # ← src/services/api/ (Claude HTTP 계층 전부)
 │   │   └── llm/                             # 멀티 프로바이더 추상화 (신규)
@@ -132,8 +132,9 @@ argus/
 │   │   ├── powershell/                      # ← src/utils/powershell/ (3개)
 │   │   ├── sandbox/                         # ← src/utils/sandbox/ (2개)
 │   │   ├── permissions/                     # ← src/utils/permissions/ (26개 전부)
-│   │   ├── todo/                            # ← src/utils/todo/
+│   │   ├── tasks/                           # ← src/utils/todo/
 │   │   └── ultraplan/                       # ← src/utils/ultraplan/ (2개)
+
 │   ├── planmode/                            # ← src/utils/planModeV2.ts + plans.ts
 │   ├── tasks/localshell/                    # ← src/tasks/LocalShellTask/ (3개)
 │   ├── state/                               # ← src/state/ (6개)
@@ -150,12 +151,13 @@ argus/
     ├── permissions.md
     ├── planmode.md
     ├── llm-providers.md
-    └── tools/
+    ├── tools/
         ├── bash.md
         ├── websearch.md
-        ├── todowrite.md
-        ├── enterplanmode.md
-        └── exitplanmode.md
+        ├── task_create.md
+        ├── enter_plan_mode.md
+        └── exit_plan_mode.md
+
 ```
 
 ---
@@ -290,18 +292,18 @@ Phase 1 에서 **Shell 주변 디렉토리 전부** 이식:
 - `shadowedRuleDetection` / `permissionExplainer` / `permissionSetup` 전부 포함
 - `bypassPermissionsKillswitch` — yolo 모드 킬스위치
 
-### 4.7 Plan 모드 + TodoWrite — 완전 복제
+### 4.7 Plan 모드 + TaskCreate — 완전 복제
 
 | Go 경로 | TS 원본 | 파일 수 |
 |---|---|---|
-| `internal/tools/enterplanmode/` | `src/tools/EnterPlanModeTool/` | 4 |
-| `internal/tools/exitplanmode/` | `src/tools/ExitPlanModeTool/` | 4 |
-| `internal/tools/todowrite/` | `src/tools/TodoWriteTool/` | 3 |
-| `internal/utils/todo/` | `src/utils/todo/` | 1 |
+| `internal/tools/enter_plan_mode/` | `src/tools/EnterPlanModeTool/` | 4 |
+| `internal/tools/exit_plan_mode/` | `src/tools/ExitPlanModeTool/` | 4 |
+| `internal/tools/task/` | `src/tools/TodoWriteTool/` | 3 |
+| `internal/tasks/` | `src/utils/todo/` | 1 |
 | `internal/planmode/` | `src/utils/planModeV2.ts` + `plans.ts` | 2 |
 | `internal/utils/ultraplan/` | `src/utils/ultraplan/` | 2 |
 
-**동작**: `EnterPlanMode` 호출 → 쓰기 계열 도구 차단. `TodoWrite` 로 단계 기록 → 매 턴 후 체크박스 렌더링. `ExitPlanMode` → readline 승인 프롬프트 → 승인 시 기본 모드 복귀 후 순차 실행.
+**동작**: `EnterPlanMode` 호출 → 쓰기 계열 도구 차단. `TaskCreate` 로 단계 기록 → 매 턴 후 체크박스 렌더링. `ExitPlanMode` → readline 승인 프롬프트 → 승인 시 기본 모드 복귀 후 순차 실행.
 
 ### 4.8 REPL (`internal/repl/`) + CLI 진입점 (`cmd/argus/`)
 
@@ -355,7 +357,7 @@ Phase 1 는 아래 순서로 작업한다. 각 단계 완료 시 `docs/<area>.md
 7. 권한·Shell 유틸 — `internal/utils/permissions/`, `internal/utils/shell/`, `internal/utils/bash/`, `internal/utils/powershell/`, `internal/utils/sandbox/`
 8. LLM 추상화 — `internal/services/api/` → `internal/services/llm/`
 9. Tool 인터페이스·레지스트리 — `internal/tool/`
-10. 도구 구현 순서: Bash → WebSearch → TodoWrite → EnterPlanMode → ExitPlanMode (각 디렉토리 원본 파일 전부 1:1 이식)
+10. 도구 구현 순서: Bash → WebSearch → TaskCreate → EnterPlanMode → ExitPlanMode (각 디렉토리 원본 파일 전부 1:1 이식)
 11. 상태·bootstrap·hooks — `internal/state/`, `internal/bootstrap/`, `internal/hooks/`
 12. Plan mode — `internal/planmode/`, `internal/utils/ultraplan/`
 13. Query Engine — `internal/query/` 전체
@@ -378,7 +380,7 @@ Phase 1 는 아래 순서로 작업한다. 각 단계 완료 시 `docs/<area>.md
    - Argus 재실행 시 `~/.argus/models.json` 에서 사용자 추가분 유지 확인
 5. **Shell 실행**: `현재 디렉토리의 파일 목록을 보여줘` → `Bash` 도구 호출 + 권한 프롬프트 → 승인 시 결과 표시
 6. **Web Search** (Anthropic 활성 시): `오늘 날씨 서울 검색해줘` → 서버 측 `web_search` 호출 이벤트가 UI 에 표시, 결과 요약 출력. OpenAI-호환/Gemini 활성 시에는 "현재 모델은 web_search 미지원" 안내
-7. **Plan 모드**: `파이썬 설치하는 계획을 세워줘` → `EnterPlanMode` → `TodoWrite` → `ExitPlanMode` 승인 → 각 단계 순차 실행, TODO 체크박스 진행 반영
+7. **Plan 모드**: `파이썬 설치하는 계획을 세워줘` → `EnterPlanMode` → `TaskCreate` → `ExitPlanMode` 승인 → 각 단계 순차 실행, TODO 체크박스 진행 반영
 8. `/exit` 로 정상 종료, `~/.argus_history` 생성 확인
 
 ---

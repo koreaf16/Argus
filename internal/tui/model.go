@@ -17,6 +17,7 @@ import (
 	"github.com/koreaf16/argus/internal/query"
 	"github.com/koreaf16/argus/internal/repl/commands"
 	"github.com/koreaf16/argus/internal/services/workspace"
+	"github.com/koreaf16/argus/internal/state"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/tui/markdown"
 	"github.com/koreaf16/argus/internal/tui/toolui"
@@ -164,9 +165,9 @@ type uiModel struct {
 
 	entries []transcriptEntry
 
-	assistantOpen                 bool
-	assistantStreamIdx            int
-	assistantLastDelta            time.Time
+	assistantOpen         bool
+	assistantStreamIdx    int
+	assistantLastDelta    time.Time
 	assistantFlushedLines int
 	assistantFlushedText  string
 	thinkingOpen          bool
@@ -174,16 +175,17 @@ type uiModel struct {
 	thinkingLastDelta     time.Time
 	thinkingFlushedLines  int
 	thinkingFlushedText   string
-	toolUseOpen                   bool
-	toolUseStreamIdx              int
-	busy                          bool
-	busyStartedAt                 time.Time
-	tokenInputSnap                int
-	tokenOutputSnap               int
-	tokenThinkingSnap             int
-	prevTokenInputSnap            int
-	prevTokenOutputSnap           int
-	prevTokenThinkingSnap         int
+	toolUseOpen           bool
+	toolUseStreamIdx      int
+	busy          bool
+	busyStartedAt time.Time
+	queuedPrompts []queuedPrompt
+	tokenInputSnap        int
+	tokenOutputSnap       int
+	tokenThinkingSnap     int
+	prevTokenInputSnap    int
+	prevTokenOutputSnap   int
+	prevTokenThinkingSnap int
 	// activeTokenKind: 현재 spinner 라인에 표시할 토큰 종류.
 	activeTokenKind string
 
@@ -341,16 +343,19 @@ func (m uiModel) Init() tea.Cmd {
 		activeAlias := workspace.LocalAlias
 		if m.cfg.State != nil {
 			m.cfg.State.SetActiveWorkspace(activeAlias)
+			m.cfg.State.SetActiveTarget(state.ActiveTarget{Alias: activeAlias, CWD: m.cfg.WorkDir})
 		}
 
-		ws := m.cfg.Workspace
+		if m.app != nil && m.app.ctx != nil {
+			cmds = append(cmds, func() tea.Msg {
+				m.cfg.Workspace.CollectLocalSystemHeader(m.app.ctx)
+				return nil
+			})
+		}
+
 		cmds = append(cmds, func() tea.Msg {
-			cwd := ""
-			if invSnap, ok := ws.GetInventorySnapshot(activeAlias); ok && invSnap.System != nil {
-				cwd = invSnap.System.CWD
-			}
 			return footerStateMsg{
-				Footer: presentation.BuildFooterState(m.cfg.State, cwd),
+				Footer: presentation.BuildFooterState(m.cfg.State, m.cfg.WorkDir),
 			}
 		})
 	}
@@ -389,6 +394,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		m.busyStartedAt = time.Time{}
 		footerCmd := func() tea.Msg { return m.app.buildFooterMsg() }
+		if flushCmd := m.dequeueAndFlush(); flushCmd != nil {
+			return m, tea.Batch(footerCmd, flushCmd)
+		}
 		return m, footerCmd
 	case queryEventMsg:
 		if evt, ok := presentation.FromUIEvent(v.Event); ok {
@@ -640,6 +648,18 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch v.String() {
 		case "esc":
+			if strings.TrimSpace(m.input.Value()) == "" && len(m.queuedPrompts) > 0 {
+				var parts []string
+				for _, q := range m.queuedPrompts {
+					parts = append(parts, q.Submission.Display)
+				}
+				m.input.SetValue(strings.Join(parts, "\n\n"))
+				m.input.SetCursor(len(m.input.Value()))
+				m.queuedPrompts = nil
+				m.refreshSlashSuggestions()
+				m.resize()
+				return m, nil
+			}
 			if m.busy {
 				m.app.cancelCurrentSubmit()
 			}
@@ -698,22 +718,28 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "enter":
-			text := strings.TrimSpace(m.input.Value())
-			if text == "" {
+			raw := m.input.Value()
+			if strings.TrimSpace(raw) == "" {
 				return m, nil
 			}
+			submission := m.buildPromptSubmission(raw)
+			isSlash := strings.HasPrefix(submission.Display, "/")
 			if m.busy {
-				m.applyPresentationEvent(presentation.Event{
-					Kind: presentation.EventNotice,
-					Text: "Previous request is still running.",
+				m.queuedPrompts = append(m.queuedPrompts, queuedPrompt{
+					Submission: submission,
+					IsSlash:    isSlash,
+					EnqueuedAt: time.Now(),
 				})
-				return m, m.handleEventFinalization(presentation.Event{
-					Kind: presentation.EventNotice,
-					Text: "Previous request is still running.",
-				})
+				m.pushInputHistory(raw)
+				m.resetHistoryCycle()
+				m.input.SetValue("")
+				m.input.SetCursor(0)
+				m.activePastes = nil
+				m.refreshSlashSuggestions()
+				m.resize()
+				return m, nil
 			}
-			submission := m.buildPromptSubmission(text)
-			m.pushInputHistory(text)
+			m.pushInputHistory(raw)
 			m.resetHistoryCycle()
 			m.input.SetValue("")
 			m.input.SetCursor(0)
@@ -1150,6 +1176,7 @@ func (m uiModel) liveEntryLeadingBlankLines(idx int, e transcriptEntry) int {
 func (m uiModel) renderFrame() renderedView {
 	footerView := m.renderFooter()
 	inputView := m.renderInput()
+	queuedPreview := m.renderQueuedPreview()
 	taskListRow := m.renderTaskListRow()
 	thinkingRow := m.renderThinkingRow()
 	modeStatus := m.renderModeStatus()
@@ -1160,7 +1187,7 @@ func (m uiModel) renderFrame() renderedView {
 		modalView = m.renderModal()
 	}
 
-	bottomParts := make([]string, 0, 10)
+	bottomParts := make([]string, 0, 12)
 	bottomParts = append(bottomParts, "", "")
 	if taskListRow != "" {
 		bottomParts = append(bottomParts, taskListRow)
@@ -1173,12 +1200,20 @@ func (m uiModel) renderFrame() renderedView {
 	}
 	bottomParts = append(bottomParts, modeDivider)
 
-	anchorParts := append([]string(nil), bottomParts...)
-	anchorParts = append(anchorParts, modeStatus, inputView, footerView)
+	// anchorBaseParts excludes the modal so maxStreamH is not reduced when a modal appears.
+	anchorBaseParts := append([]string(nil), bottomParts...)
+	if queuedPreview != "" {
+		anchorBaseParts = append(anchorBaseParts, modeStatus, inputView, queuedPreview, footerView)
+	} else {
+		anchorBaseParts = append(anchorBaseParts, modeStatus, inputView, footerView)
+	}
 
 	if modalView != "" {
 		modalPartIndex = len(bottomParts)
-		bottomParts = append(bottomParts, modalView)
+		bottomParts = append(bottomParts, modalView, "")
+	}
+	if queuedPreview != "" {
+		bottomParts = append(bottomParts, modeStatus, inputView, queuedPreview, footerView)
 	} else {
 		bottomParts = append(bottomParts, modeStatus, inputView, footerView)
 	}
@@ -1195,11 +1230,7 @@ func (m uiModel) renderFrame() renderedView {
 		streamLines = append(streamLines, strings.Split(rendered, "\n")...)
 	}
 
-	fixedH := lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, bottomParts...))
-	anchorH := fixedH
-	if modalView != "" {
-		anchorH = lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, anchorParts...))
-	}
+	anchorH := lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, anchorBaseParts...))
 	maxStreamH := m.height - anchorH
 	if maxStreamH < 0 {
 		maxStreamH = 0
@@ -1271,8 +1302,12 @@ func (m uiModel) updateCursorTargetForRendered(rendered renderedView) {
 	}
 
 	footerH := lipgloss.Height(m.renderFooter())
+	queuePreviewH := 0
+	if qp := m.renderQueuedPreview(); qp != "" {
+		queuePreviewH = lipgloss.Height(qp)
+	}
 
-	linesUp := footerH + 1
+	linesUp := footerH + queuePreviewH + 1
 
 	textareaRow := m.input.Line()
 	contentLinesCount := m.input.Height()
@@ -1534,4 +1569,33 @@ func (m *uiModel) UpdateUISettings(ui UISettings) {
 	m.ui = resolved
 	m.theme = resolveUIThemeWithVariant(resolved.Theme, resolved.Variant, m.cfg.AIDebug)
 	m.resize()
+}
+
+func (m *uiModel) dequeueAndFlush() tea.Cmd {
+	if len(m.queuedPrompts) == 0 {
+		return nil
+	}
+	head := m.queuedPrompts[0]
+	if head.IsSlash {
+		m.queuedPrompts = m.queuedPrompts[1:]
+		sub := head.Submission
+		return func() tea.Msg {
+			m.app.submitPrompt(sub)
+			return nil
+		}
+	}
+	var batch []promptSubmission
+	cut := 0
+	for i, q := range m.queuedPrompts {
+		if q.IsSlash {
+			break
+		}
+		batch = append(batch, q.Submission)
+		cut = i + 1
+	}
+	m.queuedPrompts = m.queuedPrompts[cut:]
+	return func() tea.Msg {
+		m.app.submitMultiple(batch)
+		return nil
+	}
 }

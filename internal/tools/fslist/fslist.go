@@ -29,13 +29,12 @@ func (r *FSListRenderer) RenderToolUse(args map[string]any, _ string, theme tool
 	recursive, _ := args["recursive"].(bool)
 
 	var sb strings.Builder
-	sb.WriteString(theme.Style(theme.ToolUseColor()).Bold(true).Render("  List: "))
-	sb.WriteString(theme.Style(theme.BodyColor()).Render(path))
-	sb.WriteString(theme.Style(theme.MutedColor()).Render(" on " + target))
+	sb.WriteString(path)
+	sb.WriteString(" on " + target)
 	if recursive {
-		sb.WriteString(theme.Style(theme.MutedColor()).Render(" (recursive)"))
+		sb.WriteString(" (recursive)")
 	}
-	return sb.String()
+	return toolui.FormatToolCall("List", sb.String(), 160, theme)
 }
 
 func renderTargetAlias(args map[string]any) string {
@@ -63,7 +62,7 @@ func (r *FSListRenderer) RenderToolResult(resultText string, durationMs int64, t
 	if durationMs > 0 {
 		msg += fmt.Sprintf(" in %dms", durationMs)
 	}
-	return theme.Style(theme.StatusSuccessColor()).Render("  [done] " + msg)
+	return toolui.FormatResultLines([]string{msg}, true, false, theme)
 }
 
 func NewFSListTool() *FSListTool {

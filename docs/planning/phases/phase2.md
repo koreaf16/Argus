@@ -21,9 +21,9 @@
     - `/mcp reload` now syncs bridge tools (add/remove).
 - Services
   - `internal/memdir`:
-    - bootstrap for `~/.argus/{sessions,memory,todos,plans,worktrees,scheduled-tasks}`
+    - bootstrap for `~/.argus/{sessions,memory,tasks,plans,worktrees,scheduled-tasks}`
     - atomic JSON save/load, memory list/search.
-    - session todo/plan persistence helpers.
+    - session task/plan persistence helpers.
   - `internal/services/mcp`:
     - config load, server/tool/resource listing, resource read.
   - `internal/services/lsp`:
@@ -50,14 +50,14 @@
   - `fileread` now supports line-range reads and root-boundary enforcement.
   - `filewrite` now uses atomic writes with root-boundary enforcement.
   - `glob` and `grep` now enforce root boundaries; `grep` prefers `rg` with Go fallback.
-- Plan/todo behavior
+- Plan/task behavior
   - `EnterPlanMode` now stores pre-plan mode and initializes session plan file.
   - `ExitPlanMode` now restores pre-plan mode, normalizes approved prompts (`bash`/`powershell`), and writes numbered approved steps to plan file.
-  - `TodoWrite` now validates/persists structured todo lists and clears all-completed lists.
+  - `TaskCreate` now validates/persists structured todo lists and clears all-completed lists.
   - Engine/REPL now support multi-step plan execution:
     - engine emits `plan_execution_ready` from `ExitPlanMode` tool results.
     - REPL runs approved steps sequentially with per-step confirmation.
-    - step execution syncs todo status (`pending`/`in_progress`/`completed`) per session.
+    - step execution syncs task status (`pending`/`in_progress`/`completed`) per session.
 
 ## Default Tool Surface
 - Included:
@@ -75,10 +75,10 @@
 - `go test ./...` passes.
 - Added tests:
   - `internal/memdir/store_test.go`
-  - `internal/todostore/store_test.go`
+  - `internal/tasks/store_test.go`
   - `internal/tool/registry_test.go`
   - `internal/query/plan_execution_test.go`
-  - `internal/tools/exitplanmode/exitplanmode_test.go`
+  - `internal/tools/exit_plan_mode/exit_plan_mode_test.go`
   - `internal/repl/plan_steps_test.go`
   - `internal/repl/commands/dispatcher_test.go`
   - `internal/services/mcp/manager_test.go`

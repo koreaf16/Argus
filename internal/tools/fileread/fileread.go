@@ -31,15 +31,14 @@ func (r *FileReadRenderer) RenderToolUse(args map[string]any, _ string, theme to
 	server := renderTargetAlias(args)
 
 	var sb strings.Builder
-	sb.WriteString(theme.Style(theme.ToolUseColor()).Bold(true).Render("  Read: "))
-	sb.WriteString(theme.Style(theme.BodyColor()).Render(path))
+	sb.WriteString(path)
 	if server != "" {
-		sb.WriteString(theme.Style(theme.MutedColor()).Render(" [" + server + "]"))
+		sb.WriteString(" [" + server + "]")
 	}
 	if start > 0 || end > 0 {
-		sb.WriteString(theme.Style(theme.MutedColor()).Render(fmt.Sprintf(" (lines %v-%v)", start, end)))
+		sb.WriteString(fmt.Sprintf(" (lines %.0f-%.0f)", start, end))
 	}
-	return sb.String()
+	return toolui.FormatToolCall("Read", sb.String(), 160, theme)
 }
 
 func (r *FileReadRenderer) RenderToolResult(resultText string, durationMs int64, theme toolui.ThemeContext) string {
@@ -51,7 +50,7 @@ func (r *FileReadRenderer) RenderToolResult(resultText string, durationMs int64,
 	if durationMs > 0 {
 		msg += fmt.Sprintf(" in %dms", durationMs)
 	}
-	return theme.Style(theme.StatusSuccessColor()).Render("  [done] " + msg)
+	return toolui.FormatResultLines([]string{msg}, true, false, theme)
 }
 
 func NewFileReadTool() *FileReadTool {

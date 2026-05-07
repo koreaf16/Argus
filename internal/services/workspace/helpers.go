@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -14,9 +16,24 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+func localExecWorkingDir(raw string) (string, error) {
+	wd := strings.TrimSpace(raw)
+	if wd == "" {
+		return os.Getwd()
+	}
+	if filepath.IsAbs(wd) {
+		return filepath.Clean(wd), nil
+	}
+	abs, err := filepath.Abs(wd)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
+}
+
 func (m *Manager) startLocalExecStreaming(ctx context.Context, command string, opts ExecOptions) (*ExecHandle, error) {
 	var cmd *exec.Cmd
-	
+
 	shell := opts.Shell
 	if shell == "" {
 		if runtime.GOOS == "windows" {
@@ -39,6 +56,11 @@ func (m *Manager) startLocalExecStreaming(ctx context.Context, command string, o
 			cmd = exec.CommandContext(ctx, "bash", "-lc", command)
 		}
 	}
+	workDir, err := localExecWorkingDir(opts.WorkingDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve local working directory: %w", err)
+	}
+	cmd.Dir = workDir
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -101,6 +123,7 @@ func (m *Manager) startLocalExecStreaming(ctx context.Context, command string, o
 			Stdout: "",
 			Stderr: errBuf.String(),
 			Code:   code,
+			CWD:    workDir,
 		}
 		close(result)
 	}()
@@ -118,7 +141,7 @@ func (m *Manager) startLocalExecStreaming(ctx context.Context, command string, o
 
 func (m *Manager) execLocal(ctx context.Context, command string, opts ExecOptions) (ExecResult, error) {
 	var cmd *exec.Cmd
-	
+
 	shell := opts.Shell
 	if shell == "" {
 		if runtime.GOOS == "windows" {
@@ -140,6 +163,11 @@ func (m *Manager) execLocal(ctx context.Context, command string, opts ExecOption
 			cmd = exec.CommandContext(ctx, "bash", "-lc", command)
 		}
 	}
+	workDir, err := localExecWorkingDir(opts.WorkingDir)
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("resolve local working directory: %w", err)
+	}
+	cmd.Dir = workDir
 
 	output, err := cmd.CombinedOutput()
 	code := 0
@@ -153,6 +181,7 @@ func (m *Manager) execLocal(ctx context.Context, command string, opts ExecOption
 	res := ExecResult{
 		Stdout: string(output),
 		Code:   code,
+		CWD:    workDir,
 	}
 	if err != nil && code == 0 {
 		return res, fmt.Errorf("execute local command: %w", err)

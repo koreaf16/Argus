@@ -58,11 +58,10 @@ type Tool interface {
 
 | 도구 | 설명 |
 |------|------|
-| `todowrite` | Todo 목록 작성/갱신 |
-| `todoread` | Todo 목록 읽기 |
-| `task` | Task 생성 |
-| `enterplanmode` | 계획 모드 진입 |
-| `exitplanmode` | 계획 모드退出 |
+| `task_create` | 태스크(Task) 생성 및 작성 |
+| `task_update` | 태스크(Task) 상태 갱신 |
+| `enter_plan_mode` | 계획 모드(Plan Mode) 진입 |
+| `exit_plan_mode` | 계획 모드(Plan Mode) 종료 |
 
 ### 외부 통합
 

@@ -150,7 +150,7 @@ func (t *ServerCopyTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 			events <- tool.NewErrorEvent(err)
 			return
 		}
-		events <- tool.NewOutputEvent(fmt.Sprintf("copied %s to %s", srcEP.RawPath, dstEP.RawPath))
+		events <- tool.NewOutputEvent(fmt.Sprintf("Successfully copied %s to %s", srcEP.RawPath, dstEP.RawPath))
 		events <- tool.NewDoneEvent()
 	}()
 

@@ -183,6 +183,15 @@ func isShellTool(toolName string) bool {
 	}
 }
 
+func isProgressStreamingTool(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "server_copy", "server_connect":
+		return true
+	default:
+		return false
+	}
+}
+
 func extractOutputTaskID(output string) string {
 	trimmed := strings.TrimSpace(output)
 	if trimmed == "" {

@@ -7,8 +7,9 @@ func TestAnthropicStreamDecoderAccumulatesToolInput(t *testing.T) {
 
 	decoder := newAnthropicStreamDecoder()
 
-	if events, ok := decoder.Decode(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"bash","input":{}}}`); ok || len(events) != 0 {
-		t.Fatalf("tool start should wait for JSON deltas, got ok=%v events=%+v", ok, events)
+	// content_block_start에서 stall 방지용 EventToolUseDelta 하나를 emit해야 함
+	if events, ok := decoder.Decode(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"bash","input":{}}}`); !ok || len(events) != 1 || events[0].Kind != EventToolUseDelta {
+		t.Fatalf("tool start should emit one EventToolUseDelta, got ok=%v events=%+v", ok, events)
 	}
 	if events, ok := decoder.Decode(`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"pw"}}`); ok || len(events) != 0 {
 		t.Fatalf("tool delta should be buffered, got ok=%v events=%+v", ok, events)

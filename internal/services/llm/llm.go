@@ -95,13 +95,20 @@ type ToolSpec struct {
 }
 
 type Request struct {
-	Model     string          `json:"model"`
-	System    []SystemBlock   `json:"system,omitempty"`
-	Messages  []Message       `json:"messages"`
-	Tools     []ToolSpec      `json:"tools,omitempty"`
-	MaxTokens int             `json:"max_tokens,omitempty"`
-	Thinking  *ThinkingConfig `json:"thinking,omitempty"`
-	TraceHook TraceHook       `json:"-"`
+	Model             string          `json:"model"`
+	System            []SystemBlock   `json:"system,omitempty"`
+	Messages          []Message       `json:"messages"`
+	Tools             []ToolSpec      `json:"tools,omitempty"`
+	MaxTokens         int             `json:"max_tokens,omitempty"`
+	Temperature       *float64        `json:"temperature,omitempty"`
+	TopP              *float64        `json:"top_p,omitempty"`
+	TopK              *int            `json:"top_k,omitempty"`
+	MinP              *float64        `json:"min_p,omitempty"`
+	PresencePenalty   *float64        `json:"presence_penalty,omitempty"`
+	FrequencyPenalty  *float64        `json:"frequency_penalty,omitempty"`
+	RepetitionPenalty *float64        `json:"repetition_penalty,omitempty"`
+	Thinking          *ThinkingConfig `json:"thinking,omitempty"`
+	TraceHook         TraceHook       `json:"-"`
 }
 
 type TraceKind string

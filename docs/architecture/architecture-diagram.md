@@ -45,7 +45,7 @@ graph TB
         filetools["fileread / filewrite / fslist / grep"]
         shelltools["bash / powershell / shelljob"]
         webtools["webfetch / websearch"]
-        plantools["todowrite / enterplanmode / exitplanmode"]
+        plantools["task_create / task_update / enter_plan_mode / exit_plan_mode"]
         mcptools["mcptool / lsptool / mcpauth"]
         servertools["serverconnect / servertunnel"]
     end
@@ -343,7 +343,7 @@ graph TB
         Shell["셸 도구<br/>bash, powershell, shelljob, shelljobcontrol"]
         File["파일/FS<br/>fileread, filewrite, fslist, glob, grep"]
         Web["웹<br/>webfetch, websearch"]
-        Plan["계획/관리<br/>todowrite, todoread, task, enterplanmode, exitplanmode"]
+        Plan["계획/관리<br/>task_create, task_update, enter_plan_mode, exit_plan_mode"]
         Ext["외부 통합<br/>mcptool, lsptool, listmcpresources, readmcpresource, mcpauth"]
         Server["서버 관리<br/>serverconnect, servercopy, serverinspect, servermetrics, servertunnel"]
         Other["기타<br/>skilltool, sniptool, askuser, enterworktree, exitworktree"]
@@ -543,7 +543,7 @@ flowchart TD
 | `internal/tools/` | 내장 도구 구현 | fileread/, filewrite/, webfetch/, websearch/ 등 |
 | `internal/hooks/` | 훅 시스템 | [`dispatcher.go`](C:/Dev/Argus/internal/hooks/dispatcher.go), [`executor.go`](C:/Dev/Argus/internal/hooks/executor.go) |
 | `internal/state/` | 상태 관리 | [`app_state.go`](C:/Dev/Argus/internal/state/app_state.go), [`store.go`](C:/Dev/Argus/internal/state/store.go) |
-| `internal/todostore/` | Todo 영구 저장 | [`store.go`](C:/Dev/Argus/internal/todostore/store.go) |
+| `internal/tasks/` | 태스크 영구 저장 | [`tasks.go`](C:/Dev/Argus/internal/tasks/tasks.go) |
 | `internal/skills/` | 스킬 레지스트리 | [`registry.go`](C:/Dev/Argus/internal/skills/registry.go) |
 | `internal/services/llm/` | LLM 프로바이더 | anthropic.go, gemini.go, openai.go |
 | `internal/services/mcp/` | MCP 통합 | manager.go |

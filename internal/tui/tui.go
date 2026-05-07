@@ -307,7 +307,7 @@ func (a *app) runSubmit(input promptSubmission) {
 		display = expanded
 	}
 
-	if strings.HasPrefix(display, "/") {
+	if strings.HasPrefix(input.Display, "/") {
 		quit, loaded, err := a.handleSlashCommand(submitCtx, expanded)
 		if err != nil {
 			a.send(presentationEventMsg{
@@ -391,8 +391,101 @@ func (a *app) runSubmit(input promptSubmission) {
 		}
 	}
 
-	// AI 응답 스트림이 완료되었으므로 'Processing...' 상태 해제
-	a.send(submitFinishedMsg{})
+	if len(plannedSteps) > 0 && !streamFailed {
+		a.runPlannedSteps(submitCtx, plannedSteps)
+	}
+	a.emitFooter()
+}
+
+func (a *app) submitMultiple(subs []promptSubmission) {
+	go a.runSubmitMultiple(subs)
+}
+
+func (a *app) runSubmitMultiple(subs []promptSubmission) {
+	submitCtx, cancel := context.WithCancel(a.ctx)
+	a.setSubmitCancel(cancel)
+	defer a.clearSubmitCancel()
+
+	a.send(submitStartedMsg{})
+	defer a.send(submitFinishedMsg{})
+
+	var expandedTexts []string
+	for _, sub := range subs {
+		display := strings.TrimSpace(sub.Display)
+		expanded := strings.TrimSpace(sub.Expanded)
+		if expanded == "" {
+			continue
+		}
+		if display == "" {
+			display = expanded
+		}
+		a.send(presentationEventMsg{
+			Event: presentation.Event{
+				Kind: presentation.EventUser,
+				Text: display,
+			},
+		})
+		expandedTexts = append(expandedTexts, expanded)
+	}
+
+	if len(expandedTexts) == 0 {
+		a.emitFooter()
+		return
+	}
+
+	stream, err := a.cfg.Engine.SubmitMessages(submitCtx, expandedTexts)
+	if err != nil {
+		a.send(presentationEventMsg{
+			Event: presentation.Event{
+				Kind: presentation.EventError,
+				Text: err.Error(),
+			},
+		})
+		a.emitFooter()
+		return
+	}
+
+	var (
+		plannedSteps []query.PlannedStep
+		streamFailed bool
+	)
+
+	for evt := range stream {
+		a.send(queryEventMsg{Event: evt})
+
+		switch evt.Kind {
+		case query.UIEventPasswordPrompt:
+			pwPrompt := strings.TrimSpace(evt.Prompt)
+			if pwPrompt == "" {
+				pwPrompt = "Password:"
+			}
+			if !strings.HasSuffix(pwPrompt, " ") {
+				pwPrompt += " "
+			}
+			pw, pwErr := a.promptPassword(submitCtx, pwPrompt)
+			if evt.PasswordResponse != nil {
+				if pwErr != nil {
+					evt.PasswordResponse <- ""
+				} else {
+					evt.PasswordResponse <- pw
+				}
+			}
+		case query.UIEventAskUserPrompt:
+			response := a.promptAskUser(submitCtx, evt.ToolName, evt.Question)
+			if evt.AskUserResponse != nil {
+				evt.AskUserResponse <- response
+			}
+		case query.UIEventAskUserBatchPrompt:
+			response := a.promptAskUserBatch(submitCtx, evt.ToolName, evt.Questions)
+			if evt.AskUserBatchResponse != nil {
+				evt.AskUserBatchResponse <- response
+			}
+		case query.UIEventPlanExecutionReady:
+			plannedSteps = append([]query.PlannedStep(nil), evt.PlanSteps...)
+		case query.UIEventError:
+			streamFailed = true
+		}
+	}
 
 	if len(plannedSteps) > 0 && !streamFailed {
 		a.runPlannedSteps(submitCtx, plannedSteps)
@@ -416,11 +509,26 @@ func (a *app) buildFooterMsg() footerStateMsg {
 		if a.cfg.State != nil && a.cfg.State.ActiveWorkspace() != activeAlias {
 			a.cfg.State.SetActiveWorkspace(activeAlias)
 		}
-		if invSnap, ok := ws.GetInventorySnapshot(activeAlias); ok && invSnap.System != nil && invSnap.System.CWD != "" {
-			cwd = invSnap.System.CWD
+		if a.cfg.State != nil && activeAlias == workspace.LocalAlias {
+			a.cfg.State.SetActiveTarget(state.ActiveTarget{Alias: activeAlias, CWD: a.cfg.WorkDir})
+		}
+		if activeAlias != workspace.LocalAlias {
+			if invSnap, ok := ws.GetInventorySnapshot(activeAlias); ok && invSnap.System != nil && invSnap.System.CWD != "" {
+				cwd = invSnap.System.CWD
+			}
 		}
 	}
 	footer := presentation.BuildFooterState(a.cfg.State, cwd)
+	if a.cfg.State != nil && a.cfg.State.ActiveWorkspace() == workspace.LocalAlias {
+		localCWD := strings.TrimSpace(a.cfg.WorkDir)
+		if localCWD == "" {
+			localCWD = strings.TrimSpace(cwd)
+		}
+		if localCWD == "" {
+			localCWD = "."
+		}
+		footer.CWD = localCWD
+	}
 	if a.cfg.Engine != nil {
 		in, out, thinking := a.cfg.Engine.CumulativeTokenSnapshot()
 		footer.TokensUsed = in + out + thinking

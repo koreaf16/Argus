@@ -266,7 +266,8 @@ func (d *anthropicStreamDecoder) decode(raw string) (Event, bool) {
 			}
 		}
 		d.tools[idx] = acc
-		return Event{}, false
+		// tool_use JSON 파싱 시작 신호 — UI stall 타이머 리셋용
+		return Event{Kind: EventToolUseDelta}, true
 	case "content_block_stop":
 		idx := anthropicEventIndex(envelope)
 		acc := d.tools[idx]

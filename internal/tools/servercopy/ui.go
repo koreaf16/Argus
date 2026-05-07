@@ -92,7 +92,9 @@ func (m *ServerCopyInteractiveModel) SetResult(result string) {
 	if trimmed == "" {
 		return
 	}
-	if strings.Contains(trimmed, "성공적으로 복사했습니다") || strings.Contains(trimmed, "Successfully") {
+	if strings.Contains(trimmed, "Successfully") ||
+		strings.Contains(trimmed, "성공적으로 복사했습니다") ||
+		strings.Contains(trimmed, "copied ") {
 		m.err = nil
 		return
 	}

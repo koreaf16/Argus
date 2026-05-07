@@ -57,7 +57,7 @@ main() (cmd/argus/main.go:104)
 ├── permissions/           # 권한 규칙
 ├── sessions/              # 세션 스냅샷 (NDJSON)
 ├── memory/                # 메모리 저장소
-├── todos/                 # Todo 영속화
+├── tasks/                 # 태스크 영구 저장
 ├── plans/                 # Plan 파일
 ├── worktrees/             # 작업 트리
 ├── scheduled-tasks/       # 스케줄드 작업
@@ -77,7 +77,7 @@ main() (cmd/argus/main.go:104)
 - 셸 도구: `bash`, `powershell`, `shelljob`, `shelljobcontrol`
 - 파일 도구: `fileread`, `filewrite`, `fslist`, `glob`, `grep`
 - 웹 도구: `webfetch`, `websearch`
-- 계획 도구: `todowrite`, `todoread`, `enterplanmode`, `exitplanmode`
+- 계획 도구: `task_create`, `task_update`, `enterplanmode`, `exitplanmode`
 - 외부 통합: `mcptool`, `lsptool`, `listmcpresources`, `readmcpresource`, `mcpauth`
 - 서버 관리: `serverconnect`, `servercopy`, `serverinspect`, `servermetrics`, `servertunnel`
 - 기타: `skilltool`, `sniptool`, `askuser`, `enterworktree`, `exitworktree`

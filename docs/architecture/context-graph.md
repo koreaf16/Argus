@@ -68,7 +68,7 @@ RenderForLLM(graph, est, systemTokens, contextWindow, currentUserText)
   │     ├── 최신 2 full turn (User+Assistant) 보호
   │     ├── 마지막 tool_use/result 쌍 보호
   │     ├── user prompt 파일 경로 노드 보호
-  │     └── plan/todo 관련 노드 보호 (TodoWrite, EnterPlanMode, ExitPlanMode)
+  │     └── plan/task 관련 노드 보호 (TaskCreate, TaskUpdate, EnterPlanMode, ExitPlanMode)
   │
   ├── BudgetFor 계산
   │     budget = contextWindow

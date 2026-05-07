@@ -51,16 +51,72 @@ func (o *openAICompatLLM) Stream(ctx context.Context, req Request) (<-chan Event
 		"messages": toOpenAIMessagesWithSystem(req.System, req.Messages, req.Thinking != nil),
 		"stream":   true,
 	}
-	// Qwen 모델인 경우 도구 호출 안정성을 위해 페널티 파라미터를 0.0으로 고정
-	if strings.Contains(strings.ToLower(model), "qwen") {
+	// 모델별 sampling default 주입.
+	// 우선순위: 모델별 default → ModelEntry.Sampling override → Request 필드 override.
+	// vllm/ollama/llama.cpp는 미지원 키를 무시하므로 OpenAI 표준 백엔드에도 안전.
+	isQwen36 := isQwen36Model(model)
+	isGemma4 := isGemma4Model(model)
+	isQwenLegacy := !isQwen36 && strings.Contains(strings.ToLower(model), "qwen")
+	switch {
+	case isQwen36:
+		// Qwen3.5/3.6 시리즈의 thinking 단계 무한 반복 회피.
+		// 참고: QwenLM/Qwen3.6 issue #88/#145, HF Qwen3.6-35B-A3B discussion #19/#20.
+		// greedy decoding(temp=0)은 Qwen 공식이 endless repetitions 유발로 명시적 금지.
+		payload["temperature"] = 0.2
+		payload["top_p"] = 0.95
+		payload["top_k"] = 20
+		payload["min_p"] = 0.0
+		payload["presence_penalty"] = 1.5
+		payload["repetition_penalty"] = 1.0
+	case isGemma4:
+		// Gemma 4: 토큰 반복 collapse / "Wait, I'll try..." 무한 reasoning 루프 완화.
+		// 참고: google-deepmind/gemma#622, vllm-project/vllm#40080, ggml-org/llama.cpp#21375.
+		payload["temperature"] = 0.8
+		payload["top_p"] = 0.9
+		payload["repetition_penalty"] = 1.3
+		payload["frequency_penalty"] = 0.5
+		payload["presence_penalty"] = 0.3
+		payload["top_k"] = 50
+		payload["min_p"] = 0.05
+	case isQwenLegacy:
+		// Qwen2.x 등 레거시 Qwen: 도구 호출 안정성을 위해 페널티 0 고정.
 		payload["presence_penalty"] = 0.0
 		payload["frequency_penalty"] = 0.0
 	}
+
+	// ModelEntry.Sampling이 모델별 default를 override.
+	if sp := o.entry.Sampling; sp != nil {
+		applySamplingToPayload(payload, sp)
+	}
+
 	if req.MaxTokens > 0 {
 		payload["max_tokens"] = req.MaxTokens
 	}
 	if len(req.Tools) > 0 {
 		payload["tools"] = toOpenAITools(req.Tools)
+	}
+
+	// Request 필드는 최우선. 호출자가 명시적으로 지정한 값.
+	if req.Temperature != nil {
+		payload["temperature"] = *req.Temperature
+	}
+	if req.TopP != nil {
+		payload["top_p"] = *req.TopP
+	}
+	if req.TopK != nil {
+		payload["top_k"] = *req.TopK
+	}
+	if req.MinP != nil {
+		payload["min_p"] = *req.MinP
+	}
+	if req.PresencePenalty != nil {
+		payload["presence_penalty"] = *req.PresencePenalty
+	}
+	if req.FrequencyPenalty != nil {
+		payload["frequency_penalty"] = *req.FrequencyPenalty
+	}
+	if req.RepetitionPenalty != nil {
+		payload["repetition_penalty"] = *req.RepetitionPenalty
 	}
 
 	// Thinking 설정이 있는 경우 페이로드에 추가
@@ -959,6 +1015,52 @@ func removeStandaloneLabelLines(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// isGemma4Model은 model 식별자가 Gemma 4 변종(Dense 31B, MoE 26B-A4B 등)인지
+// case-insensitive로 검사한다. Gemma 4는 모델 가중치 수준의 토큰 반복 collapse
+// 버그가 있어 repetition_penalty 등 별도 sampling 보정이 필요하다.
+func isGemma4Model(model string) bool {
+	m := strings.ToLower(model)
+	return strings.Contains(m, "gemma-4") || strings.Contains(m, "gemma4")
+}
+
+// isQwen36Model은 Qwen3.5/3.6 시리즈인지 case-insensitive로 검사한다.
+// 이 시리즈는 thinking 단계에서 무한 반복(endless reasoning loop)이 알려진 결함이며
+// greedy decoding 사용 시 더 악화되므로 별도 sampling 보정이 필요하다.
+func isQwen36Model(model string) bool {
+	m := strings.ToLower(model)
+	return strings.Contains(m, "qwen3.6") || strings.Contains(m, "qwen3.5") ||
+		strings.Contains(m, "qwen3-6") || strings.Contains(m, "qwen3-5")
+}
+
+// applySamplingToPayload는 SamplingParams의 nil이 아닌 필드만 payload에 복사한다.
+// nil 필드는 모델별 default를 보존한다.
+func applySamplingToPayload(payload map[string]any, sp *SamplingParams) {
+	if sp == nil {
+		return
+	}
+	if sp.Temperature != nil {
+		payload["temperature"] = *sp.Temperature
+	}
+	if sp.TopP != nil {
+		payload["top_p"] = *sp.TopP
+	}
+	if sp.TopK != nil {
+		payload["top_k"] = *sp.TopK
+	}
+	if sp.MinP != nil {
+		payload["min_p"] = *sp.MinP
+	}
+	if sp.PresencePenalty != nil {
+		payload["presence_penalty"] = *sp.PresencePenalty
+	}
+	if sp.FrequencyPenalty != nil {
+		payload["frequency_penalty"] = *sp.FrequencyPenalty
+	}
+	if sp.RepetitionPenalty != nil {
+		payload["repetition_penalty"] = *sp.RepetitionPenalty
+	}
 }
 
 func toOpenAITools(specs []ToolSpec) []map[string]any {

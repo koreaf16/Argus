@@ -541,8 +541,32 @@ func handleServer(args []string, ctx CommandContext) error {
 		}
 		syncActiveWorkspaceState(ctx)
 		fmt.Fprintf(ctx.Stdout, "connected: %s (active workspace switched)\n", resolvedAlias)
-		fmt.Fprintf(ctx.Stdout, "인벤토리 수집 중 (백그라운드)...\n")
-		ctx.Workspace.StartInventoryScan(ctx.Context, resolvedAlias, nil)
+		fmt.Fprintf(ctx.Stdout, "inventory scanning...\n")
+		ctx.Workspace.RescanInventoryStreaming(ctx.Context, resolvedAlias, func(phase inventory.InventoryPhase, snap inventory.InventorySnapshot, err error) {
+			switch phase {
+			case inventory.PhaseHeader:
+				lines := inventory.FormatUICard(snap)
+				if len(lines) > 0 {
+					fmt.Fprintf(ctx.Stdout, "inventory header:\n%s\n", strings.Join(lines, "\n"))
+				}
+			case inventory.PhaseReady:
+				if snap.Status == inventory.StatusDisabled {
+					fmt.Fprintf(ctx.Stdout, "inventory disabled\n")
+					return
+				}
+				lines := inventory.FormatUICard(snap)
+				fmt.Fprintf(ctx.Stdout, "inventory ready (%.1fs)\n", float64(snap.DurationMs)/1000)
+				if len(lines) > 0 {
+					fmt.Fprintf(ctx.Stdout, "%s\n", strings.Join(lines, "\n"))
+				}
+			case inventory.PhaseFailed:
+				if err != nil {
+					fmt.Fprintf(ctx.Stdout, "inventory failed: %v\n", err)
+				} else {
+					fmt.Fprintf(ctx.Stdout, "inventory failed\n")
+				}
+			}
+		})
 		return nil
 	case "scan":
 		scanAlias := ctx.Workspace.ActiveAlias()
@@ -1259,18 +1283,18 @@ func handleViewThink(args []string, ctx CommandContext) error {
 	if path == "" {
 		return fmt.Errorf("settings path is empty")
 	}
-	
+
 	root, err := loadSettings(path)
 	if err != nil {
 		return err
 	}
-	
+
 	currentVal, _ := getNested(root, "ui.view_thinking")
 	newState := true
 	if currentBool, ok := currentVal.(bool); ok {
 		newState = !currentBool
 	}
-	
+
 	if len(args) > 0 {
 		arg := strings.ToLower(args[0])
 		if arg == "on" || arg == "true" {
@@ -1281,9 +1305,9 @@ func handleViewThink(args []string, ctx CommandContext) error {
 			return fmt.Errorf("usage: /viewthink [on|off]")
 		}
 	}
-	
+
 	setNested(root, "ui.view_thinking", newState)
-	
+
 	data, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err
@@ -1291,7 +1315,7 @@ func handleViewThink(args []string, ctx CommandContext) error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return err
 	}
-	
+
 	status := "off"
 	if newState {
 		status = "on"

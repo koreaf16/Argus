@@ -3,6 +3,7 @@ package powershell
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/koreaf16/argus/internal/services/inventory"
@@ -19,6 +20,29 @@ func TestInputSchemaIncludesServer(t *testing.T) {
 	}
 	if _, ok := props["server"]; !ok {
 		t.Fatalf("expected server property in powershell input schema")
+	}
+}
+
+func TestInputSchemaExposesStdinAndBackground(t *testing.T) {
+	schema := NewPowerShellTool().InputSchema()
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("schema properties missing")
+	}
+	stdinSpec, ok := props["stdin"].(map[string]any)
+	if !ok {
+		t.Fatal("expected stdin field in powershell schema")
+	}
+	if stdinSpec["type"] != "string" {
+		t.Fatalf("stdin type = %v, want string", stdinSpec["type"])
+	}
+	bgSpec, ok := props["background"].(map[string]any)
+	if !ok {
+		t.Fatal("expected background field in powershell schema")
+	}
+	desc, _ := bgSpec["description"].(string)
+	if !strings.Contains(desc, "background_task_id") {
+		t.Fatalf("background description should mention background_task_id, got: %s", desc)
 	}
 }
 

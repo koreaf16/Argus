@@ -84,11 +84,12 @@ User Input
 | `internal/tui/` | Bubbletea 기반 Dynamic Inline Rendering. `model.go`(Update/View), `render.go`(렌더링), `transcript.go`(이벤트→엔트리 변환) |
 | `internal/presentation/` | `query.UIEvent` → `presentation.Event` 변환 계층. TUI와 query 간 결합도 분리 |
 | `internal/services/llm/` | `LLM` 인터페이스 구현 (Anthropic / Gemini / OpenAI-compat). `toolcalls.go`가 tool_use ↔ function_call 형식 변환 |
-| `internal/tools/` | 31개 도구 + Registry. 각 도구는 `Tool` 인터페이스를 구현하고 `<-chan ToolEvent`로 비동기 결과 반환 |
+| `internal/tools/` | 33개 도구 + Registry. 각 도구는 `Tool` 인터페이스를 구현하고 `<-chan ToolEvent`로 비동기 결과 반환 |
 | `internal/services/mcp/` | MCP 서버 프로세스 관리 + Argus Tool로 래핑 |
 | `internal/services/workspace/` | SSH 워크스페이스 연결, 비밀번호 캐싱 |
-| `internal/memdir/` | `~/.argus/` JSON 파일 영속화 (세션, 설정, 아티팩트) |
-| `internal/state/` | 런타임 앱 상태 (활성 모델, 워크스페이스, 권한 모드) |
+| `internal/tasks/` | 태스크(Task) 영속화 및 관리 |
+| `internal/memdir/` | `~/.argus/` JSON 파일 영속화 (세션, 설정, 아티팩트, 태스크) |
+| `internal/state/` | 런타임 앱 상태 (활성 모델, 워크스페이스, 권한 모드, Todo 목록) |
 
 ### Tool Renderer 플러그인 시스템
 

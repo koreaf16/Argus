@@ -110,7 +110,11 @@ func (t *PowerShellTool) InputSchema() tool.ToolInputJSONSchema {
 			},
 			"background": map[string]any{
 				"type":        "boolean",
-				"description": "백그라운드 작업으로 실행합니다. 오래 걸리는 명령의 경우 생략하면 몇 초 후 자동으로 백그라운드로 전환됩니다.",
+				"description": "true면 즉시 백그라운드 잡으로 시작하고 background_task_id를 반환합니다(자동 대기 없음). false면 포그라운드를 유지하며 자동 백그라운드 전환도 비활성화됩니다. 생략하면 오래 걸리는 명령의 경우 몇 초 후 자동으로 백그라운드로 전환됩니다.",
+			},
+			"stdin": map[string]any{
+				"type":        "string",
+				"description": "선택 사항: 명령 시작 시 stdin으로 한 번에 전달할 페이로드. 큰 텍스트(JSON, 패치, 임포트 데이터 등)는 command 인라인 대신 이 필드를 사용하세요. command는 `$input | ...`처럼 stdin을 읽는 파이프라인으로 작성합니다.",
 			},
 		},
 		"required": []string{"command"},
@@ -145,6 +149,7 @@ func (t *PowerShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 		AsUser     string `json:"as_user"`
 		Password   string `json:"password"`
 		Background *bool  `json:"background"`
+		Stdin      string `json:"stdin"`
 	}
 	if err := json.Unmarshal(input, &req); err != nil {
 		return nil, err
@@ -214,6 +219,7 @@ func (t *PowerShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 				events,
 				forceBackground,
 				allowAutoBackground,
+				req.Stdin,
 			)
 			if execErr != nil {
 				events <- tool.NewErrorEvent(execErr)
@@ -256,6 +262,7 @@ func (t *PowerShellTool) Call(ctx tool.Context, input json.RawMessage) (<-chan t
 			targetAlias,
 			forceBackground,
 			allowAutoBackground,
+			req.Stdin,
 		)
 		if err != nil {
 			events <- tool.NewErrorEvent(err)
@@ -284,6 +291,7 @@ func executeCommand(
 	targetAlias string,
 	forceBackground bool,
 	allowAutoBackground bool,
+	stdinPayload string,
 ) (utils.ExecResult, error) {
 	psPath, err := shell.GetCachedPowerShellPath()
 	if err != nil {
@@ -313,6 +321,12 @@ func executeCommand(
 	events <- tool.ToolEvent{
 		Kind:          tool.ToolEventChunk,
 		InputResponse: inputChan,
+	}
+
+	if stdinPayload != "" && cmd.Stdin != nil {
+		go func(payload string) {
+			_, _ = cmd.Stdin.Write([]byte(payload))
+		}(stdinPayload)
 	}
 
 	var outputBuffer string
@@ -400,6 +414,7 @@ func executeRemotePowerShellCommand(
 	events chan<- tool.ToolEvent,
 	forceBackground bool,
 	allowAutoBackground bool,
+	stdinPayload string,
 ) (utils.ExecResult, error) {
 	if ctx.Workspace == nil {
 		return utils.ExecResult{}, fmt.Errorf("워크스페이스 관리자를 사용할 수 없습니다")
@@ -429,6 +444,12 @@ func executeRemotePowerShellCommand(
 	events <- tool.ToolEvent{
 		Kind:          tool.ToolEventChunk,
 		InputResponse: inputChan,
+	}
+
+	if stdinPayload != "" && handle.Write != nil {
+		go func(payload string) {
+			_ = handle.Write(payload)
+		}(stdinPayload)
 	}
 
 	var outputBuffer string

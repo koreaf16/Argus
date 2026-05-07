@@ -35,7 +35,7 @@ func (t *MyTool) Name() string { return "myTool" }
 **이유**: `CanonicalName()`, `safeAutoModeTools`, `transcript.go`의 `isTaskMutationTool` 등
 코드베이스 전반에서 도구명을 문자열로 직접 비교합니다.
 대소문자 불일치 시 조용히 실패하며 디버깅이 매우 어렵습니다.
-실제로 `"TaskCreate"`, `"EnterWorktreeTool"` 등 PascalCase 이름이 이 문제를 일으켰습니다.
+실제로 `"task_create"`, `"enter_worktree"` 등으로 모든 도구명을 소문자 snake_case로 통일했습니다.
 
 ### 새 도구 추가 체크리스트
 새 도구를 만들면 반드시 다음 세 곳을 모두 처리합니다:
@@ -64,6 +64,30 @@ func (t *MyTool) Name() string { return "myTool" }
 | `internal/tui/toolui/inline.go` | `NormalizeToolName` switch case |
 | `internal/utils/permissions/classifier_decision.go` | `safeAutoModeTools` 맵 |
 | `internal/constants/tools.go` | 상수로 관리하는 도구명 |
+
+## 셸 도구 사용 가이드 (bash / powershell)
+
+### 큰 데이터는 `stdin` 인자로
+큰 텍스트(SQL 덤프, JSON, 패치, 임포트 데이터 등)를 `command` 안에 here-doc·`echo`·따옴표로 인라인하지 말고 **`stdin` 인자에 페이로드를 담고 `command`는 reader로 작성**합니다. 명령 길이 제한·따옴표 이스케이프·shell 확장 위험을 피할 수 있고, 페이로드는 별도 고루틴으로 비동기 write되므로 select 루프를 블로킹하지 않습니다.
+
+```jsonc
+// ❌ 인라인 — 따옴표/특수문자/길이 모두 위험
+{"command": "echo '{\"a\":1}' | jq ."}
+
+// ✅ stdin 인자 — 안전
+{"command": "jq .", "stdin": "{\"a\":1}"}
+```
+
+### 인터랙티브 제어
+도구 실행 중 TUI에서 `TAB`으로 focus 진입 시:
+- 키 입력은 자식 stdin으로 직접 전달됩니다 (TAB·Enter·일반 문자).
+- `Ctrl+D`는 **EOF(0x04)** 를 보냅니다 — `cat`/`python` REPL 등을 정상 종료할 때 사용.
+- focus 해제 상태에서 `Ctrl+D`는 **백그라운드 전환** 신호로 작동합니다.
+
+### `background` 플래그
+- `true` — 즉시 백그라운드 잡으로 시작 (자동 5초 대기 없음). `background_task_id` 즉시 반환.
+- `false` — 포그라운드 유지, 자동 백그라운드 전환도 비활성.
+- 생략 — 5초 후 자동 백그라운드 전환.
 
 ## 참고 문서
 - 아키텍처: `docs/architecture.md`

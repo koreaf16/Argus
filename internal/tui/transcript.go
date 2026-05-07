@@ -86,6 +86,9 @@ func (m *uiModel) refreshActiveTokenKind() {
 }
 
 func (m *uiModel) applyPresentationEvent(evt presentation.Event) {
+	if m.busy {
+		m.assistantLastDelta = time.Now()
+	}
 	switch evt.Kind {
 	case presentation.EventState:
 		m.footer = evt.Footer
@@ -190,6 +193,7 @@ func (m *uiModel) applyPresentationEvent(evt presentation.Event) {
 			}
 		}
 	case presentation.EventToolUse:
+		m.assistantLastDelta = time.Now()
 		body := strings.TrimSpace(evt.Input)
 		if body == "" {
 			body = "(no input)"
