@@ -1,7 +1,9 @@
 package probes
 
 import (
+	"context"
 	"strings"
+	"time"
 )
 
 // KubernetesProbe detects Kubernetes cluster state via kubectl.
@@ -19,6 +21,16 @@ kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.m
 kubectl get svc -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.spec.type}{"\t"}{.spec.ports[0].port}{"\n"}{end}' 2>/dev/null | head -30 | sed 's/^/SVC:/'
 kubectl get namespaces -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | sed 's/^/NS:/'
 `
+}
+
+func (p *KubernetesProbe) PreferredTimeout() time.Duration { return 8 * time.Second }
+
+func (p *KubernetesProbe) Run(ctx context.Context, fn ProbeExec) (Result, error) {
+	out, err := fn(ctx, p.ScriptFragment())
+	if err != nil {
+		return Result{}, err
+	}
+	return p.Parse(out)
 }
 
 func (p *KubernetesProbe) Parse(stdout string) (Result, error) {

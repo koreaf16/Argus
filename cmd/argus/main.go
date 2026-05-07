@@ -60,7 +60,6 @@ import (
 	"github.com/koreaf16/argus/internal/tools/serverconnect"
 	"github.com/koreaf16/argus/internal/tools/servercopy"
 
-	"github.com/koreaf16/argus/internal/tools/serverinspect"
 	"github.com/koreaf16/argus/internal/tools/serverinventory"
 	"github.com/koreaf16/argus/internal/tools/servermetrics"
 	"github.com/koreaf16/argus/internal/tools/servertunnel"
@@ -852,7 +851,6 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		serverconnect.NewServerConnectTool(),
 		servercopy.NewServerCopyTool(),
 		connectortool.New(connectorManager),
-		serverinspect.NewServerInspectTool(),
 		serverinventory.NewServerInventoryTool(),
 		servermetrics.NewServerMetricsTool(),
 		servertunnel.NewServerTunnelTool(),
@@ -966,6 +964,11 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 	}
 
 	uiSettings := tui.LoadUISettings(constants.SettingsPath())
+
+	// 로컬 워크스페이스 system_header 동기 수집 (~3s): 첫 프롬프트 전에 OS/user 정보 확보.
+	// 나머지 probe는 비동기로 백그라운드 수집.
+	workspaceManager.CollectLocalSystemHeader(ctx)
+	go workspaceManager.RescanInventoryStreaming(ctx, workspace.LocalAlias, nil)
 
 	return engine, reg, &bootstrapConfig{
 		State:       appState,

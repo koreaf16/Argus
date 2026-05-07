@@ -6,10 +6,11 @@ import "time"
 type Status string
 
 const (
-	StatusPending Status = "pending"
-	StatusReady   Status = "ready"
-	StatusPartial Status = "partial"
-	StatusFailed  Status = "failed"
+	StatusPending  Status = "pending"
+	StatusReady    Status = "ready"
+	StatusPartial  Status = "partial"
+	StatusFailed   Status = "failed"
+	StatusDisabled Status = "disabled" // inventory not supported (e.g. Windows without bash)
 )
 
 // InventorySnapshot is the result of a full inventory scan for one server alias.
@@ -19,12 +20,31 @@ type InventorySnapshot struct {
 	DurationMs  int64
 	Status      Status
 
+	System     *SystemInfo
 	Containers []ContainerInfo
 	Kubernetes *K8sInfo
 	LLMServing []LLMServingInfo
+	Databases  []DatabaseInfo
+	WAS        []WASInfo
+	MQ         []MQInfo
+	GPU        *GPUInfo
 
 	Errors     map[string]string // probe name → error message
 	ArtifactID string
+}
+
+// SystemInfo holds basic system identity from the system_header probe.
+type SystemInfo struct {
+	OS            string // trimmed uname (e.g. "Linux host 5.14.0")
+	OSPretty      string // /etc/os-release PRETTY_NAME (e.g. "Red Hat Enterprise Linux 9.4")
+	User          string
+	CWD           string // working directory at SSH login (typically home dir)
+	Shell         string
+	Uptime        string // already trimmed (e.g. "31 days, 13:43")
+	Memory        string // free -h first data line
+	Disk          string // df -h / tail line
+	ListenerCount int
+	ServiceCount  int
 }
 
 // ContainerInfo describes a single Docker/Podman container.
@@ -78,4 +98,46 @@ type LLMHosting struct {
 	K8sPod    string // "namespace/pod-name"
 	Container string // docker container name
 	Pid       int
+}
+
+// DatabaseInfo describes a detected database engine.
+type DatabaseInfo struct {
+	Engine     string   // oracle/db2/postgres/mysql/mariadb/mongo/mssql/sqlite/redis
+	Version    string
+	Instances  []string // named instances or SIDs
+	Listeners  []string // "host:port" strings
+	Confidence string   // "high"|"medium"|"low"
+	Evidence   []string // human-readable detection signals
+}
+
+// WASInfo describes a detected web application server.
+type WASInfo struct {
+	Engine     string // tomcat/wildfly/weblogic/jeus/nginx/apache
+	Version    string
+	Home       string   // CATALINA_HOME, JBOSS_HOME, etc.
+	Ports      []int
+	Confidence string
+	Evidence   []string
+}
+
+// MQInfo describes a detected message queue broker.
+type MQInfo struct {
+	Engine     string // kafka/zookeeper/rabbitmq/activemq/nats
+	Version    string
+	Ports      []int
+	Confidence string
+	Evidence   []string
+}
+
+// GPUInfo holds NVIDIA GPU information from nvidia-smi.
+type GPUInfo struct {
+	Devices    []GPUDevice
+	CUDADriver string
+}
+
+// GPUDevice describes a single GPU device.
+type GPUDevice struct {
+	Name          string
+	DriverVersion string
+	MemoryMB      int
 }

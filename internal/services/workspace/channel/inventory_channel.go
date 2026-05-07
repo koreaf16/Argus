@@ -18,10 +18,11 @@ type inventoryChannel struct {
 	key    ChannelKey
 	client *ssh.Client
 
-	mu       sync.Mutex
-	state    ChannelState
-	lastUsed time.Time
-	closed   atomic.Bool
+	mu         sync.Mutex
+	state      ChannelState
+	lastUsed   time.Time
+	closed     atomic.Bool
+	activeRuns atomic.Int32 // counts concurrent Run() calls
 }
 
 func openInventoryChannel(client *ssh.Client, alias string) (*inventoryChannel, error) {
@@ -44,28 +45,32 @@ func (c *inventoryChannel) Key() ChannelKey { return c.key }
 
 func (c *inventoryChannel) Snapshot() ChannelSnapshot {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	state := c.state
+	lastUsed := c.lastUsed
+	c.mu.Unlock()
+	// activeRuns accurately reflects concurrent calls; override state when busy.
+	if state == StateReady && c.activeRuns.Load() > 0 {
+		state = StateBusy
+	}
 	return ChannelSnapshot{
 		Key:      c.key,
-		State:    c.state,
-		LastUsed: c.lastUsed,
+		State:    state,
+		LastUsed: lastUsed,
 	}
 }
 
 // Run executes script in a fresh ssh.Session and returns stdout. It does NOT
 // touch the caller's exec channel, so concurrent user commands are not
-// serialized behind this call.
+// serialized behind this call. Multiple Run() calls may proceed concurrently.
 func (c *inventoryChannel) Run(ctx context.Context, script string) (string, error) {
 	if c.closed.Load() {
 		return "", fmt.Errorf("channel: inventory closed")
 	}
 
-	c.mu.Lock()
-	c.state = StateBusy
-	c.mu.Unlock()
+	c.activeRuns.Add(1)
 	defer func() {
+		c.activeRuns.Add(-1)
 		c.mu.Lock()
-		c.state = StateReady
 		c.lastUsed = time.Now()
 		c.mu.Unlock()
 	}()

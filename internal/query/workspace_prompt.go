@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/koreaf16/argus/internal/services/inventory"
 	"github.com/koreaf16/argus/internal/services/llm"
 	"github.com/koreaf16/argus/internal/services/workspace"
 	"github.com/koreaf16/argus/internal/utils"
@@ -134,9 +135,9 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string, strictMultiW
 		entry.Port,
 	)
 
-	snap, hasSnap := manager.GetInspectSnapshot(active)
-	if !hasSnap {
-		sb.WriteString("  환경: 아직 검사되지 않음 — server_inspect를 실행하여 OS/서비스/포트 정보를 수집하십시오\n")
+	invSnap, hasSnap := manager.GetInventorySnapshot(active)
+	if !hasSnap || invSnap.System == nil {
+		sb.WriteString("  환경: 아직 수집되지 않음 — 서버 연결 후 인벤토리가 자동 수집됩니다\n")
 		sb.WriteString("\n동작 규칙:\n")
 		if strictMultiWorkspace {
 			sb.WriteString("  - 여러 원격 워크스페이스가 등록되어 있습니다. 각 쉘/파일/검색/검사/메트릭 호출 시 반드시 `server`를 명시적으로 설정해야 합니다.\n")
@@ -147,36 +148,39 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string, strictMultiW
 		return sb.String()
 	}
 
-	if snap.OS != "" {
-		fmt.Fprintf(&sb, "  os: %s\n", firstLine(snap.OS))
+	sys := invSnap.System
+	if sys.OSPretty != "" {
+		fmt.Fprintf(&sb, "  os: %s\n", sys.OSPretty)
+	} else if sys.OS != "" {
+		fmt.Fprintf(&sb, "  os: %s\n", firstLine(sys.OS))
 	}
-	if snap.Shell != "" {
-		fmt.Fprintf(&sb, "  쉘: %s\n", firstLine(snap.Shell))
+	if sys.Shell != "" {
+		fmt.Fprintf(&sb, "  쉘: %s\n", firstLine(sys.Shell))
 	}
-	if snap.User != "" {
-		fmt.Fprintf(&sb, "  사용자: %s\n", snap.User)
+	if sys.User != "" {
+		fmt.Fprintf(&sb, "  사용자: %s\n", sys.User)
 	}
-	if snap.CWD != "" {
-		fmt.Fprintf(&sb, "  현재 디렉토리(cwd): %s\n", snap.CWD)
+	if sys.CWD != "" {
+		fmt.Fprintf(&sb, "  현재 디렉토리(cwd): %s\n", sys.CWD)
 	}
-	if snap.Uptime != "" {
-		fmt.Fprintf(&sb, "  업타임: %s\n", snap.Uptime)
+	if sys.Uptime != "" {
+		fmt.Fprintf(&sb, "  업타임: %s\n", sys.Uptime)
 	}
-	if snap.Memory != "" {
-		fmt.Fprintf(&sb, "  메모리:\n%s\n", indent(snap.Memory, "    "))
+	if sys.Memory != "" {
+		fmt.Fprintf(&sb, "  메모리:\n%s\n", indent(sys.Memory, "    "))
 	}
-	if snap.Listeners != "" {
-		fmt.Fprintf(&sb, "  리스닝 포트:\n%s\n", indent(truncateLines(snap.Listeners, 15), "    "))
+	if sys.ListenerCount > 0 {
+		fmt.Fprintf(&sb, "  리스닝 포트 수: %d\n", sys.ListenerCount)
 	}
-	if snap.Services != "" {
-		fmt.Fprintf(&sb, "  실행 중인 서비스:\n%s\n", indent(truncateLines(snap.Services, 20), "    "))
+	if sys.ServiceCount > 0 {
+		fmt.Fprintf(&sb, "  실행 중인 서비스 수: %d\n", sys.ServiceCount)
 	}
-	if snap.Docker != "" {
-		fmt.Fprintf(&sb, "  도커 컨테이너:\n%s\n", indent(snap.Docker, "    "))
+	if len(invSnap.Containers) > 0 {
+		fmt.Fprintf(&sb, "  도커 컨테이너: %s\n", formatContainerSummary(invSnap.Containers))
 	}
 
 	sb.WriteString("\n동작 규칙:\n")
-	if strings.Contains(strings.ToLower(snap.OS), "windows") {
+	if strings.Contains(strings.ToLower(sys.OS), "windows") {
 		sb.WriteString("  - 활성 OS는 Windows입니다. 이 워크스페이스에는 'powershell' 도구를 사용하십시오.\n")
 		sb.WriteString("  - 이 Windows 워크스페이스에 'bash'를 사용하지 마십시오. 'bash'는 다른 유닉스 계열 워크스페이스를 명시적으로 대상으로 하는 경우에만 사용하십시오.\n")
 	} else {
@@ -193,6 +197,23 @@ func buildActiveEnvBlock(manager *workspace.Manager, active string, strictMultiW
 	sb.WriteString("    이 서버에 대해 권한 상승이 DISABLED인 경우, 중지하고 사용자를 /server edit <alias>로 안내하십시오.\n")
 
 	return sb.String()
+}
+
+func formatContainerSummary(containers []inventory.ContainerInfo) string {
+	total := len(containers)
+	running := 0
+	var names []string
+	for _, c := range containers {
+		if c.State == "running" {
+			running++
+			names = append(names, c.Name)
+		}
+	}
+	summary := fmt.Sprintf("%d/%d running", running, total)
+	if running > 0 && len(names) <= 3 {
+		summary += ": " + strings.Join(names, ", ")
+	}
+	return summary
 }
 
 // elevationPolicyPrompt returns the LLM instruction block that explains how

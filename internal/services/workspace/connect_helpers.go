@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"context"
 	"fmt"
 	"strings"
 )
@@ -16,15 +15,6 @@ func (m *Manager) ConnectAndActivate(alias string) (string, error) {
 		return "", err
 	}
 	return resolved, nil
-}
-
-// ConnectActivateInspect connects, switches active workspace, and collects inspect data.
-func (m *Manager) ConnectActivateInspect(ctx context.Context, alias string) (InspectSnapshot, error) {
-	resolved, err := m.ConnectAndActivate(alias)
-	if err != nil {
-		return InspectSnapshot{}, err
-	}
-	return m.RunInspect(ctx, resolved)
 }
 
 // FormatPasswordPrompt builds a consistent credential prompt that includes alias and target account.
@@ -90,42 +80,3 @@ func workspaceTargetLabel(reg *Registry, alias string) string {
 	return fmt.Sprintf("%s@%s:%d", user, host, port)
 }
 
-func FormatInspectSummary(snap InspectSnapshot) string {
-	var parts []string
-	if snap.OS != "" {
-		line := snap.OS
-		if idx := strings.IndexByte(line, '\n'); idx >= 0 {
-			line = strings.TrimSpace(line[:idx])
-		}
-		parts = append(parts, "OS: "+line)
-	}
-	if snap.User != "" {
-		parts = append(parts, "user: "+snap.User)
-	}
-	if snap.Shell != "" {
-		shell := snap.Shell
-		if idx := strings.IndexByte(shell, '\n'); idx >= 0 {
-			shell = strings.TrimSpace(shell[:idx])
-		}
-		parts = append(parts, "shell: "+shell)
-	}
-	if snap.Uptime != "" {
-		parts = append(parts, "uptime: "+strings.TrimSpace(snap.Uptime))
-	}
-	if snap.Services != "" {
-		lines := strings.Split(strings.TrimRight(snap.Services, "\n"), "\n")
-		parts = append(parts, fmt.Sprintf("services: %d running", len(lines)))
-	}
-	if snap.Listeners != "" {
-		lines := strings.Split(strings.TrimRight(snap.Listeners, "\n"), "\n")
-		parts = append(parts, fmt.Sprintf("listeners: %d ports", len(lines)))
-	}
-	if snap.Docker != "" {
-		lines := strings.Split(strings.TrimRight(snap.Docker, "\n"), "\n")
-		parts = append(parts, fmt.Sprintf("docker: %d containers", len(lines)))
-	}
-	if len(parts) == 0 {
-		return "inspect: no data collected\n"
-	}
-	return strings.Join(parts, " / ") + "\n"
-}

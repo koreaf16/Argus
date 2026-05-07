@@ -205,38 +205,49 @@ func (m *uiModel) executeServerAction(action serverAction) {
 				Footer: presentation.BuildFooterState(m.app.cfg.State, m.app.cfg.WorkDir),
 			})
 
-			// Connected 마커 + inspect 진행 중
+			// Connected 마커 emit — inventory PhaseHeader(~1s)가 환경 정보를 표시한다.
 			m.app.send(presentationEventMsg{Event: presentation.Event{
 				Kind:   presentation.EventToolDelta,
-				Text:   fmt.Sprintf("[ARGUS_SERVER_CONNECT:connected]\n%s에 연결되었습니다. 환경 정보를 확인 중입니다...\n", resolvedAlias),
+				Text:   fmt.Sprintf("[ARGUS_SERVER_CONNECT:connected]\n%s에 연결되었습니다.\n", resolvedAlias),
 				TaskID: taskID,
 			}})
-			snap, inspectErr := ws.RunInspect(m.app.ctx, resolvedAlias)
-			if inspectErr == nil {
-				m.app.send(presentationEventMsg{Event: presentation.Event{
-					Kind:   presentation.EventToolDelta,
-					Text:   workspace.FormatInspectSummary(snap),
-					TaskID: taskID,
-				}})
-			}
 
-			// 동기 인벤토리 스캔 (inventoryChannel 사용, PTY lane 점유 없음)
-			if resolvedAlias != workspace.LocalAlias {
-				m.app.send(presentationEventMsg{Event: presentation.Event{
-					Kind:   presentation.EventToolDelta,
-					Text:   "[ARGUS_INVENTORY_SCANNING]\n",
-					TaskID: taskID,
-				}})
-				invSnap, invErr := ws.RescanInventory(m.app.ctx, resolvedAlias)
-				if invErr == nil {
-					cardLines := inventory.FormatUICard(invSnap)
+			// 인벤토리 스캔 (streaming, inventoryChannel 사용, PTY lane 점유 없음)
+			m.app.send(presentationEventMsg{Event: presentation.Event{
+				Kind:   presentation.EventToolDelta,
+				Text:   "[ARGUS_INVENTORY_SCANNING]\n",
+				TaskID: taskID,
+			}})
+			ws.RescanInventoryStreaming(m.app.ctx, resolvedAlias, func(phase inventory.InventoryPhase, snap inventory.InventorySnapshot, err error) {
+				switch phase {
+				case inventory.PhaseHeader:
+					cardLines := inventory.FormatUICard(snap)
+					if len(cardLines) > 0 {
+						m.app.send(presentationEventMsg{Event: presentation.Event{
+							Kind:   presentation.EventToolDelta,
+							Text:   "[ARGUS_INVENTORY_HEADER]\n" + strings.Join(cardLines, "\n"),
+							TaskID: taskID,
+						}})
+					}
+				case inventory.PhaseReady:
+					cardLines := inventory.FormatUICard(snap)
 					m.app.send(presentationEventMsg{Event: presentation.Event{
 						Kind:   presentation.EventToolDelta,
-						Text:   fmt.Sprintf("[ARGUS_INVENTORY_READY:%d]\n%s", invSnap.DurationMs, strings.Join(cardLines, "\n")),
+						Text:   fmt.Sprintf("[ARGUS_INVENTORY_READY:%d]\n%s", snap.DurationMs, strings.Join(cardLines, "\n")),
+						TaskID: taskID,
+					}})
+				case inventory.PhaseFailed:
+					errMsg := ""
+					if err != nil {
+						errMsg = err.Error()
+					}
+					m.app.send(presentationEventMsg{Event: presentation.Event{
+						Kind:   presentation.EventToolDelta,
+						Text:   "[ARGUS_INVENTORY_FAILED]\n" + errMsg,
 						TaskID: taskID,
 					}})
 				}
-			}
+			})
 
 			// 성공 결과 (SetResult가 마커를 제거하므로 빈 결과로 처리됨)
 			m.app.send(presentationEventMsg{Event: presentation.Event{

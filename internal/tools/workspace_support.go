@@ -106,9 +106,9 @@ func ResolveShellTargetInfo(ctx Context, requested string, probe bool) (ShellTar
 		return info, nil
 	}
 
-	if snap, ok := ctx.Workspace.GetInspectSnapshot(alias); ok {
-		info.Platform = classifyPlatformFromSnapshot(snap)
-		info.BashAvailable = snapshotHasBash(snap)
+	if invSnap, ok := ctx.Workspace.GetInventorySnapshot(alias); ok && invSnap.System != nil {
+		info.Platform = classifyPlatformFromSnapshot(invSnap.System.OS, invSnap.System.Shell)
+		info.BashAvailable = snapshotHasBash(invSnap.System.Shell, invSnap.System.OS)
 		if info.Platform == workspace.PlatformUnix {
 			info.BashAvailable = true
 		}
@@ -202,12 +202,12 @@ func localWindowsHasBash() bool {
 	return strings.Contains(strings.ToLower(sh), "bash")
 }
 
-func classifyPlatformFromSnapshot(snap workspace.InspectSnapshot) string {
-	return classifyPlatformText(snap.OS + "\n" + snap.Shell)
+func classifyPlatformFromSnapshot(os, shell string) string {
+	return classifyPlatformText(os + "\n" + shell)
 }
 
-func snapshotHasBash(snap workspace.InspectSnapshot) bool {
-	text := strings.ToLower(snap.Shell + "\n" + snap.OS)
+func snapshotHasBash(shell, os string) bool {
+	text := strings.ToLower(shell + "\n" + os)
 	return strings.Contains(text, "bash")
 }
 

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -346,9 +345,12 @@ func (m uiModel) Init() tea.Cmd {
 
 		ws := m.cfg.Workspace
 		cmds = append(cmds, func() tea.Msg {
-			snap, _ := ws.RunInspect(context.Background(), activeAlias)
+			cwd := ""
+			if invSnap, ok := ws.GetInventorySnapshot(activeAlias); ok && invSnap.System != nil {
+				cwd = invSnap.System.CWD
+			}
 			return footerStateMsg{
-				Footer: presentation.BuildFooterState(m.cfg.State, snap.CWD),
+				Footer: presentation.BuildFooterState(m.cfg.State, cwd),
 			}
 		})
 	}

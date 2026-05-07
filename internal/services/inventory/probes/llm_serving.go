@@ -1,9 +1,11 @@
 package probes
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // LLMServingProbe detects vLLM, Ollama, SGLang, and TGI processes.
@@ -43,6 +45,16 @@ for pid in $(pgrep -f 'vllm\|sglang\|text-generation' 2>/dev/null | head -5); do
   echo "CGROUP:${pid}:$(cat /proc/${pid}/cgroup 2>/dev/null | head -3 | tr '\n' '|')"
 done
 `
+}
+
+func (p *LLMServingProbe) PreferredTimeout() time.Duration { return 6 * time.Second }
+
+func (p *LLMServingProbe) Run(ctx context.Context, fn ProbeExec) (Result, error) {
+	out, err := fn(ctx, p.ScriptFragment())
+	if err != nil {
+		return Result{}, err
+	}
+	return p.Parse(out)
 }
 
 func (p *LLMServingProbe) Parse(stdout string) (Result, error) {

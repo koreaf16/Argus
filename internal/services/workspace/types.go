@@ -148,25 +148,6 @@ type MetricsSnapshot struct {
 	Errors      map[string]string
 }
 
-// InspectSnapshot is the result of server_inspect.
-type InspectSnapshot struct {
-	Alias       string
-	CollectedAt time.Time
-	OS          string
-	Kernel      string
-	Shell       string
-	User        string
-	CWD         string
-	Uptime      string
-	Memory      string
-	Disk        string
-	Listeners   string
-	Services    string
-	Processes   string
-	Docker      string
-	Errors      map[string]string
-}
-
 type FileEntry struct {
 	Name    string    `json:"name"`
 	Path    string    `json:"path"`

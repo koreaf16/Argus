@@ -1,22 +1,31 @@
 // Package probes contains individual system-inspection probes used by the
-// inventory runner. Each probe contributes a bash script fragment that is
-// assembled by the runner into a single batched SSH call, then receives its
-// section of the output to parse.
+// inventory runner. Each probe runs a bash script on the target machine and
+// parses the output into a Result.
 package probes
 
-// Probe contributes a bash fragment and parses its output section.
+import (
+	"context"
+	"time"
+)
+
+// Probe describes a system inspection probe.
 // Probes must be safe to run as the SSH login user (no sudo).
 type Probe interface {
 	Name() string
-	ScriptFragment() string
-	Parse(stdout string) (Result, error)
+	PreferredTimeout() time.Duration
+	Run(ctx context.Context, fn ProbeExec) (Result, error)
 }
 
-// Result is a sum-type returned by Probe.Parse. Only one field is set.
+// Result is a sum-type returned by Probe.Run. Only one field is typically set.
 type Result struct {
-	Docker     []DockerContainer
-	Kubernetes *K8sResult
-	LLMServing []LLMServingResult
+	Docker       []DockerContainer
+	Kubernetes   *K8sResult
+	LLMServing   []LLMServingResult
+	SystemHeader *SystemHeaderResult
+	Databases    []DatabaseResult
+	WAS          []WASResult
+	MQ           []MQResult
+	GPU          *GPUResult
 }
 
 // DockerContainer is one line of `docker ps -a --format json` output.
@@ -64,4 +73,46 @@ type LLMServingResult struct {
 	Models    []string
 	CgroupPid int
 	Cgroup    string
+}
+
+// DatabaseResult is a raw probe result for a database engine.
+type DatabaseResult struct {
+	Engine     string
+	Version    string
+	Instances  []string
+	Listeners  []string
+	Confidence string
+	Evidence   []string
+}
+
+// WASResult is a raw probe result for a web application server.
+type WASResult struct {
+	Engine     string
+	Version    string
+	Home       string
+	Ports      []int
+	Confidence string
+	Evidence   []string
+}
+
+// MQResult is a raw probe result for a message queue broker.
+type MQResult struct {
+	Engine     string
+	Version    string
+	Ports      []int
+	Confidence string
+	Evidence   []string
+}
+
+// GPUDevice is a single GPU device from nvidia-smi.
+type GPUDevice struct {
+	Name          string
+	DriverVersion string
+	MemoryMB      int
+}
+
+// GPUResult holds NVIDIA GPU information.
+type GPUResult struct {
+	Devices    []GPUDevice
+	CUDADriver string
 }

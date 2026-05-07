@@ -27,6 +27,30 @@ func FormatSummaryForPrompt(snap InventorySnapshot) string {
 	fmt.Fprintf(&sb, "서버 인벤토리 (alias=%s, 수집=%s, %.1fs):\n\n",
 		snap.Alias, ts, float64(snap.DurationMs)/1000)
 
+	if snap.System != nil {
+		s := snap.System
+		os := s.OSPretty
+		if os == "" {
+			os = s.OS
+		}
+		if os != "" {
+			fmt.Fprintf(&sb, "[시스템] OS: %s", os)
+			if s.User != "" {
+				fmt.Fprintf(&sb, ", user: %s", s.User)
+			}
+			if s.Shell != "" {
+				fmt.Fprintf(&sb, ", shell: %s", s.Shell)
+			}
+			if s.Uptime != "" {
+				fmt.Fprintf(&sb, ", uptime: %s", s.Uptime)
+			}
+			if s.ServiceCount > 0 || s.ListenerCount > 0 {
+				fmt.Fprintf(&sb, ", services: %d running / %d listeners", s.ServiceCount, s.ListenerCount)
+			}
+			sb.WriteString("\n\n")
+		}
+	}
+
 	if len(snap.Containers) > 0 {
 		running := 0
 		for _, c := range snap.Containers {
@@ -84,6 +108,71 @@ func FormatSummaryForPrompt(snap InventorySnapshot) string {
 		sb.WriteString("\n")
 	}
 
+	if len(snap.Databases) > 0 {
+		sb.WriteString("[데이터베이스]\n")
+		for _, db := range snap.Databases {
+			fmt.Fprintf(&sb, "  - %-12s", db.Engine)
+			if db.Version != "" {
+				fmt.Fprintf(&sb, " v%s", db.Version)
+			}
+			if len(db.Instances) > 0 {
+				fmt.Fprintf(&sb, "  instances: %s", strings.Join(db.Instances, ", "))
+			}
+			if len(db.Listeners) > 0 {
+				fmt.Fprintf(&sb, "  port: %s", strings.Join(db.Listeners, ", "))
+			}
+			fmt.Fprintf(&sb, "  (confidence=%s)\n", db.Confidence)
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(snap.WAS) > 0 {
+		sb.WriteString("[WAS / 웹서버]\n")
+		for _, was := range snap.WAS {
+			fmt.Fprintf(&sb, "  - %-12s", was.Engine)
+			if was.Version != "" {
+				fmt.Fprintf(&sb, " v%s", was.Version)
+			}
+			if len(was.Ports) > 0 {
+				ports := make([]string, len(was.Ports))
+				for i, p := range was.Ports {
+					ports[i] = fmt.Sprintf("%d", p)
+				}
+				fmt.Fprintf(&sb, "  port: %s", strings.Join(ports, ", "))
+			}
+			fmt.Fprintf(&sb, "  (confidence=%s)\n", was.Confidence)
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(snap.MQ) > 0 {
+		sb.WriteString("[메시지 큐]\n")
+		for _, mq := range snap.MQ {
+			fmt.Fprintf(&sb, "  - %-12s", mq.Engine)
+			if len(mq.Ports) > 0 {
+				ports := make([]string, len(mq.Ports))
+				for i, p := range mq.Ports {
+					ports[i] = fmt.Sprintf("%d", p)
+				}
+				fmt.Fprintf(&sb, "  port: %s", strings.Join(ports, ", "))
+			}
+			fmt.Fprintf(&sb, "  (confidence=%s)\n", mq.Confidence)
+		}
+		sb.WriteString("\n")
+	}
+
+	if snap.GPU != nil && len(snap.GPU.Devices) > 0 {
+		sb.WriteString("[GPU]\n")
+		for _, d := range snap.GPU.Devices {
+			memGB := float64(d.MemoryMB) / 1024
+			fmt.Fprintf(&sb, "  - %s  %.0fGB  driver=%s\n", d.Name, memGB, d.DriverVersion)
+		}
+		if snap.GPU.CUDADriver != "" {
+			fmt.Fprintf(&sb, "  CUDA driver: %s\n", snap.GPU.CUDADriver)
+		}
+		sb.WriteString("\n")
+	}
+
 	if len(snap.LLMServing) > 0 {
 		sb.WriteString("[LLM Serving] (모델명 질의 라우팅용)\n")
 		for _, llm := range snap.LLMServing {
@@ -131,8 +220,42 @@ func FormatSummaryForPrompt(snap InventorySnapshot) string {
 
 // FormatUICard returns compact display lines for the TUI connect card.
 // Format: "category   value" (3 spaces) for category lines, "   value" for continuations.
+// System lines come first, followed by docker/k8s/llm lines.
 func FormatUICard(snap InventorySnapshot) []string {
 	var lines []string
+
+	if snap.System != nil {
+		s := snap.System
+		osLabel := s.OSPretty
+		if osLabel == "" {
+			osLabel = s.OS
+		}
+		if osLabel != "" {
+			lines = append(lines, "os   "+osLabel)
+		}
+		userLabel := s.User
+		if s.Shell != "" {
+			shell := s.Shell
+			if idx := strings.LastIndex(shell, "/"); idx >= 0 {
+				shell = shell[idx+1:]
+			}
+			if userLabel != "" {
+				userLabel += " / " + shell
+			} else {
+				userLabel = shell
+			}
+		}
+		if userLabel != "" {
+			lines = append(lines, "user   "+userLabel)
+		}
+		if s.Uptime != "" {
+			lines = append(lines, "uptime   "+s.Uptime)
+		}
+		if s.ServiceCount > 0 || s.ListenerCount > 0 {
+			lines = append(lines, fmt.Sprintf("services   %d running / %d listeners", s.ServiceCount, s.ListenerCount))
+		}
+	}
+
 	if len(snap.Containers) > 0 {
 		running := 0
 		for _, c := range snap.Containers {
@@ -145,6 +268,32 @@ func FormatUICard(snap InventorySnapshot) []string {
 	if snap.Kubernetes != nil {
 		k := snap.Kubernetes
 		lines = append(lines, fmt.Sprintf("k8s      %d nodes / %d pods (%s)", k.NodeCount, k.PodCount, k.Permission))
+	}
+	if snap.GPU != nil && len(snap.GPU.Devices) > 0 {
+		for _, d := range snap.GPU.Devices {
+			memGB := float64(d.MemoryMB) / 1024
+			lines = append(lines, fmt.Sprintf("gpu      %s  %.0fGB", d.Name, memGB))
+		}
+	}
+	for _, db := range snap.Databases {
+		val := db.Engine
+		if db.Version != "" {
+			val += " v" + db.Version
+		}
+		if len(db.Instances) > 0 {
+			val += "  (" + strings.Join(db.Instances, ", ") + ")"
+		}
+		lines = append(lines, fmt.Sprintf("db       %s", val))
+	}
+	for _, was := range snap.WAS {
+		val := was.Engine
+		if was.Version != "" {
+			val += " v" + was.Version
+		}
+		lines = append(lines, fmt.Sprintf("was      %s", val))
+	}
+	for _, mq := range snap.MQ {
+		lines = append(lines, fmt.Sprintf("mq       %s", mq.Engine))
 	}
 	for _, llm := range snap.LLMServing {
 		hostStr := formatHosting(llm.Hosting)

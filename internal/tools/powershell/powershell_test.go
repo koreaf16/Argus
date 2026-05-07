@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/koreaf16/argus/internal/services/inventory"
 	"github.com/koreaf16/argus/internal/services/workspace"
 	tool "github.com/koreaf16/argus/internal/tools"
 	"github.com/koreaf16/argus/internal/types"
@@ -33,10 +34,13 @@ func TestCheckPermissionDeniesUnixTarget(t *testing.T) {
 		t.Fatalf("add server: %v", err)
 	}
 	mgr := workspace.NewManager(reg, nil)
-	mgr.SetInspectSnapshot("linux-box", workspace.InspectSnapshot{
-		Alias: "linux-box",
-		OS:    "Linux 6.8.0",
-		Shell: "/bin/bash",
+	mgr.SetInventorySnapshot("linux-box", inventory.InventorySnapshot{
+		Alias:  "linux-box",
+		Status: inventory.StatusReady,
+		System: &inventory.SystemInfo{
+			OS:    "Linux 6.8.0",
+			Shell: "/bin/bash",
+		},
 	})
 
 	input, _ := json.Marshal(map[string]any{
