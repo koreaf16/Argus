@@ -67,9 +67,23 @@ func NewRunner() *Runner {
 	return &Runner{
 		cache: newCache(),
 		probeList: []probes.Probe{
+			// Infrastructure
 			&probes.DockerProbe{},
 			&probes.KubernetesProbe{},
+			// AI/ML
 			&probes.LLMServingProbe{},
+			// GPU
+			&probes.GPUProbe{},
+			// Databases
+			&probes.OracleProbe{},
+			&probes.DB2Probe{},
+			&probes.GeneralDatabasesProbe{},
+			// Web / App servers
+			&probes.TomcatWildflyProbe{},
+			&probes.NginxApacheProbe{},
+			// Message queues
+			&probes.KafkaZookeeperProbe{},
+			&probes.RabbitmqActivemqNatsProbe{},
 		},
 	}
 }
@@ -189,7 +203,7 @@ func (r *Runner) collectRestParallel(ctx context.Context, alias string, execFn E
 	defer cancel()
 
 	eg, egCtx := errgroup.WithContext(gctx)
-	eg.SetLimit(4) // SSH MaxSessions protection
+	eg.SetLimit(6) // SSH MaxSessions protection (11 probes total, MaxSessions default=10)
 
 	results := make([]probes.Result, len(r.probeList))
 	errMap := make(map[string]string)
@@ -296,6 +310,46 @@ func applyResult(snap *InventorySnapshot, res probes.Result) {
 			})
 		}
 		snap.LLMServing = append(snap.LLMServing, serving)
+	}
+	for _, db := range res.Databases {
+		snap.Databases = append(snap.Databases, DatabaseInfo{
+			Engine:     db.Engine,
+			Version:    db.Version,
+			Instances:  db.Instances,
+			Listeners:  db.Listeners,
+			Confidence: db.Confidence,
+			Evidence:   db.Evidence,
+		})
+	}
+	for _, was := range res.WAS {
+		snap.WAS = append(snap.WAS, WASInfo{
+			Engine:     was.Engine,
+			Version:    was.Version,
+			Home:       was.Home,
+			Ports:      was.Ports,
+			Confidence: was.Confidence,
+			Evidence:   was.Evidence,
+		})
+	}
+	for _, mq := range res.MQ {
+		snap.MQ = append(snap.MQ, MQInfo{
+			Engine:     mq.Engine,
+			Version:    mq.Version,
+			Ports:      mq.Ports,
+			Confidence: mq.Confidence,
+			Evidence:   mq.Evidence,
+		})
+	}
+	if res.GPU != nil && snap.GPU == nil {
+		gpu := &GPUInfo{CUDADriver: res.GPU.CUDADriver}
+		for _, d := range res.GPU.Devices {
+			gpu.Devices = append(gpu.Devices, GPUDevice{
+				Name:          d.Name,
+				DriverVersion: d.DriverVersion,
+				MemoryMB:      d.MemoryMB,
+			})
+		}
+		snap.GPU = gpu
 	}
 }
 

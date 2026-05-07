@@ -16,12 +16,16 @@ type Probe interface {
 	Run(ctx context.Context, fn ProbeExec) (Result, error)
 }
 
-// Result is a sum-type returned by Probe.Run. Only one field is set per probe.
+// Result is a sum-type returned by Probe.Run. Only one field is typically set.
 type Result struct {
 	Docker       []DockerContainer
 	Kubernetes   *K8sResult
 	LLMServing   []LLMServingResult
 	SystemHeader *SystemHeaderResult
+	Databases    []DatabaseResult
+	WAS          []WASResult
+	MQ           []MQResult
+	GPU          *GPUResult
 }
 
 // DockerContainer is one line of `docker ps -a --format json` output.
@@ -69,4 +73,46 @@ type LLMServingResult struct {
 	Models    []string
 	CgroupPid int
 	Cgroup    string
+}
+
+// DatabaseResult is a raw probe result for a database engine.
+type DatabaseResult struct {
+	Engine     string
+	Version    string
+	Instances  []string
+	Listeners  []string
+	Confidence string
+	Evidence   []string
+}
+
+// WASResult is a raw probe result for a web application server.
+type WASResult struct {
+	Engine     string
+	Version    string
+	Home       string
+	Ports      []int
+	Confidence string
+	Evidence   []string
+}
+
+// MQResult is a raw probe result for a message queue broker.
+type MQResult struct {
+	Engine     string
+	Version    string
+	Ports      []int
+	Confidence string
+	Evidence   []string
+}
+
+// GPUDevice is a single GPU device from nvidia-smi.
+type GPUDevice struct {
+	Name          string
+	DriverVersion string
+	MemoryMB      int
+}
+
+// GPUResult holds NVIDIA GPU information.
+type GPUResult struct {
+	Devices    []GPUDevice
+	CUDADriver string
 }

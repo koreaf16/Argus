@@ -24,6 +24,10 @@ type InventorySnapshot struct {
 	Containers []ContainerInfo
 	Kubernetes *K8sInfo
 	LLMServing []LLMServingInfo
+	Databases  []DatabaseInfo
+	WAS        []WASInfo
+	MQ         []MQInfo
+	GPU        *GPUInfo
 
 	Errors     map[string]string // probe name → error message
 	ArtifactID string
@@ -93,4 +97,46 @@ type LLMHosting struct {
 	K8sPod    string // "namespace/pod-name"
 	Container string // docker container name
 	Pid       int
+}
+
+// DatabaseInfo describes a detected database engine.
+type DatabaseInfo struct {
+	Engine     string   // oracle/db2/postgres/mysql/mariadb/mongo/mssql/sqlite/redis
+	Version    string
+	Instances  []string // named instances or SIDs
+	Listeners  []string // "host:port" strings
+	Confidence string   // "high"|"medium"|"low"
+	Evidence   []string // human-readable detection signals
+}
+
+// WASInfo describes a detected web application server.
+type WASInfo struct {
+	Engine     string // tomcat/wildfly/weblogic/jeus/nginx/apache
+	Version    string
+	Home       string   // CATALINA_HOME, JBOSS_HOME, etc.
+	Ports      []int
+	Confidence string
+	Evidence   []string
+}
+
+// MQInfo describes a detected message queue broker.
+type MQInfo struct {
+	Engine     string // kafka/zookeeper/rabbitmq/activemq/nats
+	Version    string
+	Ports      []int
+	Confidence string
+	Evidence   []string
+}
+
+// GPUInfo holds NVIDIA GPU information from nvidia-smi.
+type GPUInfo struct {
+	Devices    []GPUDevice
+	CUDADriver string
+}
+
+// GPUDevice describes a single GPU device.
+type GPUDevice struct {
+	Name          string
+	DriverVersion string
+	MemoryMB      int
 }
