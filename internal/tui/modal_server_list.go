@@ -3,9 +3,11 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/koreaf16/argus/internal/presentation"
+	"github.com/koreaf16/argus/internal/services/inventory"
 	"github.com/koreaf16/argus/internal/services/workspace"
 )
 
@@ -170,11 +172,28 @@ func (m *uiModel) executeServerAction(action serverAction) {
 		// 패널을 먼저 닫아야 패스워드 모달이 즉시 뜬다.
 		m.closeServerListWith(serverListResult{Action: "closed"})
 		go func() {
+			taskID := fmt.Sprintf("modal-sc-%d", time.Now().UnixNano())
+			// EventToolUse: ServerConnectRenderer가 카드 UI를 그리도록 한다.
+			m.app.send(presentationEventMsg{Event: presentation.Event{
+				Kind:     presentation.EventToolUse,
+				ToolName: "server_connect",
+				Input:    fmt.Sprintf(`{"server":%q}`, alias),
+				TaskID:   taskID,
+			}})
+
 			resolvedAlias, err := ws.ConnectAndActivate(alias)
 			if err != nil {
+				errText := fmt.Sprintf("연결 실패: %v", err)
 				m.app.send(presentationEventMsg{Event: presentation.Event{
-					Kind: presentation.EventSystem,
-					Text: fmt.Sprintf("connect %s failed: %v", alias, err),
+					Kind:   presentation.EventToolDelta,
+					Text:   errText,
+					TaskID: taskID,
+				}})
+				m.app.send(presentationEventMsg{Event: presentation.Event{
+					Kind:     presentation.EventToolResult,
+					ToolName: "server_connect",
+					Text:     errText,
+					TaskID:   taskID,
 				}})
 				return
 			}
@@ -185,26 +204,46 @@ func (m *uiModel) executeServerAction(action serverAction) {
 			m.app.send(footerStateMsg{
 				Footer: presentation.BuildFooterState(m.app.cfg.State, m.app.cfg.WorkDir),
 			})
-			m.app.send(presentationEventMsg{Event: presentation.Event{
-				Kind: presentation.EventSystem,
-				Text: fmt.Sprintf("connected and switched to: %s", resolvedAlias),
-			}})
-			m.app.send(presentationEventMsg{Event: presentation.Event{
-				Kind: presentation.EventSystem,
-				Text: "inspecting environment...",
-			}})
 
-			snap, inspectErr := ws.RunInspect(m.app.ctx, resolvedAlias)
-			if inspectErr != nil {
-				m.app.send(presentationEventMsg{Event: presentation.Event{
-					Kind: presentation.EventSystem,
-					Text: fmt.Sprintf("inspect failed: %v", inspectErr),
-				}})
-				return
-			}
+			// Connected 마커 + inspect 진행 중
 			m.app.send(presentationEventMsg{Event: presentation.Event{
-				Kind: presentation.EventSystem,
-				Text: strings.TrimSpace(workspace.FormatInspectSummary(snap)),
+				Kind:   presentation.EventToolDelta,
+				Text:   fmt.Sprintf("[ARGUS_SERVER_CONNECT:connected]\n%s에 연결되었습니다. 환경 정보를 확인 중입니다...\n", resolvedAlias),
+				TaskID: taskID,
+			}})
+			snap, inspectErr := ws.RunInspect(m.app.ctx, resolvedAlias)
+			if inspectErr == nil {
+				m.app.send(presentationEventMsg{Event: presentation.Event{
+					Kind:   presentation.EventToolDelta,
+					Text:   workspace.FormatInspectSummary(snap),
+					TaskID: taskID,
+				}})
+			}
+
+			// 동기 인벤토리 스캔 (inventoryChannel 사용, PTY lane 점유 없음)
+			if resolvedAlias != workspace.LocalAlias {
+				m.app.send(presentationEventMsg{Event: presentation.Event{
+					Kind:   presentation.EventToolDelta,
+					Text:   "[ARGUS_INVENTORY_SCANNING]\n",
+					TaskID: taskID,
+				}})
+				invSnap, invErr := ws.RescanInventory(m.app.ctx, resolvedAlias)
+				if invErr == nil {
+					cardLines := inventory.FormatUICard(invSnap)
+					m.app.send(presentationEventMsg{Event: presentation.Event{
+						Kind:   presentation.EventToolDelta,
+						Text:   fmt.Sprintf("[ARGUS_INVENTORY_READY:%d]\n%s", invSnap.DurationMs, strings.Join(cardLines, "\n")),
+						TaskID: taskID,
+					}})
+				}
+			}
+
+			// 성공 결과 (SetResult가 마커를 제거하므로 빈 결과로 처리됨)
+			m.app.send(presentationEventMsg{Event: presentation.Event{
+				Kind:     presentation.EventToolResult,
+				ToolName: "server_connect",
+				Text:     "[ARGUS_SERVER_CONNECT:connected]",
+				TaskID:   taskID,
 			}})
 			m.app.send(m.app.buildFooterMsg())
 		}()

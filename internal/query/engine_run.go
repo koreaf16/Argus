@@ -285,7 +285,7 @@ func (e *Engine) run(
 
 		e.mu.RLock()
 		guideBlocks := registry.SystemGuides(toolCtx)
-		sysBlocks := JoinSystemBlocks(systemFn(), workspaceSystemBlocks(deps.Workspace), laneSystemBlocks(deps.Workspace))
+		sysBlocks := JoinSystemBlocks(systemFn(), workspaceSystemBlocks(deps.Workspace), inventorySystemBlocks(deps.Workspace), laneSystemBlocks(deps.Workspace))
 		sysBlocks = append(sysBlocks, guideBlocks...)
 		systemTokens := estimateSystemTokens(sysBlocks)
 		contextWin := activeModelContextWindow(appState)

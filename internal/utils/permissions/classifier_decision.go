@@ -15,6 +15,7 @@ var safeAutoModeTools = map[string]bool{
 	"read_mcp_resource":  true,
 	"task_create":        true,
 	"task_update":        true,
+	"server_inventory":   true,
 
 	// Plan-mode / ask-user UX tools.
 	constants.AskUserToolName:             true,

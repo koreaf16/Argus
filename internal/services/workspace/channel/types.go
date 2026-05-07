@@ -81,6 +81,7 @@ const (
 	PurposeSFTP        ChannelPurpose = "sftp"
 	PurposeMetrics     ChannelPurpose = "metrics"
 	PurposeTunnel      ChannelPurpose = "tunnel"
+	PurposeInventory   ChannelPurpose = "inventory"
 )
 
 // ChannelKey is the cache key used by ChannelManager.Acquire.
@@ -179,6 +180,14 @@ type ExecCapable interface {
 type MetricsCapable interface {
 	Channel
 	Collect(ctx context.Context) (RawMetrics, error)
+}
+
+// InventoryCapable runs an arbitrary batched bash script in a fresh SSH session.
+// Unlike ExecCapable it does NOT go through the PTY lane, so concurrent user
+// commands are not serialized behind the inventory scan.
+type InventoryCapable interface {
+	Channel
+	Run(ctx context.Context, script string) (string, error)
 }
 
 // RawMetrics is the union of /proc fields the metrics channel collects in one

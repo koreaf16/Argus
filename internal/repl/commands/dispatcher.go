@@ -13,6 +13,7 @@ import (
 
 	"github.com/koreaf16/argus/internal/connector"
 	"github.com/koreaf16/argus/internal/constants"
+	"github.com/koreaf16/argus/internal/services/inventory"
 	"github.com/koreaf16/argus/internal/services/llm"
 	"github.com/koreaf16/argus/internal/services/workspace"
 	"github.com/koreaf16/argus/internal/session"
@@ -547,6 +548,22 @@ func handleServer(args []string, ctx CommandContext) error {
 		} else {
 			fmt.Fprintf(ctx.Stdout, workspace.FormatInspectSummary(snap))
 		}
+		ctx.Workspace.StartInventoryScan(ctx.Context, resolvedAlias, nil)
+		return nil
+	case "scan":
+		scanAlias := ctx.Workspace.ActiveAlias()
+		if len(args) >= 1 && strings.TrimSpace(args[0]) != "" {
+			scanAlias = args[0]
+		}
+		if scanAlias == workspace.LocalAlias {
+			return fmt.Errorf("로컬 워크스페이스는 인벤토리 스캔을 지원하지 않습니다")
+		}
+		fmt.Fprintf(ctx.Stdout, "인벤토리 수집 중: %s...\n", scanAlias)
+		inventorySnap, scanErr := ctx.Workspace.RescanInventory(ctx.Context, scanAlias)
+		if scanErr != nil {
+			return fmt.Errorf("인벤토리 수집 실패: %w", scanErr)
+		}
+		fmt.Fprint(ctx.Stdout, inventory.FormatSummaryForPrompt(inventorySnap))
 		return nil
 	case "use":
 		if len(args) < 2 {

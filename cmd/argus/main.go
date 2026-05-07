@@ -61,6 +61,7 @@ import (
 	"github.com/koreaf16/argus/internal/tools/servercopy"
 
 	"github.com/koreaf16/argus/internal/tools/serverinspect"
+	"github.com/koreaf16/argus/internal/tools/serverinventory"
 	"github.com/koreaf16/argus/internal/tools/servermetrics"
 	"github.com/koreaf16/argus/internal/tools/servertunnel"
 	"github.com/koreaf16/argus/internal/tools/shelljob"
@@ -852,6 +853,7 @@ func bootstrap(ctx context.Context, flags *parsedFlags) (*query.Engine, *llm.Reg
 		servercopy.NewServerCopyTool(),
 		connectortool.New(connectorManager),
 		serverinspect.NewServerInspectTool(),
+		serverinventory.NewServerInventoryTool(),
 		servermetrics.NewServerMetricsTool(),
 		servertunnel.NewServerTunnelTool(),
 		accountshell.NewAccountShellTool(),

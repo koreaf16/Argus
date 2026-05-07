@@ -30,6 +30,7 @@ type ChannelManager interface {
 	PromoteExec(ctx context.Context, alias string, child ExecCapable) error
 
 	AcquireMetrics(ctx context.Context, alias string) (MetricsCapable, error)
+	AcquireInventory(ctx context.Context, alias string) (InventoryCapable, error)
 	AcquireSFTP(ctx context.Context, alias string) (SFTPCapable, error)
 	AcquireTunnel(ctx context.Context, alias string) (TunnelCapable, error)
 
@@ -137,6 +138,37 @@ func (m *managerImpl) AcquireMetrics(ctx context.Context, alias string) (Metrics
 	}
 
 	ch, err := openMetricsChannel(conn.Client(), alias)
+	if err != nil {
+		return nil, err
+	}
+	conn.Put(ch)
+	return ch, nil
+}
+
+func (m *managerImpl) AcquireInventory(ctx context.Context, alias string) (InventoryCapable, error) {
+	conn, err := m.pool.Get(ctx, alias)
+	if err != nil {
+		return nil, err
+	}
+	key := ChannelKey{Alias: alias, Privilege: PrivilegeDefault, Purpose: PurposeInventory}
+
+	if existing, ok := conn.Get(key); ok {
+		if ic, ok := existing.(InventoryCapable); ok {
+			return ic, nil
+		}
+		conn.Drop(key)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if existing, ok := conn.Get(key); ok {
+		if ic, ok := existing.(InventoryCapable); ok {
+			return ic, nil
+		}
+		conn.Drop(key)
+	}
+
+	ch, err := openInventoryChannel(conn.Client(), alias)
 	if err != nil {
 		return nil, err
 	}

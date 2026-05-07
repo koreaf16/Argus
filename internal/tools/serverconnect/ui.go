@@ -2,7 +2,9 @@ package serverconnect
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,9 +24,16 @@ const (
 type serverConnectPhase int
 
 const (
-	phaseConnecting serverConnectPhase = iota
-	phaseInspecting
+	phaseConnecting        serverConnectPhase = iota
+	phaseInspecting                           // inspect 결과 수신 중
+	phaseInventoryScanning                    // 인벤토리 스캔 중
+	phaseInventoryReady                       // 인벤토리 완료
 )
+
+// inventoryMarkerPrefix — 스트림에서 인벤토리 완료를 알리는 접두사.
+// 형식: [ARGUS_INVENTORY_READY:<durationMs>]
+const inventoryReadyPrefix = "[ARGUS_INVENTORY_READY:"
+const inventoryScanningMarker = "[ARGUS_INVENTORY_SCANNING]"
 
 type ServerConnectInteractiveModel struct {
 	alias      string
@@ -34,6 +43,11 @@ type ServerConnectInteractiveModel struct {
 	details    string
 	errResult  string
 	isFinished bool
+
+	// 인벤토리 페이즈 데이터
+	inventoryLines       []string
+	inventoryDurationMs  int64
+	inventoryScanStart   time.Time
 }
 
 func (m *ServerConnectInteractiveModel) Init() tea.Cmd { return m.sp.Tick }
@@ -49,42 +63,116 @@ func (m *ServerConnectInteractiveModel) Update(msg tea.Msg) (toolui.InteractiveM
 
 func (m *ServerConnectInteractiveModel) View() string {
 	headline := toolui.FormatToolCall("ServerConnect", m.alias, 80, m.theme)
-	branch := m.theme.Style(m.theme.MutedColor()).Render(scBranchPrefix)
+	branchStyle := m.theme.Style(m.theme.MutedColor())
+	branch := branchStyle.Render(scBranchPrefix)
 
 	var body strings.Builder
+
 	if m.isFinished {
 		if m.errResult != "" {
-			errStyle := m.theme.Style(m.theme.StatusErrorColor())
 			body.WriteString(branch)
-			body.WriteString(errStyle.Render("✘ " + m.errResult))
+			body.WriteString(m.theme.Style(m.theme.StatusErrorColor()).Render("✘ " + m.errResult))
 		} else {
-			successStyle := m.theme.Style(m.theme.StatusSuccessColor())
-			body.WriteString(branch)
-			body.WriteString(successStyle.Render("✔ Connected to " + m.alias))
-			if m.details != "" {
-				body.WriteString("\n")
-				body.WriteString(scContPrefix)
-				body.WriteString(m.theme.Style(m.theme.MutedColor()).Render(m.details))
+			m.renderConnectedSection(&body, branch)
+			if m.phase == phaseInventoryReady {
+				m.renderInventoryReadySection(&body, branch)
 			}
 		}
 	} else {
-		var phaseText string
 		switch m.phase {
 		case phaseInspecting:
-			phaseText = fmt.Sprintf("%s Inspecting...", m.sp.View())
+			body.WriteString(branch)
+			body.WriteString(fmt.Sprintf("%s Inspecting...", m.sp.View()))
+		case phaseInventoryScanning:
+			// connected 정보 표시 후 scanning 라인 추가
+			m.renderConnectedSection(&body, branch)
+			body.WriteString("\n")
+			body.WriteString(branch)
+			body.WriteString(branchStyle.Render(fmt.Sprintf("%s inventory scanning...", m.sp.View())))
+		case phaseInventoryReady:
+			m.renderConnectedSection(&body, branch)
+			m.renderInventoryReadySection(&body, branch)
 		default:
-			phaseText = fmt.Sprintf("%s Connecting to %s...", m.sp.View(), m.alias)
+			body.WriteString(branch)
+			body.WriteString(fmt.Sprintf("%s Connecting to %s...", m.sp.View(), m.alias))
 		}
-		body.WriteString(branch)
-		body.WriteString(phaseText)
 	}
 
 	return headline + "\n" + body.String()
 }
 
+func (m *ServerConnectInteractiveModel) renderConnectedSection(b *strings.Builder, branch string) {
+	successStyle := m.theme.Style(m.theme.StatusSuccessColor())
+	b.WriteString(branch)
+	b.WriteString(successStyle.Render("✔ Connected to " + m.alias))
+	if m.details != "" {
+		b.WriteString("\n")
+		b.WriteString(scContPrefix)
+		b.WriteString(m.theme.Style(m.theme.MutedColor()).Render(m.details))
+	}
+}
+
+func (m *ServerConnectInteractiveModel) renderInventoryReadySection(b *strings.Builder, branch string) {
+	successStyle := m.theme.Style(m.theme.StatusSuccessColor())
+	catStyle := m.theme.Style(m.theme.ToolUseColor())
+	mutedStyle := m.theme.Style(m.theme.MutedColor())
+
+	b.WriteString("\n")
+	b.WriteString(branch)
+	dur := fmt.Sprintf("%.1fs", float64(m.inventoryDurationMs)/1000)
+	b.WriteString(successStyle.Render(fmt.Sprintf("✔ inventory ready (%s)", dur)))
+
+	for _, line := range m.inventoryLines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		b.WriteString("\n")
+		b.WriteString(scContPrefix)
+		if strings.HasPrefix(line, " ") {
+			// 연속 행 (카테고리 없음)
+			b.WriteString(mutedStyle.Render("  " + strings.TrimSpace(line)))
+			continue
+		}
+		// "category   value" 형식
+		if idx := strings.Index(line, "   "); idx >= 0 {
+			cat := strings.TrimSpace(line[:idx])
+			val := strings.TrimSpace(line[idx+3:])
+			b.WriteString(catStyle.Render("▸ " + cat))
+			b.WriteString("  ")
+			b.WriteString(mutedStyle.Render(val))
+		} else {
+			b.WriteString(mutedStyle.Render("  " + line))
+		}
+	}
+}
+
 func (m *ServerConnectInteractiveModel) OnStreamDelta(delta string) {
-	if strings.Contains(delta, "Connected to") {
+	if strings.Contains(delta, "[ARGUS_SERVER_CONNECT:connected]") {
 		m.phase = phaseInspecting
+		return
+	}
+	if strings.HasPrefix(delta, inventoryScanningMarker) {
+		m.phase = phaseInventoryScanning
+		m.inventoryScanStart = time.Now()
+		return
+	}
+	if strings.HasPrefix(delta, inventoryReadyPrefix) {
+		m.phase = phaseInventoryReady
+		// 형식: [ARGUS_INVENTORY_READY:<ms>]\n<lines...>
+		endBracket := strings.Index(delta, "]")
+		if endBracket >= 0 {
+			durationStr := delta[len(inventoryReadyPrefix):endBracket]
+			if ms, err := strconv.ParseInt(durationStr, 10, 64); err == nil {
+				m.inventoryDurationMs = ms
+			} else if !m.inventoryScanStart.IsZero() {
+				m.inventoryDurationMs = time.Since(m.inventoryScanStart).Milliseconds()
+			}
+			rest := delta[endBracket+1:]
+			rest = strings.TrimPrefix(rest, "\n")
+			if strings.TrimSpace(rest) != "" {
+				m.inventoryLines = strings.Split(rest, "\n")
+			}
+		}
 		return
 	}
 	if m.phase == phaseInspecting {
@@ -101,9 +189,23 @@ func (m *ServerConnectInteractiveModel) SetResult(text string) {
 	if text == "" {
 		return
 	}
-	// 에러 판별: "failed" 또는 "error" 접두사
+	// 성공 마커 제거
+	text = strings.ReplaceAll(text, "[ARGUS_SERVER_CONNECT:connected]", "")
+	text = strings.ReplaceAll(text, inventoryScanningMarker, "")
+	// 인벤토리 완료 마커 제거
+	if idx := strings.Index(text, inventoryReadyPrefix); idx >= 0 {
+		endBracket := strings.Index(text[idx:], "]")
+		if endBracket >= 0 {
+			text = text[:idx] + text[idx+endBracket+1:]
+		}
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	// 에러 판별: "failed", "error", "연결 실패" 접두사
 	lower := strings.ToLower(text)
-	if strings.HasPrefix(lower, "failed") || strings.HasPrefix(lower, "error") {
+	if strings.HasPrefix(lower, "failed") || strings.HasPrefix(lower, "error") || strings.HasPrefix(lower, "연결 실패") {
 		m.errResult = text
 		return
 	}
@@ -119,10 +221,10 @@ func (m *ServerConnectInteractiveModel) SetResult(text string) {
 	}
 }
 
-func (m *ServerConnectInteractiveModel) SetFocus(bool)            {}
-func (m *ServerConnectInteractiveModel) IsFocused() bool          { return false }
-func (m *ServerConnectInteractiveModel) SetExpanded(bool)         {}
-func (m *ServerConnectInteractiveModel) IsExpanded() bool         { return false }
+func (m *ServerConnectInteractiveModel) SetFocus(bool)               {}
+func (m *ServerConnectInteractiveModel) IsFocused() bool             { return false }
+func (m *ServerConnectInteractiveModel) SetExpanded(bool)            {}
+func (m *ServerConnectInteractiveModel) IsExpanded() bool            { return false }
 func (m *ServerConnectInteractiveModel) SetInputResponse(chan string) {}
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
@@ -140,6 +242,7 @@ func (r *ServerConnectRenderer) CreateInteractiveModel(args map[string]any, them
 	s.Style = theme.Style(theme.ClaudeAccentColor())
 	return &ServerConnectInteractiveModel{alias: alias, theme: theme, sp: s}
 }
+
 func (r *ServerConnectRenderer) RenderToolUse(args map[string]any, streamBody string, theme toolui.ThemeContext) string {
 	alias, _ := args["server"].(string)
 	alias = strings.TrimSpace(alias)
@@ -154,7 +257,7 @@ func (r *ServerConnectRenderer) RenderToolUse(args map[string]any, streamBody st
 	}
 
 	var lines []string
-	if strings.Contains(streamBody, "Connected to") {
+	if strings.Contains(streamBody, "[ARGUS_SERVER_CONNECT:connected]") {
 		lines = append(lines, "✔ "+alias+"에 연결됨")
 		for _, line := range strings.Split(streamBody, "\n") {
 			l := strings.TrimSpace(line)
@@ -165,7 +268,10 @@ func (r *ServerConnectRenderer) RenderToolUse(args map[string]any, streamBody st
 		}
 	} else {
 		for _, line := range strings.Split(streamBody, "\n") {
-			if l := strings.TrimSpace(line); l != "" {
+			l := strings.TrimSpace(line)
+			if l != "" && l != "[ARGUS_SERVER_CONNECT:connected]" &&
+				!strings.HasPrefix(l, inventoryScanningMarker) &&
+				!strings.HasPrefix(l, inventoryReadyPrefix) {
 				lines = append(lines, l)
 			}
 		}
@@ -181,8 +287,8 @@ func (r *ServerConnectRenderer) RenderToolResult(resultText string, _ int64, the
 	if resultText == "" {
 		return ""
 	}
-	// 성공 결과는 InteractiveModel이 이미 표시하므로 생략.
-	if strings.Contains(resultText, "Connected to") {
+	// 성공 마커가 있으면 InteractiveModel이 이미 표시했으므로 생략.
+	if strings.Contains(resultText, "[ARGUS_SERVER_CONNECT:connected]") {
 		return ""
 	}
 	// 에러 결과
